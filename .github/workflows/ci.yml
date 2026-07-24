@@ -39,6 +39,9 @@ jobs:
       - name: Build web app
         run: pnpm --filter @spindoctor/web build
 
+      - name: Build docs site
+        run: pnpm --filter @spindoctor/website docs:build
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
