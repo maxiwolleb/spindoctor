@@ -4,7 +4,16 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "@spindoctor/shared": "workspace:*"
+    "@spindoctor/shared": "workspace:*",
+    "better-sqlite3": "^13.0.1",
+    "drizzle-orm": "^0.45.2"
   },
-  "scripts": { "typecheck": "tsc --noEmit" }
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "db:generate": "drizzle-kit generate"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "drizzle-kit": "^0.31.10"
+  }
 }
