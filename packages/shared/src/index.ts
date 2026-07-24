@@ -143,6 +143,14 @@ export interface CreateRunRequest {
   confirm?: string
 }
 
+/** API-facing view of persisted settings (`GET`/`PUT /api/settings`). */
+export interface SettingsView {
+  thresholds: Thresholds
+  concurrency: number
+  autoModeEnabled: boolean
+  protectList: string[]
+}
+
 /** API-facing view of a test run — mirrors the `test_runs` row shape the UI needs. */
 export interface RunView {
   id: number

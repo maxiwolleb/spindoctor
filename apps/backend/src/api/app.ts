@@ -2,8 +2,10 @@ import Fastify, { type FastifyInstance } from "fastify"
 import type { Db } from "../db/client"
 import type { DeviceApi } from "../device/deviceApi"
 import type { TestEngine } from "../engine/engine"
+import { auditRoutes } from "./routes/audit"
 import { drivesRoutes } from "./routes/drives"
 import { runsRoutes } from "./routes/runs"
+import { settingsRoutes } from "./routes/settings"
 
 export interface AppDeps {
   db: Db
@@ -16,5 +18,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   const app = Fastify()
   void app.register(drivesRoutes(deps), { prefix: "/api" })
   void app.register(runsRoutes(deps), { prefix: "/api" })
+  void app.register(settingsRoutes(deps), { prefix: "/api" })
+  void app.register(auditRoutes(deps), { prefix: "/api" })
   return app
 }
