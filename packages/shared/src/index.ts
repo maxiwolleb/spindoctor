@@ -135,3 +135,26 @@ export interface DriveView {
   protected: boolean
   latestRun: { id: number; status: string; verdict: Verdict | null; currentStage: string | null } | null
 }
+
+/** Body for `POST /api/runs`. `confirm` must equal `serial` for a destructive start. */
+export interface CreateRunRequest {
+  serial: string
+  mode: RegimeMode
+  confirm?: string
+}
+
+/** API-facing view of a test run — mirrors the `test_runs` row shape the UI needs. */
+export interface RunView {
+  id: number
+  driveSerial: string
+  mode: RegimeMode
+  status: RunStatus
+  verdict: Verdict | null
+  reasons: Reason[]
+  currentStage: StageName | null
+  restartCount: number
+  error: string | null
+  startedAt: Date | null
+  finishedAt: Date | null
+  createdAt: Date
+}

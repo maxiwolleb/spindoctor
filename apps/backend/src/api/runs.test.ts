@@ -1,0 +1,299 @@
+import { describe, it, expect, beforeEach } from "vitest"
+import type { CreateRunRequest, DiscoveredDrive, RunView, SelfTestProgress } from "@spindoctor/shared"
+import { createDb, type Db } from "../db/client"
+import * as repo from "../db/repositories"
+import { FakeDeviceApi, type FakeDeviceApiState } from "../device/fakeDeviceApi"
+import { TestEngine } from "../engine/engine"
+import { buildApp } from "./app"
+
+const cleanDrive: DiscoveredDrive = {
+  devicePath: "/dev/sda",
+  serial: "CLEAN1",
+  wwn: null,
+  model: "WDC WD40EFRX",
+  sizeBytes: 4_000_787_030_016,
+  type: "HDD",
+  transport: "SATA",
+  mounted: false,
+  isSystemDisk: false,
+}
+
+const mountedDrive: DiscoveredDrive = {
+  devicePath: "/dev/sdb",
+  serial: "MOUNTED1",
+  wwn: null,
+  model: "Samsung 870 EVO",
+  sizeBytes: 1_000_000_000_000,
+  type: "SSD",
+  transport: "SATA",
+  mounted: true,
+  isSystemDisk: false,
+}
+
+const smartRaw = (): unknown => ({ ata_smart_attributes: { table: [] }, temperature: {} })
+const PASSED_SELFTEST: SelfTestProgress = { running: false, percentRemaining: 0, result: { status: "PASSED" } }
+
+/**
+ * FakeDeviceApi variant whose pollSelfTest never resolves on its own — hands
+ * back a promise this test holds the resolver for, so a run can be held
+ * "actively executing" (registered in the engine's active-serial bookkeeping,
+ * not terminal) for as long as a test needs, then released on demand.
+ */
+class ParkableSelfTestApi extends FakeDeviceApi {
+  #release?: (progress: SelfTestProgress) => void
+
+  override async pollSelfTest(_devicePath: string): Promise<SelfTestProgress> {
+    return new Promise((resolve) => {
+      this.#release = resolve
+    })
+  }
+
+  /** Resolves the currently-parked pollSelfTest call. */
+  release(progress: SelfTestProgress): void {
+    const resolve = this.#release
+    if (!resolve) throw new Error("no parked pollSelfTest call to release")
+    this.#release = undefined
+    resolve(progress)
+  }
+}
+
+/** Flushes pending microtasks (no real timers involved) so a fire-and-forget
+ * async chain gets a chance to run to its next await point. */
+async function flushMicrotasks(times = 50): Promise<void> {
+  for (let i = 0; i < times; i++) await Promise.resolve()
+}
+
+let db: Db
+let state: FakeDeviceApiState
+
+beforeEach(() => {
+  db = createDb(":memory:").db
+  repo.ensureConfig(db)
+  state = {
+    drives: [cleanDrive, mountedDrive],
+    smartByPath: {
+      [cleanDrive.devicePath]: smartRaw(),
+      [mountedDrive.devicePath]: smartRaw(),
+    },
+    selfTestByPath: {
+      [cleanDrive.devicePath]: PASSED_SELFTEST,
+      [mountedDrive.devicePath]: PASSED_SELFTEST,
+    },
+  }
+})
+
+function build(deviceApi: FakeDeviceApi = new FakeDeviceApi(state)) {
+  const engine = new TestEngine({ db, deviceApi, sleep: async () => {}, selfTestPollIntervalMs: 0 })
+  const app = buildApp({ db, deviceApi, engine })
+  return { app, engine, deviceApi }
+}
+
+describe("POST /api/runs", () => {
+  it("400s a destructive request without a confirm, creating no run", async () => {
+    const { app } = build()
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/runs",
+      payload: { serial: cleanDrive.serial, mode: "destructive" } satisfies CreateRunRequest,
+    })
+    expect(res.statusCode).toBe(400)
+    expect(res.json()).toMatchObject({ code: "CONFIRM_REQUIRED" })
+    expect(repo.listRuns(db)).toHaveLength(0)
+  })
+
+  it("201s a destructive request with confirm===serial on a clean drive, creating a run row", async () => {
+    const { app } = build()
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/runs",
+      payload: {
+        serial: cleanDrive.serial,
+        mode: "destructive",
+        confirm: cleanDrive.serial,
+      } satisfies CreateRunRequest,
+    })
+    expect(res.statusCode).toBe(201)
+    const body = res.json<{ runId: number }>()
+    expect(body.runId).toBeTypeOf("number")
+    expect(repo.getRun(db, body.runId)).toBeDefined()
+  })
+
+  it("403s a destructive request on a mounted drive with the safety code, creating no run", async () => {
+    const { app } = build()
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/runs",
+      payload: {
+        serial: mountedDrive.serial,
+        mode: "destructive",
+        confirm: mountedDrive.serial,
+      } satisfies CreateRunRequest,
+    })
+    expect(res.statusCode).toBe(403)
+    expect(res.json()).toMatchObject({ code: "MOUNTED" })
+    expect(repo.listRuns(db)).toHaveLength(0)
+  })
+
+  it("409s a second destructive start for a drive that already has an active run", async () => {
+    const deviceApi = new ParkableSelfTestApi(state)
+    const { app, engine } = build(deviceApi)
+
+    const first = await app.inject({
+      method: "POST",
+      url: "/api/runs",
+      payload: {
+        serial: cleanDrive.serial,
+        mode: "destructive",
+        confirm: cleanDrive.serial,
+      } satisfies CreateRunRequest,
+    })
+    expect(first.statusCode).toBe(201)
+    const { runId } = first.json<{ runId: number }>()
+
+    // Let SMART_BEFORE finish and SELFTEST_LONG's poll loop park on its
+    // first pollSelfTest call — the run is now actively executing but not
+    // terminal.
+    await flushMicrotasks()
+    expect(engine.isDriveActive(cleanDrive.serial)).toBe(true)
+
+    const second = await app.inject({
+      method: "POST",
+      url: "/api/runs",
+      payload: {
+        serial: cleanDrive.serial,
+        mode: "destructive",
+        confirm: cleanDrive.serial,
+      } satisfies CreateRunRequest,
+    })
+    expect(second.statusCode).toBe(409)
+    expect(second.json()).toMatchObject({ code: "RUN_IN_PROGRESS" })
+    expect(repo.listRuns(db)).toHaveLength(1)
+    expect(repo.listRuns(db)[0]?.id).toBe(runId)
+
+    // Unwind cleanly rather than leaving the parked run hanging.
+    engine.abortRun(runId)
+    deviceApi.release({ running: true, percentRemaining: 50, result: null })
+    await flushMicrotasks()
+  })
+
+  it("404s an unknown serial", async () => {
+    const { app } = build()
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/runs",
+      payload: { serial: "NOPE", mode: "read-only" } satisfies CreateRunRequest,
+    })
+    expect(res.statusCode).toBe(404)
+    expect(res.json()).toMatchObject({ code: "DRIVE_NOT_FOUND" })
+    expect(repo.listRuns(db)).toHaveLength(0)
+  })
+
+  it("201s a read-only request with no confirm needed", async () => {
+    const { app } = build()
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/runs",
+      payload: { serial: cleanDrive.serial, mode: "read-only" } satisfies CreateRunRequest,
+    })
+    expect(res.statusCode).toBe(201)
+    const body = res.json<{ runId: number }>()
+    expect(repo.getRun(db, body.runId)).toBeDefined()
+  })
+
+  it("400s an invalid body (empty serial / bad mode)", async () => {
+    const { app } = build()
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/runs",
+      payload: { serial: "", mode: "destructive" },
+    })
+    expect(res.statusCode).toBe(400)
+    expect(res.json()).toMatchObject({ code: "BAD_REQUEST" })
+
+    const res2 = await app.inject({
+      method: "POST",
+      url: "/api/runs",
+      payload: { serial: cleanDrive.serial, mode: "bogus" },
+    })
+    expect(res2.statusCode).toBe(400)
+    expect(res2.json()).toMatchObject({ code: "BAD_REQUEST" })
+  })
+})
+
+describe("GET /api/runs", () => {
+  it("returns all runs as RunView[]", async () => {
+    const { app } = build()
+    repo.upsertDrive(db, cleanDrive)
+    const runId = repo.createRun(db, { driveSerial: cleanDrive.serial, regime: { mode: "read-only", stages: [] } })
+    repo.updateRun(db, runId, { status: "DONE", verdict: "PASS", reasons: [], currentStage: "VERDICT" })
+
+    const res = await app.inject({ method: "GET", url: "/api/runs" })
+    expect(res.statusCode).toBe(200)
+    const body = res.json<RunView[]>()
+    expect(body).toHaveLength(1)
+    expect(body[0]).toMatchObject({
+      id: runId,
+      driveSerial: cleanDrive.serial,
+      mode: "read-only",
+      status: "DONE",
+      verdict: "PASS",
+      currentStage: "VERDICT",
+    })
+  })
+
+  it("filters by ?serial=", async () => {
+    const { app } = build()
+    repo.upsertDrive(db, cleanDrive)
+    repo.upsertDrive(db, mountedDrive)
+    repo.createRun(db, { driveSerial: cleanDrive.serial, regime: { mode: "read-only" } })
+    repo.createRun(db, { driveSerial: mountedDrive.serial, regime: { mode: "read-only" } })
+
+    const res = await app.inject({ method: "GET", url: `/api/runs?serial=${cleanDrive.serial}` })
+    expect(res.statusCode).toBe(200)
+    const body = res.json<RunView[]>()
+    expect(body).toHaveLength(1)
+    expect(body[0]?.driveSerial).toBe(cleanDrive.serial)
+  })
+})
+
+describe("GET /api/runs/:id", () => {
+  it("returns the run and its stage rows", async () => {
+    const { app } = build()
+    repo.upsertDrive(db, cleanDrive)
+    const runId = repo.createRun(db, { driveSerial: cleanDrive.serial, regime: { mode: "destructive" } })
+    const stageId = repo.addStage(db, { runId, stage: "SMART_BEFORE", status: "DONE" })
+
+    const res = await app.inject({ method: "GET", url: `/api/runs/${runId}` })
+    expect(res.statusCode).toBe(200)
+    const body = res.json<{ run: RunView; stages: unknown[] }>()
+    expect(body.run.id).toBe(runId)
+    expect(body.run.driveSerial).toBe(cleanDrive.serial)
+    expect(body.stages).toHaveLength(1)
+    expect(body.stages[0]).toMatchObject({ id: stageId, stage: "SMART_BEFORE", status: "DONE" })
+  })
+
+  it("404s for an unknown run id", async () => {
+    const { app } = build()
+    const res = await app.inject({ method: "GET", url: "/api/runs/999" })
+    expect(res.statusCode).toBe(404)
+  })
+})
+
+describe("POST /api/runs/:id/abort", () => {
+  it("202s and aborts an existing run (idempotent even once terminal)", async () => {
+    const { app } = build()
+    repo.upsertDrive(db, cleanDrive)
+    const runId = repo.createRun(db, { driveSerial: cleanDrive.serial, regime: { mode: "destructive" } })
+    repo.updateRun(db, runId, { status: "DONE", verdict: "PASS" })
+
+    const res = await app.inject({ method: "POST", url: `/api/runs/${runId}/abort` })
+    expect(res.statusCode).toBe(202)
+    expect(res.json()).toEqual({ ok: true })
+  })
+
+  it("404s for a nonexistent run id", async () => {
+    const { app } = build()
+    const res = await app.inject({ method: "POST", url: "/api/runs/999/abort" })
+    expect(res.statusCode).toBe(404)
+  })
+})
