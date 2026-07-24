@@ -1,0 +1,30 @@
+{
+  "device": { "name": "/dev/sdb", "type": "sat", "protocol": "ATA" },
+  "model_name": "ST2000DM008-2FR102",
+  "serial_number": "ZFL9ABCD",
+  "rotation_rate": 7200,
+  "user_capacity": { "bytes": 2000398934016 },
+  "smart_status": { "passed": false },
+  "temperature": { "current": 44 },
+  "ata_smart_attributes": {
+    "table": [
+      { "id": 5, "name": "Reallocated_Sector_Ct", "raw": { "value": 48, "string": "48" } },
+      { "id": 9, "name": "Power_On_Hours", "raw": { "value": 39000, "string": "39000" } },
+      { "id": 187, "name": "Reported_Uncorrect", "raw": { "value": 12, "string": "12" } },
+      { "id": 197, "name": "Current_Pending_Sector", "raw": { "value": 8, "string": "8" } },
+      { "id": 198, "name": "Offline_Uncorrectable", "raw": { "value": 8, "string": "8" } },
+      { "id": 199, "name": "UDMA_CRC_Error_Count", "raw": { "value": 2, "string": "2" } }
+    ]
+  },
+  "ata_smart_self_test_log": {
+    "standard": {
+      "table": [
+        {
+          "type": { "value": 2, "string": "Extended offline" },
+          "status": { "value": 7, "string": "Completed: read failure", "passed": false },
+          "lifetime_hours": 39000
+        }
+      ]
+    }
+  }
+}

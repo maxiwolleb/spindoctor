@@ -1,0 +1,23 @@
+{
+  "device": { "name": "/dev/nvme0", "type": "nvme", "protocol": "NVMe" },
+  "model_name": "Samsung SSD 970 EVO 1TB",
+  "serial_number": "S4EWNX0M123456",
+  "rotation_rate": 0,
+  "user_capacity": { "bytes": 1000204886016 },
+  "smart_status": { "passed": true },
+  "temperature": { "current": 41 },
+  "nvme_smart_health_information_log": {
+    "critical_warning": 0,
+    "temperature": 314,
+    "percentage_used": 4,
+    "media_errors": 0,
+    "power_on_hours": 1200,
+    "data_units_written": 123456789
+  },
+  "nvme_self_test_log": {
+    "current_self_test_operation": { "value": 0, "string": "No self-test in progress" },
+    "table": [
+      { "self_test_result": { "value": 0, "string": "Completed without error" } }
+    ]
+  }
+}

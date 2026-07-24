@@ -1,0 +1,30 @@
+{
+  "device": { "name": "/dev/sda", "type": "sat", "protocol": "ATA" },
+  "model_name": "WDC WD40EFRX-68N32N0",
+  "serial_number": "WD-WCC7K1234567",
+  "rotation_rate": 5400,
+  "user_capacity": { "bytes": 4000787030016 },
+  "smart_status": { "passed": true },
+  "temperature": { "current": 33 },
+  "ata_smart_attributes": {
+    "table": [
+      { "id": 5, "name": "Reallocated_Sector_Ct", "raw": { "value": 0, "string": "0" } },
+      { "id": 9, "name": "Power_On_Hours", "raw": { "value": 21000, "string": "21000" } },
+      { "id": 187, "name": "Reported_Uncorrect", "raw": { "value": 0, "string": "0" } },
+      { "id": 197, "name": "Current_Pending_Sector", "raw": { "value": 0, "string": "0" } },
+      { "id": 198, "name": "Offline_Uncorrectable", "raw": { "value": 0, "string": "0" } },
+      { "id": 199, "name": "UDMA_CRC_Error_Count", "raw": { "value": 0, "string": "0" } }
+    ]
+  },
+  "ata_smart_self_test_log": {
+    "standard": {
+      "table": [
+        {
+          "type": { "value": 2, "string": "Extended offline" },
+          "status": { "value": 0, "string": "Completed without error", "passed": true },
+          "lifetime_hours": 21000
+        }
+      ]
+    }
+  }
+}
