@@ -1,4 +1,4 @@
-import type { RegimeMode } from "@spindoctor/shared"
+import type { DiscoveredDrive, RegimeMode } from "@spindoctor/shared"
 import type { Db } from "../db/client"
 import type { DeviceApi } from "../device/deviceApi"
 import { appendAudit, getConfig, upsertDrive } from "../db/repositories"
@@ -58,7 +58,17 @@ export class AutoModePoller {
   }
 
   async pollOnce(): Promise<void> {
-    const drives = await this.#deviceApi.listDevices()
+    let drives: DiscoveredDrive[]
+    try {
+      drives = await this.#deviceApi.listDevices()
+    } catch {
+      // Discovery is best-effort on every poll: a transient failure (a
+      // missing/misbehaving CLI tool, a permission error, a drive vanishing
+      // mid-scan) must not take down the poll loop — and with it the whole
+      // process, since #loop's fire-and-forget dispatch has nothing above it
+      // to catch a rejection. Skip this cycle; the next poll retries.
+      return
+    }
     for (const d of drives) {
       upsertDrive(this.#db, d)
     }

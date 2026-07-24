@@ -122,6 +122,22 @@ describe("AutoModePoller.pollOnce", () => {
     expect(repo.listAudit(db)).toHaveLength(0)
   })
 
+  it("does not reject when listDevices() throws (e.g. missing smartctl/lsblk), so the poll loop survives a discovery failure", async () => {
+    class FailingDeviceApi extends FakeDeviceApi {
+      override async listDevices(): Promise<DiscoveredDrive[]> {
+        throw new Error("smartctl: command not found")
+      }
+    }
+    const api = new FailingDeviceApi()
+    const engine = new EngineSpy()
+    const poller = new AutoModePoller({ db, deviceApi: api, engine })
+
+    await expect(poller.pollOnce()).resolves.toBeUndefined()
+
+    expect(repo.listDrives(db)).toHaveLength(0)
+    expect(engine.calls).toEqual([])
+  })
+
   it("isolates a per-drive startRun failure so other drives still get enqueued and the failing one isn't marked enqueued", async () => {
     const clean = drive({ serial: "CLEAN1" })
     const other = drive({ serial: "CLEAN2", devicePath: "/dev/sdc" })
