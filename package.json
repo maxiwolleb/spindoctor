@@ -1,0 +1,16 @@
+{
+  "name": "spindoctor",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=20", "pnpm": ">=9" },
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "pnpm -r --parallel typecheck"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}
