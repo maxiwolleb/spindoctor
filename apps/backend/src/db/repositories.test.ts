@@ -107,6 +107,31 @@ describe("runs / stages / snapshots / audit", () => {
     })
   })
 
+  it("getSnapshots returns the latest row per phase when a crash + reconcile() re-captured it (no unique(run_id, phase) constraint)", () => {
+    const runId = repo.createRun(db, { driveSerial: "SER123", regime: ["SMART_BEFORE", "VERDICT"] })
+
+    // Pre-crash capture.
+    repo.saveSnapshot(db, {
+      runId,
+      phase: "before",
+      raw: { ok: true, pass: 1 },
+      keyMetrics: { reallocatedSectors: 0 } as any,
+    })
+    // reconcile() re-runs SMART_BEFORE after the crash and saves a second
+    // "before" snapshot for the same run with different metrics.
+    repo.saveSnapshot(db, {
+      runId,
+      phase: "before",
+      raw: { ok: true, pass: 2 },
+      keyMetrics: { reallocatedSectors: 3 } as any,
+    })
+
+    expect(repo.getSnapshots(db, runId)).toEqual({
+      before: { reallocatedSectors: 3 },
+      after: null,
+    })
+  })
+
   it("appends and lists audit entries", () => {
     repo.appendAudit(db, { action: "DESTRUCTIVE_START", driveSerial: "SER123", detail: "manual" })
     const rows = repo.listAudit(db)

@@ -185,9 +185,20 @@ export function saveSnapshot(
 /** The before/after key-metrics pair for a run, keyed by `phase` — `null` for
  * whichever phase hasn't been captured yet (e.g. a run still on
  * `SMART_BEFORE`, or a read-only regime that skips one side). Drive detail's
- * SMART diff view is the only current consumer. */
+ * SMART diff view is the only current consumer.
+ *
+ * A run can accumulate more than one snapshot per phase (no unique(run_id,
+ * phase) constraint) — e.g. a crash + `reconcile()` re-runs SMART_BEFORE/
+ * SMART_AFTER and `saveSnapshot` is called again. Order newest-first (mirrors
+ * `TestEngine#loadSnapshot`'s `.orderBy(desc(smartSnapshots.id))`) so `.find()`
+ * picks the latest row per phase instead of a stale pre-crash one. */
 export function getSnapshots(db: Db, runId: number): { before: SmartKeyMetrics | null; after: SmartKeyMetrics | null } {
-  const rows = db.select().from(smartSnapshots).where(eq(smartSnapshots.runId, runId)).all()
+  const rows = db
+    .select()
+    .from(smartSnapshots)
+    .where(eq(smartSnapshots.runId, runId))
+    .orderBy(desc(smartSnapshots.id))
+    .all()
   const before = rows.find((r) => r.phase === "before")
   const after = rows.find((r) => r.phase === "after")
   return {

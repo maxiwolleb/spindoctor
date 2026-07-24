@@ -47,6 +47,18 @@ export function verdictLabel(v: Verdict | null): string {
   }
 }
 
+const MODE_LABELS: Record<string, string> = {
+  destructive: "Full destructive test",
+  "read-only": "Read-only scan",
+}
+
+/** Human label for a run's `RegimeMode` (`"destructive"` / `"read-only"`).
+ * Falls back to the raw value for anything unrecognized, same policy as
+ * `stageLabel`. */
+export function modeLabel(mode: string): string {
+  return MODE_LABELS[mode] ?? mode
+}
+
 const STAGE_LABELS: Record<string, string> = {
   SMART_BEFORE: "SMART (before)",
   SELFTEST_LONG: "Self-test",

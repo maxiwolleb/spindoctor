@@ -3,7 +3,7 @@ import { onMounted, ref } from "vue"
 import type { DriveView, RunView } from "@spindoctor/shared"
 import { ApiError, createApiClient } from "../api/client"
 import type { RunDetail } from "../api/client"
-import { humanBytes } from "../lib/format"
+import { humanBytes, modeLabel } from "../lib/format"
 import VerdictBadge from "../components/VerdictBadge.vue"
 import SmartDiffTable from "../components/SmartDiffTable.vue"
 import StageTimeline from "../components/StageTimeline.vue"
@@ -22,6 +22,14 @@ const runDetailError = ref<string | null>(null)
 
 function messageOf(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
+}
+
+/** Human-readable run timestamp — falls back to the raw value for an empty
+ * or unparseable `createdAt` rather than rendering "Invalid Date". */
+function formatRunDate(createdAt: string): string {
+  if (!createdAt) return createdAt
+  const d = new Date(createdAt)
+  return Number.isNaN(d.getTime()) ? createdAt : d.toLocaleString()
 }
 
 async function load(): Promise<void> {
@@ -107,8 +115,10 @@ onMounted(load)
       <v-list v-if="runs.length" density="compact" class="bg-transparent">
         <v-list-item v-for="run in runs" :key="run.id">
           <div class="d-flex align-center ga-4">
-            <span class="mono">{{ run.createdAt }}</span>
-            <span>{{ run.mode }}</span>
+            <span class="mono">{{ formatRunDate(run.createdAt) }}</span>
+            <span>{{ modeLabel(run.mode) }}</span>
+            <!-- VerdictBadge already renders verdictLabel(run.verdict) internally
+                 (chip text, or the "—" fallback span for a null verdict). -->
             <VerdictBadge :verdict="run.verdict" />
           </div>
         </v-list-item>

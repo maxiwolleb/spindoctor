@@ -135,8 +135,8 @@ describe("DriveDetailView", () => {
 
     const text = wrapper.text()
     expect(text).toContain("Fail")
-    expect(text).toContain("read-only")
-    expect(text).toContain("destructive")
+    expect(text).toContain("Read-only scan")
+    expect(text).toContain("Full destructive test")
   })
 
   it("shows an empty state when the drive has no runs yet", async () => {
