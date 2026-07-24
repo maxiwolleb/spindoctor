@@ -96,3 +96,9 @@ export interface DiscoveredDrive {
   mounted: boolean
   isSystemDisk: boolean
 }
+
+export interface SelfTestProgress {
+  running: boolean
+  percentRemaining: number | null
+  result: SelfTestResult | null
+}
