@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest"
 import { eq } from "drizzle-orm"
-import type { DiscoveredDrive, RunUpdateEvent, SelfTestResult } from "@spindoctor/shared"
+import type { DiscoveredDrive, RunUpdateEvent, SelfTestProgress, SelfTestResult } from "@spindoctor/shared"
 import { createDb, type Db } from "../db/client"
 import { stageResults } from "../db/schema"
 import * as repo from "../db/repositories"
@@ -73,6 +73,38 @@ function seedSmartBefore(runId: number): void {
 function seedSelfTestDone(runId: number): void {
   const id = repo.addStage(db, { runId, stage: "SELFTEST_LONG", status: "DONE" })
   repo.updateStage(db, id, { metrics: PASSED_SELFTEST_RESULT })
+}
+
+/** Flushes pending microtasks (no real timers involved) so a fire-and-forget
+ * async chain gets a chance to run to its next await point. */
+async function flushMicrotasks(times = 50): Promise<void> {
+  for (let i = 0; i < times; i++) await Promise.resolve()
+}
+
+/**
+ * FakeDeviceApi variant whose pollSelfTest never resolves on its own —
+ * it hands back a promise this test holds the resolver for. This parks the
+ * self-test poll loop deterministically (no spinning, no real wall-clock
+ * wait) so a run can be held "actively executing" (registered in the
+ * engine's internal `controllers` map, not terminal) for as long as the
+ * test needs, then released on demand to let it unwind.
+ */
+class ParkableSelfTestApi extends FakeDeviceApi {
+  #release?: (progress: SelfTestProgress) => void
+
+  override async pollSelfTest(_devicePath: string): Promise<SelfTestProgress> {
+    return new Promise((resolve) => {
+      this.#release = resolve
+    })
+  }
+
+  /** Resolves the currently-parked pollSelfTest call. */
+  release(progress: SelfTestProgress): void {
+    const resolve = this.#release
+    if (!resolve) throw new Error("no parked pollSelfTest call to release")
+    this.#release = undefined
+    resolve(progress)
+  }
 }
 
 describe("TestEngine.reconcile", () => {
@@ -220,5 +252,69 @@ describe("TestEngine.reconcile", () => {
 
     const after = repo.getRun(db, runId)!
     expect(after).toEqual(before)
+  })
+
+  it("does not re-dispatch a run that startRun already has actively executing (guard: controllers.has(run.id))", async () => {
+    const d = drive()
+    repo.upsertDrive(db, d)
+
+    const api = new ParkableSelfTestApi({
+      drives: [d],
+      smartByPath: { [d.devicePath]: smartRaw() },
+    })
+    const engine = new TestEngine({ db, deviceApi: api, sleep: async () => {}, selfTestPollIntervalMs: 0 })
+
+    const runId = await engine.startRun({ serial: d.serial, mode: "destructive" })
+
+    // Let the fire-and-forget #execute chain run: SMART_BEFORE completes,
+    // SELFTEST_LONG starts, and its poll loop parks on the very first
+    // pollSelfTest call (ParkableSelfTestApi never resolves it on its own).
+    // Purely microtask-driven — no real timers, no wall-clock wait.
+    await flushMicrotasks()
+
+    // The run is executing but not terminal: RUNNING, one self-test start,
+    // and still registered in the engine's `controllers` map (implicit —
+    // abortRun()/reconcile() below only behave this way for a run still in
+    // that map).
+    expect(api.started).toEqual([d.devicePath])
+    const runningRun = repo.getRun(db, runId)!
+    expect(runningRun.status).toBe("RUNNING")
+
+    const stagesBefore = db.select().from(stageResults).where(eq(stageResults.runId, runId)).all()
+    expect(stagesBefore.map((s) => s.stage)).toEqual(["SMART_BEFORE", "SELFTEST_LONG"])
+    expect(stagesBefore.find((s) => s.stage === "SELFTEST_LONG")?.status).toBe("RUNNING")
+
+    const eventsDuringReconcile: RunUpdateEvent[] = []
+    engine.on("run:update", (evt: RunUpdateEvent) => {
+      if (evt.runId === runId) eventsDuringReconcile.push(evt)
+    })
+
+    // reconcile() must treat this in-flight run as a no-op: it's already in
+    // `controllers`, so the double-start guard skips it rather than
+    // dispatching a second #reconcileRun for the same id.
+    await engine.reconcile()
+    await flushMicrotasks()
+    // Give any (incorrect) fire-and-forget re-dispatch a chance to land.
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(api.started).toEqual([d.devicePath]) // no second startLongSelfTest call
+    const afterReconcile = repo.getRun(db, runId)!
+    expect(afterReconcile.status).toBe("RUNNING")
+    expect(afterReconcile.restartCount).toBe(0)
+
+    const stagesAfter = db.select().from(stageResults).where(eq(stageResults.runId, runId)).all()
+    expect(stagesAfter.filter((s) => s.stage === "SELFTEST_LONG")).toHaveLength(1) // no duplicate stage row
+    expect(eventsDuringReconcile.some((e) => isTerminal(e.status))).toBe(false) // no extra terminal run:update
+
+    // Cleanly unwind instead of leaving the parked run hanging: abort, then
+    // release the parked poll call so the loop notices the abort and the
+    // run settles to a terminal state.
+    const settled = waitForSettled(engine, runId)
+    engine.abortRun(runId)
+    api.release({ running: true, percentRemaining: 50, result: null })
+    const terminal = await settled
+
+    expect(terminal.status).toBe("ABORTED")
+    expect(repo.getRun(db, runId)!.status).toBe("ABORTED")
   })
 })
