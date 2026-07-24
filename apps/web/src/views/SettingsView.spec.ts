@@ -63,6 +63,52 @@ describe("SettingsView", () => {
     wrapper.unmount()
   })
 
+  it("reverts and re-locks the switch when the acknowledgment is unchecked after enabling auto-mode, and Save never sends autoModeEnabled: true", async () => {
+    const api = fakeApi()
+    setConsoleDeps({ api: api as unknown as ApiClient })
+
+    const wrapper = mount(SettingsView, { global: { plugins: [vuetify] }, attachTo: document.body })
+    await flushPromises()
+
+    // Check the acknowledgment — this unlocks the switch.
+    const ack = wrapper.find("#auto-mode-ack")
+    ;(ack.element as HTMLInputElement).checked = true
+    await ack.trigger("input")
+    await ack.trigger("change")
+
+    const toggle = wrapper.find("#auto-mode-toggle")
+    expect((toggle.element as HTMLInputElement).disabled).toBe(false)
+
+    // Turn the auto-mode switch ON.
+    ;(toggle.element as HTMLInputElement).checked = true
+    await toggle.trigger("input")
+    await toggle.trigger("change")
+    expect((wrapper.find("#auto-mode-toggle").element as HTMLInputElement).checked).toBe(true)
+
+    // Now UN-check the acknowledgment.
+    const ackAgain = wrapper.find("#auto-mode-ack")
+    ;(ackAgain.element as HTMLInputElement).checked = false
+    await ackAgain.trigger("input")
+    await ackAgain.trigger("change")
+
+    // (a) the switch must be disabled again AND reverted to off.
+    const toggleAfterUncheck = wrapper.find("#auto-mode-toggle").element as HTMLInputElement
+    expect(toggleAfterUncheck.disabled).toBe(true)
+    expect(toggleAfterUncheck.checked).toBe(false)
+
+    // (b) clicking Save must send autoModeEnabled: false — never true.
+    clickButton(document.body, "Save settings")
+    await flushPromises()
+
+    expect(api.putSettings).toHaveBeenCalledTimes(1)
+    expect(api.putSettings).toHaveBeenCalledWith(expect.objectContaining({ autoModeEnabled: false }))
+    for (const call of api.putSettings.mock.calls) {
+      expect(call[0]).not.toMatchObject({ autoModeEnabled: true })
+    }
+
+    wrapper.unmount()
+  })
+
   it("already-enabled auto-mode from the server loads with the switch on and unlocked", async () => {
     const api = fakeApi({ ...baseSettings, autoModeEnabled: true })
     setConsoleDeps({ api: api as unknown as ApiClient })
@@ -152,6 +198,22 @@ describe("SettingsView", () => {
     await flushPromises()
     expect(api.putSettings).toHaveBeenCalledWith(
       expect.objectContaining({ protectList: ["EXISTING1", "NEWSERIAL"] }),
+    )
+
+    // Actually trigger removal: click the existing serial's chip close (×)
+    // control and confirm it drops out of both the DOM and the saved patch.
+    const existingChip = wrapper.findAll(".v-chip").find((chip) => chip.text().includes("EXISTING1"))
+    if (!existingChip) throw new Error("chip for EXISTING1 not found")
+    await existingChip.find(".v-chip__close").trigger("click")
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain("EXISTING1")
+    expect(wrapper.text()).toContain("NEWSERIAL")
+
+    clickButton(document.body, "Save settings")
+    await flushPromises()
+    expect(api.putSettings).toHaveBeenLastCalledWith(
+      expect.objectContaining({ protectList: ["NEWSERIAL"] }),
     )
 
     wrapper.unmount()

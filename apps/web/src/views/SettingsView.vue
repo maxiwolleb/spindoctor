@@ -101,6 +101,11 @@ async function onSave(): Promise<void> {
   }
   validationError.value = null
 
+  // Redundant, refactor-resistant invariant: even if the `:disabled` binding
+  // or the `watch(autoModeAck, …)` above were ever broken/removed, the save
+  // path itself can never send `autoModeEnabled: true` while unacknowledged.
+  if (!autoModeAck.value) form.autoModeEnabled = false
+
   const patch: Partial<SettingsDto> = {
     thresholds: {
       reallocatedWarnMax: form.reallocatedWarnMax,
