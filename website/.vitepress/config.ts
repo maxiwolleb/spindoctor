@@ -19,7 +19,14 @@ export default defineConfig({
       "/guide/": [
         {
           text: "Guide",
-          items: [{ text: "What is spindoctor", link: "/guide/" }],
+          items: [
+            { text: "What is spindoctor", link: "/guide/" },
+            { text: "Install & run", link: "/guide/install" },
+            { text: "How it works", link: "/guide/how-it-works" },
+            { text: "Safety", link: "/guide/safety" },
+            { text: "Configuration", link: "/guide/configuration" },
+            { text: "Architecture", link: "/guide/architecture" },
+          ],
         },
       ],
     },
