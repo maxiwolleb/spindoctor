@@ -102,3 +102,9 @@ export interface SelfTestProgress {
   percentRemaining: number | null
   result: SelfTestResult | null
 }
+
+export type RegimeMode = "destructive" | "read-only"
+
+export interface SurfaceProgress {
+  percent: number
+}
