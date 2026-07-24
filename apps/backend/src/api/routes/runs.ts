@@ -1,8 +1,8 @@
 import { eq } from "drizzle-orm"
 import type { FastifyInstance, FastifyPluginAsync, FastifyRequest } from "fastify"
-import type { CreateRunRequest, RegimeMode, RunView, StageName, StageView } from "@spindoctor/shared"
+import type { CreateRunRequest, RegimeMode, RunView, SmartKeyMetrics, StageName, StageView } from "@spindoctor/shared"
 import type { Db } from "../../db/client"
-import { getRun, listRuns } from "../../db/repositories"
+import { getRun, getSnapshots, listRuns } from "../../db/repositories"
 import type { RunRow, StageRow } from "../../db/repositories"
 import { stageResults } from "../../db/schema"
 import type { DeviceApi } from "../../device/deviceApi"
@@ -124,7 +124,8 @@ export function runsRoutes(deps: RunsRouteDeps): FastifyPluginAsync {
           reply.code(404)
           return { error: `no run found with id "${request.params.id}"`, code: "RUN_NOT_FOUND" }
         }
-        return { run: toRunView(row), stages: listStageRows(db, id) }
+        const snapshots: { before: SmartKeyMetrics | null; after: SmartKeyMetrics | null } = getSnapshots(db, id)
+        return { run: toRunView(row), stages: listStageRows(db, id), snapshots }
       },
     )
 

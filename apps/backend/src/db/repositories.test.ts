@@ -83,6 +83,30 @@ describe("runs / stages / snapshots / audit", () => {
     expect(repo.listRuns(db, { driveSerial: "SER123" })).toHaveLength(1)
   })
 
+  it("getSnapshots returns before/after key metrics keyed by phase, null for a phase not yet captured", () => {
+    const runId = repo.createRun(db, { driveSerial: "SER123", regime: ["SMART_BEFORE", "VERDICT"] })
+    expect(repo.getSnapshots(db, runId)).toEqual({ before: null, after: null })
+
+    repo.saveSnapshot(db, {
+      runId,
+      phase: "before",
+      raw: { ok: true },
+      keyMetrics: { reallocatedSectors: 0 } as any,
+    })
+    expect(repo.getSnapshots(db, runId)).toEqual({ before: { reallocatedSectors: 0 }, after: null })
+
+    repo.saveSnapshot(db, {
+      runId,
+      phase: "after",
+      raw: { ok: true },
+      keyMetrics: { reallocatedSectors: 5 } as any,
+    })
+    expect(repo.getSnapshots(db, runId)).toEqual({
+      before: { reallocatedSectors: 0 },
+      after: { reallocatedSectors: 5 },
+    })
+  })
+
   it("appends and lists audit entries", () => {
     repo.appendAudit(db, { action: "DESTRUCTIVE_START", driveSerial: "SER123", detail: "manual" })
     const rows = repo.listAudit(db)

@@ -182,6 +182,20 @@ export function saveSnapshot(
     .run()
 }
 
+/** The before/after key-metrics pair for a run, keyed by `phase` — `null` for
+ * whichever phase hasn't been captured yet (e.g. a run still on
+ * `SMART_BEFORE`, or a read-only regime that skips one side). Drive detail's
+ * SMART diff view is the only current consumer. */
+export function getSnapshots(db: Db, runId: number): { before: SmartKeyMetrics | null; after: SmartKeyMetrics | null } {
+  const rows = db.select().from(smartSnapshots).where(eq(smartSnapshots.runId, runId)).all()
+  const before = rows.find((r) => r.phase === "before")
+  const after = rows.find((r) => r.phase === "after")
+  return {
+    before: (before?.keyMetrics as SmartKeyMetrics | undefined) ?? null,
+    after: (after?.keyMetrics as SmartKeyMetrics | undefined) ?? null,
+  }
+}
+
 // ---- audit ----
 
 export function appendAudit(db: Db, input: { action: string; driveSerial?: string; detail?: string }): void {

@@ -335,6 +335,24 @@ describe("GET /api/runs/:id", () => {
     expect(res.statusCode).toBe(404)
     expect(res.json()).toMatchObject({ code: "RUN_NOT_FOUND" })
   })
+
+  it("includes the before/after SMART key-metrics snapshots, null for a phase not yet captured", async () => {
+    const { app } = build()
+    repo.upsertDrive(db, cleanDrive)
+    const runId = repo.createRun(db, { driveSerial: cleanDrive.serial, regime: { mode: "destructive" } })
+    repo.saveSnapshot(db, {
+      runId,
+      phase: "before",
+      raw: smartRaw(),
+      keyMetrics: { reallocatedSectors: 0, currentPending: 0, offlineUncorrectable: 0, reportedUncorrect: 0, crcErrors: 0, powerOnHours: 100, percentageUsed: null, mediaErrors: null, temperatureC: 30 },
+    })
+
+    const res = await app.inject({ method: "GET", url: `/api/runs/${runId}` })
+    expect(res.statusCode).toBe(200)
+    const body = res.json<{ snapshots: { before: unknown; after: unknown } }>()
+    expect(body.snapshots.before).toMatchObject({ reallocatedSectors: 0, powerOnHours: 100 })
+    expect(body.snapshots.after).toBeNull()
+  })
 })
 
 describe("POST /api/runs/:id/abort", () => {
