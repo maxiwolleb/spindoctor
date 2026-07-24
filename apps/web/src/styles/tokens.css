@@ -1,0 +1,15 @@
+:root {
+  --font-mono: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+  --border: #2a313c;
+  --muted: #8b95a5;
+}
+
+body {
+  font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+/* Data that must read exactly — serials, sizes, SMART values, LBAs. */
+.mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
