@@ -3,22 +3,23 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "engines": { "node": ">=22" },
   "dependencies": {
     "@fastify/static": "^10.1.2",
     "@spindoctor/shared": "workspace:*",
     "better-sqlite3": "^13.0.1",
     "drizzle-orm": "^0.45.2",
-    "fastify": "^5.10.0"
+    "fastify": "^5.10.0",
+    "tsx": "^4.19.2"
   },
   "scripts": {
     "dev": "tsx watch src/main.ts",
-    "start": "node dist/main.js",
+    "start": "tsx src/main.ts",
     "typecheck": "tsc --noEmit",
     "db:generate": "drizzle-kit generate"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
-    "drizzle-kit": "^0.31.10",
-    "tsx": "^4.19.2"
+    "drizzle-kit": "^0.31.10"
   }
 }

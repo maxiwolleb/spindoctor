@@ -7,14 +7,10 @@ import * as schema from "./schema"
 
 export type Db = BetterSQLite3Database<typeof schema>
 
-const migrationsFolder = path.join(
-  path.dirname(fileURLToPath(import.meta.url)),
-  "..",
-  "..",
-  "drizzle",
-)
-
 export function createDb(dbPath: string): { db: Db; sqlite: Database.Database } {
+  const migrationsFolder =
+    process.env.SPINDOCTOR_MIGRATIONS_DIR ??
+    path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "drizzle")
   const sqlite = new Database(dbPath)
   sqlite.pragma("journal_mode = WAL")
   sqlite.pragma("foreign_keys = ON")
