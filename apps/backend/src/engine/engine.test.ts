@@ -150,6 +150,84 @@ describe("TestEngine.startRun", () => {
     expect(audit).toHaveLength(1)
     expect(audit[0]).toMatchObject({ action: "DESTRUCTIVE_DENIED", driveSerial: d.serial, detail: "MOUNTED" })
   })
+
+  it("rejects exactly one of two near-simultaneous startRun calls for the same brand-new serial (entry-reservation race guard)", async () => {
+    const d = drive()
+    const api = new FakeDeviceApi({
+      drives: [d],
+      smartByPath: { [d.devicePath]: smartRaw() },
+      selfTestByPath: { [d.devicePath]: PASSED_SELFTEST },
+      surface: { plan: [100], result: { mode: "write", badBlocks: 0, completed: true } },
+    })
+    const engine = new TestEngine({ db, deviceApi: api, sleep: async () => {}, selfTestPollIntervalMs: 0 })
+
+    // Never-seen serial, fired back-to-back with no await between them —
+    // both calls hit startRun's synchronous top-of-method reservation check
+    // before either has a chance to await listDevices(). Only one may win.
+    const [a, b] = await Promise.allSettled([
+      engine.startRun({ serial: d.serial, mode: "destructive" }),
+      engine.startRun({ serial: d.serial, mode: "destructive" }),
+    ])
+
+    const fulfilled = [a, b].filter((r) => r.status === "fulfilled")
+    const rejected = [a, b].filter((r) => r.status === "rejected")
+    expect(fulfilled).toHaveLength(1)
+    expect(rejected).toHaveLength(1)
+    expect((rejected[0] as PromiseRejectedResult).reason).toBeInstanceOf(RunInProgressError)
+
+    const runId = (fulfilled[0] as PromiseFulfilledResult<number>).value
+    expect(repo.listRuns(db)).toHaveLength(1)
+    expect(repo.listRuns(db)[0]?.driveSerial).toBe(d.serial)
+
+    // Park/settle cleanly.
+    await waitForSettled(engine, runId)
+  })
+
+  it("frees the serial reservation when startRun rejects with DriveNotFoundError, so a later legitimate start succeeds", async () => {
+    // Held externally (not just passed into the constructor) so it can be
+    // mutated in place after construction — FakeDeviceApi reads through the
+    // same reference on every call.
+    const state: FakeDeviceApiState = { drives: [] }
+    const api = new FakeDeviceApi(state)
+    const engine = new TestEngine({ db, deviceApi: api, sleep: async () => {}, selfTestPollIntervalMs: 0 })
+
+    await expect(engine.startRun({ serial: "GHOST", mode: "read-only" })).rejects.toThrow(DriveNotFoundError)
+    expect(engine.isDriveActive("GHOST")).toBe(false)
+
+    // The drive shows up for real afterward; startRun for the same serial
+    // must not be blocked by a stuck reservation from the earlier rejection.
+    const d = drive({ serial: "GHOST" })
+    state.drives = [d]
+    state.smartByPath = { [d.devicePath]: smartRaw() }
+    state.selfTestByPath = { [d.devicePath]: PASSED_SELFTEST }
+    state.surface = { plan: [100], result: { mode: "read-only", badBlocks: 0, completed: true } }
+
+    const runId = await engine.startRun({ serial: d.serial, mode: "read-only" })
+    await waitForSettled(engine, runId)
+    expect(repo.listRuns(db)).toHaveLength(1)
+  })
+
+  it("frees the serial reservation when startRun rejects with SafetyError, so a later legitimate start succeeds", async () => {
+    const d = drive({ mounted: true })
+    const state: FakeDeviceApiState = { drives: [d] }
+    const api = new FakeDeviceApi(state)
+    const engine = new TestEngine({ db, deviceApi: api, sleep: async () => {}, selfTestPollIntervalMs: 0 })
+
+    await expect(engine.startRun({ serial: d.serial, mode: "destructive" })).rejects.toThrow(SafetyError)
+    expect(engine.isDriveActive(d.serial)).toBe(false)
+
+    // Drive becomes eligible (unmounted); a subsequent startRun for the same
+    // serial must succeed, proving the earlier denial didn't leave it stuck.
+    const eligible = drive({ serial: d.serial, mounted: false })
+    state.drives = [eligible]
+    state.smartByPath = { [eligible.devicePath]: smartRaw() }
+    state.selfTestByPath = { [eligible.devicePath]: PASSED_SELFTEST }
+    state.surface = { plan: [100], result: { mode: "write", badBlocks: 0, completed: true } }
+
+    const runId = await engine.startRun({ serial: eligible.serial, mode: "destructive" })
+    await waitForSettled(engine, runId)
+    expect(repo.listRuns(db)).toHaveLength(1)
+  })
 })
 
 describe("TestEngine full-run behavior", () => {

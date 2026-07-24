@@ -121,14 +121,20 @@ export class TestEngine extends EventEmitter {
   private readonly selfTestPollIntervalMs: number
   private readonly semaphore: Semaphore
   private readonly controllers = new Map<number, AbortController>()
-  /** Drive serials with a run currently dispatched in this process (via
-   * `startRun` or a `reconcile()` resume). Populated synchronously at
-   * dispatch — alongside `controllers.set(...)` — and removed in the same
-   * `finally` block that clears the controller, so a serial is "active" for
-   * exactly as long as its run id is in `controllers`. This is the guard
-   * that stops two concurrent runs (e.g. a boot-time `reconcile()` resume
-   * racing an `AutoModePoller` enqueue) from both driving a destructive
-   * `badblocks -w` against the same physical drive. */
+  /** Drive serials reserved by a run in this process (via `startRun` or a
+   * `reconcile()` resume). `startRun` reserves synchronously at the very top
+   * of the method — before its first `await` — so two near-simultaneous
+   * calls for the same brand-new serial can't both pass the check during the
+   * `listDevices()`/safety-check await gap; a rejected `startRun` releases
+   * its reservation itself (see its `catch`), while a dispatched one hands
+   * ownership to `#execute`'s `finally` (which clears it there instead).
+   * `reconcile()` still reserves synchronously alongside `controllers.set(...)`
+   * and clears it in `#reconcileRun`'s own `finally`. Either way a serial is
+   * "active" for exactly as long as its run is dispatched in this process —
+   * the guard that stops two concurrent runs (e.g. a boot-time `reconcile()`
+   * resume racing an `AutoModePoller` enqueue, or two racing `startRun`
+   * calls) from both driving a destructive `badblocks -w` against the same
+   * physical drive. */
   readonly #activeSerials = new Set<string>()
   /** Run ids that have reached a terminal DB status (DONE/FAILED/ABORTED).
    * Never pruned: once a run is terminal it must stay that way forever, so
@@ -149,46 +155,57 @@ export class TestEngine extends EventEmitter {
 
   async startRun(input: { serial: string; mode: RegimeMode }): Promise<number> {
     const { serial, mode } = input
-    // Checked before any DB write: a second startRun (or a reconcile()
-    // resume already in flight) for the same physical drive must be
-    // rejected before a run/audit row is created, not just before the write
-    // stage — this is the single guard preventing two concurrent runs
-    // (most critically two concurrent destructive badblocks -w) on the
-    // same drive.
+    // Reserved synchronously, before any `await`: this is the single guard
+    // that prevents two near-simultaneous startRun calls for the same
+    // brand-new serial from both passing the check during the
+    // listDevices()/safety-check await gap below and dispatching two
+    // concurrent runs (most critically two concurrent destructive
+    // `badblocks -w`) against the same physical drive. Every early-exit path
+    // in the try block below (drive not found, safety denial, any other
+    // thrown error) releases this reservation in the catch; on success,
+    // ownership transfers to #execute's own `finally` (which clears it),
+    // so it must NOT be re-added or removed again here.
     if (this.#activeSerials.has(serial)) throw new RunInProgressError(serial)
-
-    const drives = await this.deviceApi.listDevices()
-    const drive = drives.find((d) => d.serial === serial)
-    if (!drive) throw new DriveNotFoundError(serial)
-
-    if (mode === "destructive") {
-      const decision = checkDestructiveAllowed(drive, { protectList: this.#protectList() })
-      if (!decision.allowed) {
-        appendAudit(this.db, { action: "DESTRUCTIVE_DENIED", driveSerial: serial, detail: decision.code })
-        throw new SafetyError(decision.code, decision.reason)
-      }
-    }
-
-    upsertDrive(this.db, drive)
-    const runId = createRun(this.db, {
-      driveSerial: serial,
-      regime: { mode, stages: regimeStages(mode).map((s) => s.stage) },
-    })
-    appendAudit(this.db, {
-      action: mode === "destructive" ? "DESTRUCTIVE_START" : "READONLY_START",
-      driveSerial: serial,
-    })
-
-    const controller = new AbortController()
-    this.controllers.set(runId, controller)
     this.#activeSerials.add(serial)
-    // Fire-and-forget: bounded by the semaphore inside #execute. #execute
-    // never rejects — it catches its own stage failures and, as a last
-    // resort, any unexpected error too — so this has no unhandled-rejection
-    // risk.
-    void this.#execute(runId, drive, mode, controller)
 
-    return runId
+    try {
+      const drives = await this.deviceApi.listDevices()
+      const drive = drives.find((d) => d.serial === serial)
+      if (!drive) throw new DriveNotFoundError(serial)
+
+      if (mode === "destructive") {
+        const decision = checkDestructiveAllowed(drive, { protectList: this.#protectList() })
+        if (!decision.allowed) {
+          appendAudit(this.db, { action: "DESTRUCTIVE_DENIED", driveSerial: serial, detail: decision.code })
+          throw new SafetyError(decision.code, decision.reason)
+        }
+      }
+
+      upsertDrive(this.db, drive)
+      const runId = createRun(this.db, {
+        driveSerial: serial,
+        regime: { mode, stages: regimeStages(mode).map((s) => s.stage) },
+      })
+      appendAudit(this.db, {
+        action: mode === "destructive" ? "DESTRUCTIVE_START" : "READONLY_START",
+        driveSerial: serial,
+      })
+
+      const controller = new AbortController()
+      this.controllers.set(runId, controller)
+      // Fire-and-forget: bounded by the semaphore inside #execute. #execute
+      // never rejects — it catches its own stage failures and, as a last
+      // resort, any unexpected error too — so this has no unhandled-rejection
+      // risk. #execute's finally clears #activeSerials for this serial, so
+      // the reservation taken at the top of this method is released exactly
+      // once, there.
+      void this.#execute(runId, drive, mode, controller)
+
+      return runId
+    } catch (err) {
+      this.#activeSerials.delete(serial)
+      throw err
+    }
   }
 
   /** True while `serial` has a run actively dispatched in this process
