@@ -97,6 +97,15 @@ describe("runs / stages / snapshots / audit", () => {
     expect(() => repo.updateStage(db, stageId, {})).not.toThrow()
     expect(repo.getRun(db, runId)!.status).toBe("PENDING")
   })
+
+  it("lists runs newest-first by id regardless of insertion/filter path (Fix 4)", () => {
+    const a = repo.createRun(db, { driveSerial: "SER123", regime: ["SMART_BEFORE", "VERDICT"] })
+    const b = repo.createRun(db, { driveSerial: "SER123", regime: ["SMART_BEFORE", "VERDICT"] })
+    const c = repo.createRun(db, { driveSerial: "SER123", regime: ["SMART_BEFORE", "VERDICT"] })
+
+    expect(repo.listRuns(db).map((r) => r.id)).toEqual([c, b, a])
+    expect(repo.listRuns(db, { driveSerial: "SER123" }).map((r) => r.id)).toEqual([c, b, a])
+  })
 })
 
 describe("audit ordering", () => {

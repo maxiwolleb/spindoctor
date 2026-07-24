@@ -164,11 +164,35 @@ describe("GET /api/drives/:serial", () => {
     expect(body.runs).toEqual([])
   })
 
-  it("404s for an unknown serial", async () => {
+  it("404s for an unknown serial with a DRIVE_NOT_FOUND code (Fix 2)", async () => {
     const app = build()
     const res = await app.inject({ method: "GET", url: "/api/drives/NOPE" })
     expect(res.statusCode).toBe(404)
-    const body = res.json<{ error: string }>()
+    const body = res.json<{ error: string; code: string }>()
     expect(body.error).toBeTypeOf("string")
+    expect(body.code).toBe("DRIVE_NOT_FOUND")
+  })
+})
+
+describe("uncaught route errors (Fix 2)", () => {
+  it("returns a uniform {error, code:\"INTERNAL\"} 500 instead of Fastify's default {statusCode,error,message} shape", async () => {
+    class ThrowingDeviceApi extends FakeDeviceApi {
+      override async listDevices(): Promise<DiscoveredDrive[]> {
+        throw new Error("smartctl: command not found")
+      }
+    }
+    const deviceApi = new ThrowingDeviceApi(state)
+    const engine = new TestEngine({ db, deviceApi })
+    const app = buildApp({ db, deviceApi, engine })
+
+    const res = await app.inject({ method: "GET", url: "/api/drives" })
+
+    expect(res.statusCode).toBe(500)
+    const body = res.json<{ error: string; code: string; statusCode?: number; message?: string }>()
+    expect(body.error).toBe("smartctl: command not found")
+    expect(body.code).toBe("INTERNAL")
+    // The Fastify-default fields must not leak through.
+    expect(body.statusCode).toBeUndefined()
+    expect(body.message).toBeUndefined()
   })
 })

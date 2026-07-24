@@ -254,6 +254,39 @@ describe("GET /api/runs", () => {
     expect(body).toHaveLength(1)
     expect(body[0]?.driveSerial).toBe(cleanDrive.serial)
   })
+
+  it("returns runs newest-first (Fix 4)", async () => {
+    const { app } = build()
+    repo.upsertDrive(db, cleanDrive)
+    const first = repo.createRun(db, { driveSerial: cleanDrive.serial, regime: { mode: "read-only" } })
+    const second = repo.createRun(db, { driveSerial: cleanDrive.serial, regime: { mode: "read-only" } })
+    const third = repo.createRun(db, { driveSerial: cleanDrive.serial, regime: { mode: "read-only" } })
+
+    const res = await app.inject({ method: "GET", url: "/api/runs" })
+    expect(res.statusCode).toBe(200)
+    const body = res.json<RunView[]>()
+    expect(body.map((r) => r.id)).toEqual([third, second, first])
+  })
+
+  it("serializes timestamps as ISO strings (or null), never raw Date objects (Fix 1)", async () => {
+    const { app } = build()
+    repo.upsertDrive(db, cleanDrive)
+    const runId = repo.createRun(db, { driveSerial: cleanDrive.serial, regime: { mode: "read-only" } })
+    repo.updateRun(db, runId, { status: "RUNNING", startedAt: new Date("2026-01-01T00:00:00.000Z") })
+
+    const res = await app.inject({ method: "GET", url: "/api/runs" })
+    const body = res.json<RunView[]>()
+    const run = body.find((r) => r.id === runId)
+
+    expect(run?.startedAt).toBe("2026-01-01T00:00:00.000Z")
+    expect(run?.finishedAt).toBeNull()
+    expect(typeof run?.createdAt).toBe("string")
+    // A string round-trips through Date parsing; a raw Date serialized by
+    // JSON.stringify would already look like a string here too, so the real
+    // regression this guards is `.getTime is not a function` on the
+    // frontend if this field were ever a bare object instead.
+    expect(Number.isNaN(new Date(run?.createdAt as string).getTime())).toBe(false)
+  })
 })
 
 describe("GET /api/runs/:id", () => {
@@ -272,10 +305,35 @@ describe("GET /api/runs/:id", () => {
     expect(body.stages[0]).toMatchObject({ id: stageId, stage: "SMART_BEFORE", status: "DONE" })
   })
 
-  it("404s for an unknown run id", async () => {
+  it("serializes run and stage timestamps as ISO strings (or null) (Fix 1)", async () => {
+    const { app } = build()
+    repo.upsertDrive(db, cleanDrive)
+    const runId = repo.createRun(db, { driveSerial: cleanDrive.serial, regime: { mode: "destructive" } })
+    repo.updateRun(db, runId, { status: "RUNNING", startedAt: new Date("2026-02-02T00:00:00.000Z") })
+    const stageId = repo.addStage(db, { runId, stage: "SMART_BEFORE", status: "DONE" })
+    repo.updateStage(db, stageId, {
+      startedAt: new Date("2026-02-02T00:01:00.000Z"),
+      finishedAt: new Date("2026-02-02T00:02:00.000Z"),
+    })
+
+    const res = await app.inject({ method: "GET", url: `/api/runs/${runId}` })
+    expect(res.statusCode).toBe(200)
+    const body = res.json<{
+      run: RunView
+      stages: { startedAt: string | null; finishedAt: string | null }[]
+    }>()
+
+    expect(body.run.startedAt).toBe("2026-02-02T00:00:00.000Z")
+    expect(body.run.finishedAt).toBeNull()
+    expect(body.stages[0]?.startedAt).toBe("2026-02-02T00:01:00.000Z")
+    expect(body.stages[0]?.finishedAt).toBe("2026-02-02T00:02:00.000Z")
+  })
+
+  it("404s for an unknown run id with a RUN_NOT_FOUND code (Fix 2)", async () => {
     const { app } = build()
     const res = await app.inject({ method: "GET", url: "/api/runs/999" })
     expect(res.statusCode).toBe(404)
+    expect(res.json()).toMatchObject({ code: "RUN_NOT_FOUND" })
   })
 })
 
@@ -291,9 +349,10 @@ describe("POST /api/runs/:id/abort", () => {
     expect(res.json()).toEqual({ ok: true })
   })
 
-  it("404s for a nonexistent run id", async () => {
+  it("404s for a nonexistent run id with a RUN_NOT_FOUND code (Fix 2)", async () => {
     const { app } = build()
     const res = await app.inject({ method: "POST", url: "/api/runs/999/abort" })
     expect(res.statusCode).toBe(404)
+    expect(res.json()).toMatchObject({ code: "RUN_NOT_FOUND" })
   })
 })

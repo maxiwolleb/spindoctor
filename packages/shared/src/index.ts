@@ -110,6 +110,9 @@ export type RunStatus = "PENDING" | "RUNNING" | "DONE" | "FAILED" | "ABORTED"
 /** Emitted by TestEngine on every run status transition. */
 export interface RunUpdateEvent {
   runId: number
+  /** The drive this run belongs to — lets a listener map any event frame to
+   * a drive without a round-trip to `GET /api/runs/:id`. */
+  driveSerial: string
   status: RunStatus
   currentStage?: StageName
   verdict?: Verdict
@@ -118,6 +121,8 @@ export interface RunUpdateEvent {
 /** Emitted by TestEngine for in-progress stages (SELFTEST_LONG, SURFACE). */
 export interface StageProgressEvent {
   runId: number
+  /** The drive this stage belongs to — see `RunUpdateEvent.driveSerial`. */
+  driveSerial: string
   stage: StageName
   percent: number
 }
@@ -151,7 +156,10 @@ export interface SettingsView {
   protectList: string[]
 }
 
-/** API-facing view of a test run — mirrors the `test_runs` row shape the UI needs. */
+/** API-facing view of a test run — mirrors the `test_runs` row shape the UI needs.
+ * Timestamps are ISO-8601 strings (not `Date`): they cross the wire as JSON, and
+ * `JSON.stringify` already turns a `Date` into a string, so declaring `Date` here
+ * would lie about what a client actually receives. */
 export interface RunView {
   id: number
   driveSerial: string
@@ -162,7 +170,21 @@ export interface RunView {
   currentStage: StageName | null
   restartCount: number
   error: string | null
-  startedAt: Date | null
-  finishedAt: Date | null
-  createdAt: Date
+  startedAt: string | null
+  finishedAt: string | null
+  createdAt: string
+}
+
+/** API-facing view of a persisted stage-result row, nested under `GET /api/runs/:id`.
+ * Timestamps are ISO-8601 strings for the same wire-honesty reason as `RunView`. */
+export interface StageView {
+  id: number
+  runId: number
+  stage: StageName
+  status: string
+  progress: number
+  logPath: string | null
+  metrics: unknown
+  startedAt: string | null
+  finishedAt: string | null
 }

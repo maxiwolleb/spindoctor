@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm"
 import type { FastifyInstance, FastifyPluginAsync, FastifyRequest } from "fastify"
-import type { CreateRunRequest, RegimeMode, RunView } from "@spindoctor/shared"
+import type { CreateRunRequest, RegimeMode, RunView, StageName, StageView } from "@spindoctor/shared"
 import type { Db } from "../../db/client"
 import { getRun, listRuns } from "../../db/repositories"
 import type { RunRow, StageRow } from "../../db/repositories"
@@ -12,6 +12,12 @@ export interface RunsRouteDeps {
   db: Db
   deviceApi: DeviceApi
   engine: TestEngine
+}
+
+/** ISO-8601 string for a nullable persisted `Date`, or `null` — never leaks a
+ * raw `Date` onto the wire (see `RunView`/`StageView` doc comments). */
+function isoOrNull(d: Date | null): string | null {
+  return d instanceof Date ? d.toISOString() : d
 }
 
 function toRunView(row: RunRow): RunView {
@@ -26,15 +32,35 @@ function toRunView(row: RunRow): RunView {
     currentStage: (row.currentStage as RunView["currentStage"]) ?? null,
     restartCount: row.restartCount,
     error: row.error,
-    startedAt: row.startedAt,
-    finishedAt: row.finishedAt,
-    createdAt: row.createdAt,
+    startedAt: isoOrNull(row.startedAt),
+    finishedAt: isoOrNull(row.finishedAt),
+    createdAt: row.createdAt.toISOString(),
   }
 }
 
-/** All persisted stage rows for a run, oldest first. */
-function listStageRows(db: Db, runId: number): StageRow[] {
-  return db.select().from(stageResults).where(eq(stageResults.runId, runId)).orderBy(stageResults.id).all()
+function toStageView(row: StageRow): StageView {
+  return {
+    id: row.id,
+    runId: row.runId,
+    stage: row.stage as StageName,
+    status: row.status,
+    progress: row.progress,
+    logPath: row.logPath,
+    metrics: row.metrics,
+    startedAt: isoOrNull(row.startedAt),
+    finishedAt: isoOrNull(row.finishedAt),
+  }
+}
+
+/** All persisted stage rows for a run, oldest first, mapped to the wire-honest `StageView`. */
+function listStageRows(db: Db, runId: number): StageView[] {
+  return db
+    .select()
+    .from(stageResults)
+    .where(eq(stageResults.runId, runId))
+    .orderBy(stageResults.id)
+    .all()
+    .map(toStageView)
 }
 
 export function runsRoutes(deps: RunsRouteDeps): FastifyPluginAsync {
@@ -96,7 +122,7 @@ export function runsRoutes(deps: RunsRouteDeps): FastifyPluginAsync {
         const row = Number.isFinite(id) ? getRun(db, id) : undefined
         if (!row) {
           reply.code(404)
-          return { error: `no run found with id "${request.params.id}"` }
+          return { error: `no run found with id "${request.params.id}"`, code: "RUN_NOT_FOUND" }
         }
         return { run: toRunView(row), stages: listStageRows(db, id) }
       },
@@ -109,7 +135,7 @@ export function runsRoutes(deps: RunsRouteDeps): FastifyPluginAsync {
         const row = Number.isFinite(id) ? getRun(db, id) : undefined
         if (!row) {
           reply.code(404)
-          return { error: `no run found with id "${request.params.id}"` }
+          return { error: `no run found with id "${request.params.id}"`, code: "RUN_NOT_FOUND" }
         }
         engine.abortRun(id)
         reply.code(202)

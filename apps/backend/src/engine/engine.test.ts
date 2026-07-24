@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest"
 import { eq } from "drizzle-orm"
-import type { DiscoveredDrive, RunUpdateEvent, SelfTestProgress } from "@spindoctor/shared"
+import type { DiscoveredDrive, RunUpdateEvent, SelfTestProgress, StageProgressEvent } from "@spindoctor/shared"
 import { createDb, type Db } from "../db/client"
 import { stageResults, smartSnapshots } from "../db/schema"
 import * as repo from "../db/repositories"
@@ -759,5 +759,45 @@ describe("TestEngine current_stage persistence (Fix 3)", () => {
 
     const run = repo.getRun(db, ctx.runId)!
     expect(run.currentStage).toBe("VERDICT")
+  })
+})
+
+describe("TestEngine driveSerial in events (Fix 3)", () => {
+  it("stamps driveSerial on every run:update AND stage:progress event, so a listener can map any frame to a drive without a round-trip", async () => {
+    const d = drive()
+    const api = new SequencedSelfTestApi(
+      {
+        drives: [d],
+        smartByPath: { [d.devicePath]: smartRaw() },
+        surface: { plan: [50, 100], result: { mode: "write", badBlocks: 0, completed: true } },
+      },
+      [
+        { running: true, percentRemaining: 50, result: null },
+        { running: false, percentRemaining: 0, result: { status: "PASSED" } },
+      ],
+    )
+    const engine = new TestEngine({ db, deviceApi: api, sleep: async () => {}, selfTestPollIntervalMs: 0 })
+
+    const runUpdates: RunUpdateEvent[] = []
+    const stageProgress: StageProgressEvent[] = []
+    engine.on("run:update", (evt: RunUpdateEvent) => runUpdates.push(evt))
+    engine.on("stage:progress", (evt: StageProgressEvent) => stageProgress.push(evt))
+
+    const runId = await engine.startRun({ serial: d.serial, mode: "destructive" })
+    const terminal = await waitForSettled(engine, runId)
+
+    expect(terminal.status).toBe("DONE")
+    expect(terminal.driveSerial).toBe(d.serial)
+
+    // Every run:update across the whole run (RUNNING x N stages + terminal
+    // DONE) carries the drive's serial, not just the final event.
+    expect(runUpdates.length).toBeGreaterThan(1)
+    expect(runUpdates.every((e) => e.driveSerial === d.serial)).toBe(true)
+
+    // Both SELFTEST_LONG polling and SURFACE progress callbacks emit
+    // stage:progress — confirm both stamp driveSerial too.
+    expect(stageProgress.some((e) => e.stage === "SELFTEST_LONG")).toBe(true)
+    expect(stageProgress.some((e) => e.stage === "SURFACE")).toBe(true)
+    expect(stageProgress.every((e) => e.driveSerial === d.serial)).toBe(true)
   })
 })

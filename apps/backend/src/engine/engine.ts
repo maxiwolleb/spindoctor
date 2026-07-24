@@ -283,7 +283,7 @@ export class TestEngine extends EventEmitter {
       this.terminalRuns.add(runId)
       try {
         updateRun(this.db, runId, { status: "FAILED", error: String(err), finishedAt: new Date() })
-        this.#emitRunUpdate({ runId, status: "FAILED" })
+        this.#emitRunUpdate({ runId, driveSerial: drive.serial, status: "FAILED" })
       } catch {
         // Truly last resort (e.g. the DB itself is broken): swallow rather
         // than crash the process from a background task.
@@ -305,7 +305,7 @@ export class TestEngine extends EventEmitter {
       if (!drive) {
         this.terminalRuns.add(runId)
         updateRun(this.db, runId, { status: "FAILED", error: "DRIVE_GONE", finishedAt: new Date() })
-        this.#emitRunUpdate({ runId, status: "FAILED" })
+        this.#emitRunUpdate({ runId, driveSerial: run.driveSerial, status: "FAILED" })
         return
       }
 
@@ -314,7 +314,7 @@ export class TestEngine extends EventEmitter {
       if (plan.tooManyRestarts) {
         this.terminalRuns.add(runId)
         updateRun(this.db, runId, { status: "FAILED", error: "TOO_MANY_RESTARTS", finishedAt: new Date() })
-        this.#emitRunUpdate({ runId, status: "FAILED" })
+        this.#emitRunUpdate({ runId, driveSerial: drive.serial, status: "FAILED" })
         return
       }
 
@@ -345,7 +345,7 @@ export class TestEngine extends EventEmitter {
       this.terminalRuns.add(runId)
       try {
         updateRun(this.db, runId, { status: "FAILED", error: String(err), finishedAt: new Date() })
-        this.#emitRunUpdate({ runId, status: "FAILED" })
+        this.#emitRunUpdate({ runId, driveSerial: run.driveSerial, status: "FAILED" })
       } catch {
         // Truly last resort (e.g. the DB itself is broken): swallow rather
         // than crash the process from a background task.
@@ -492,7 +492,7 @@ export class TestEngine extends EventEmitter {
       if (controller.signal.aborted) {
         this.terminalRuns.add(runId)
         updateRun(this.db, runId, { status: "ABORTED", currentStage: stage, finishedAt: new Date() })
-        this.#emitRunUpdate({ runId, status: "ABORTED", currentStage: stage })
+        this.#emitRunUpdate({ runId, driveSerial: currentDrive.serial, status: "ABORTED", currentStage: stage })
         return
       }
 
@@ -511,7 +511,7 @@ export class TestEngine extends EventEmitter {
       // listening for run:update events, can still see where a RUNNING run
       // currently is.
       updateRun(this.db, runId, { currentStage: stage })
-      this.#emitRunUpdate({ runId, status: "RUNNING", currentStage: stage })
+      this.#emitRunUpdate({ runId, driveSerial: currentDrive.serial, status: "RUNNING", currentStage: stage })
 
       try {
         currentDrive = await this.#runStage(
@@ -528,7 +528,7 @@ export class TestEngine extends EventEmitter {
         updateStage(this.db, stageId, { status: "FAILED" })
         this.terminalRuns.add(runId)
         updateRun(this.db, runId, { status: "FAILED", currentStage: stage, error: String(err), finishedAt: new Date() })
-        this.#emitRunUpdate({ runId, status: "FAILED" })
+        this.#emitRunUpdate({ runId, driveSerial: currentDrive.serial, status: "FAILED" })
         return
       }
 
@@ -550,7 +550,7 @@ export class TestEngine extends EventEmitter {
         updateStage(this.db, stageId, { status: "ABORTED" })
         this.terminalRuns.add(runId)
         updateRun(this.db, runId, { status: "ABORTED", currentStage: stage, finishedAt: new Date() })
-        this.#emitRunUpdate({ runId, status: "ABORTED", currentStage: stage })
+        this.#emitRunUpdate({ runId, driveSerial: currentDrive.serial, status: "ABORTED", currentStage: stage })
         return
       }
 
@@ -593,7 +593,7 @@ export class TestEngine extends EventEmitter {
         return fresh
       }
       case "SELFTEST_LONG": {
-        const result = await this.#runSelfTestStage(runId, drive.devicePath, controller, skipSelfTestStart)
+        const result = await this.#runSelfTestStage(runId, drive.serial, drive.devicePath, controller, skipSelfTestStart)
         state.selfTest = result
         // Persisted so a later reconcile() (e.g. a run interrupted again at
         // SMART_AFTER/VERDICT) can reconstruct this result from the DONE
@@ -633,6 +633,7 @@ export class TestEngine extends EventEmitter {
 
   async #runSelfTestStage(
     runId: number,
+    driveSerial: string,
     devicePath: string,
     controller: AbortController,
     skipStart = false,
@@ -649,7 +650,7 @@ export class TestEngine extends EventEmitter {
     while (!controller.signal.aborted) {
       const progress = await this.deviceApi.pollSelfTest(devicePath)
       const percent = progress.percentRemaining == null ? 0 : 100 - progress.percentRemaining
-      this.#emitStageProgress({ runId, stage: "SELFTEST_LONG", percent })
+      this.#emitStageProgress({ runId, driveSerial, stage: "SELFTEST_LONG", percent })
 
       if (!progress.running) {
         result = progress.result ?? { status: "UNKNOWN" }
@@ -699,7 +700,7 @@ export class TestEngine extends EventEmitter {
     const surfaceResult = await this.deviceApi.runSurfaceTest(
       devicePath,
       mode,
-      (percent) => this.#emitStageProgress({ runId, stage: "SURFACE", percent }),
+      (percent) => this.#emitStageProgress({ runId, driveSerial: currentDrive.serial, stage: "SURFACE", percent }),
       controller.signal,
     )
 
@@ -781,7 +782,7 @@ export class TestEngine extends EventEmitter {
       currentStage: "VERDICT",
       finishedAt: new Date(),
     })
-    this.#emitRunUpdate({ runId, status: "DONE", verdict })
+    this.#emitRunUpdate({ runId, driveSerial: drive.serial, status: "DONE", verdict })
   }
 
   #emitRunUpdate(payload: RunUpdateEvent): void {

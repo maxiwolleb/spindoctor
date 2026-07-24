@@ -74,7 +74,7 @@ export function drivesRoutes(deps: DrivesRouteDeps): FastifyPluginAsync {
         const row = getDrive(db, serial)
         if (!row) {
           reply.code(404)
-          return { error: `no drive found with serial "${serial}"` }
+          return { error: `no drive found with serial "${serial}"`, code: "DRIVE_NOT_FOUND" }
         }
 
         const flags: RuntimeFlags = match

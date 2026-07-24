@@ -107,11 +107,18 @@ export function getRun(db: Db, id: number): RunRow | undefined {
   return db.select().from(testRuns).where(eq(testRuns.id, id)).get()
 }
 
+/** Newest-first (by id) so `GET /api/runs` and any run-history list is stable
+ * across calls instead of relying on unspecified SQLite row order. */
 export function listRuns(db: Db, opts?: { driveSerial?: string }): RunRow[] {
   if (opts?.driveSerial !== undefined) {
-    return db.select().from(testRuns).where(eq(testRuns.driveSerial, opts.driveSerial)).all()
+    return db
+      .select()
+      .from(testRuns)
+      .where(eq(testRuns.driveSerial, opts.driveSerial))
+      .orderBy(desc(testRuns.id))
+      .all()
   }
-  return db.select().from(testRuns).all()
+  return db.select().from(testRuns).orderBy(desc(testRuns.id)).all()
 }
 
 export interface RunUpdate {

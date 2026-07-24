@@ -1,6 +1,6 @@
 import fs from "node:fs"
 import path from "node:path"
-import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify"
+import Fastify, { type FastifyError, type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify"
 import fastifyStatic from "@fastify/static"
 import type { Db } from "../db/client"
 import type { DeviceApi } from "../device/deviceApi"
@@ -32,6 +32,18 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   void app.register(settingsRoutes(deps), { prefix: "/api" })
   void app.register(auditRoutes(deps), { prefix: "/api" })
   void app.register(eventsRoutes(deps), { prefix: "/api" })
+
+  // Catch-all for any error a route handler doesn't already turn into its own
+  // coded JSON body (e.g. an unexpected throw from deviceApi.listDevices()).
+  // Without this, Fastify's default handler leaks its own
+  // `{statusCode, error, message}` shape instead of this API's uniform
+  // `{error, code}` one. Routes that already reply with a coded error
+  // (400/403/404/409 — see runs.ts/drives.ts/settings.ts) never throw, so
+  // they're untouched by this; this only fires for the truly-uncaught case.
+  app.setErrorHandler((err: FastifyError, _request: FastifyRequest, reply: FastifyReply) => {
+    const statusCode = err.statusCode ?? 500
+    reply.code(statusCode).send({ error: err.message, code: "INTERNAL" })
+  })
 
   if (deps.webRoot && fs.existsSync(deps.webRoot)) {
     const webRoot = path.resolve(deps.webRoot)
