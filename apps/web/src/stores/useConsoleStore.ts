@@ -100,6 +100,21 @@ export const useConsoleStore = defineStore("console", () => {
     }
   }
 
+  /** Persists a settings patch and adopts the server's response as the new
+   * `settings` (the backend echoes back the full merged row, so this stays
+   * in sync even if the patch was partial). Like `startTest`, rethrows so a
+   * `SettingsView` can show the failure inline (e.g. a validation 400)
+   * instead of relying on the caller to poll `error`. */
+  async function saveSettings(patch: Partial<SettingsView>): Promise<void> {
+    try {
+      settings.value = await deps.api.putSettings(patch)
+      error.value = null
+    } catch (err) {
+      error.value = messageOf(err)
+      throw err
+    }
+  }
+
   /** Starts a run and refreshes the drive list so the new `latestRun` shows
    * up. Unlike the other actions, errors are rethrown (in addition to being
    * recorded in `error`) so a `StartTestDialog` can show the failure inline
@@ -203,6 +218,7 @@ export const useConsoleStore = defineStore("console", () => {
     liveForDrive,
     refreshDrives,
     refreshSettings,
+    saveSettings,
     startTest,
     abort,
     connectEvents,

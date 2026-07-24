@@ -223,4 +223,23 @@ describe("useConsoleStore", () => {
     expect(api.abortRun).toHaveBeenCalledWith(7)
     expect(store.error).toBe("run not found")
   })
+
+  it("saveSettings calls putSettings with the patch and adopts the response", async () => {
+    const store = useConsoleStore()
+    const updated: SettingsView = { ...settings, concurrency: 6 }
+    api.putSettings.mockResolvedValue(updated)
+
+    await store.saveSettings({ concurrency: 6 })
+
+    expect(api.putSettings).toHaveBeenCalledWith({ concurrency: 6 })
+    expect(store.settings).toEqual(updated)
+  })
+
+  it("saveSettings rethrows and records the error message on failure", async () => {
+    const store = useConsoleStore()
+    api.putSettings.mockRejectedValueOnce(new Error("concurrency must be an integer >= 1"))
+
+    await expect(store.saveSettings({ concurrency: 0 })).rejects.toThrow("concurrency must be an integer >= 1")
+    expect(store.error).toBe("concurrency must be an integer >= 1")
+  })
 })
