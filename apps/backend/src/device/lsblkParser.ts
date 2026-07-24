@@ -26,9 +26,22 @@ function str(v: unknown): string | null {
 
 const SYSTEM_MOUNTPOINTS = new Set(["/", "/boot", "/boot/efi"])
 
-/** Walks a device node and its `children`, collecting every `mountpoint`. */
+/**
+ * Walks a device node and its `children`, collecting every mountpoint.
+ *
+ * Modern `util-linux` `lsblk -J` (>= 2.37) reports mounts via a `mountpoints`
+ * ARRAY (e.g. `["/", null]`) and may omit the older singular `mountpoint`
+ * field entirely. Older versions only emit the singular field. Both shapes
+ * must be considered per node, or a mounted/system disk on a modern host
+ * would be misreported as unmounted — a safety-critical bug for a tool that
+ * refuses destructive wipes based on these flags.
+ */
 function collectMountpoints(node: Record<string, any>, out: (string | null)[]): void {
   out.push(str(node.mountpoint))
+  const mountpoints = Array.isArray(node.mountpoints) ? node.mountpoints : []
+  for (const mp of mountpoints) {
+    out.push(str(mp))
+  }
   const children = Array.isArray(node.children) ? node.children : []
   for (const child of children) {
     collectMountpoints(asRecord(child), out)
