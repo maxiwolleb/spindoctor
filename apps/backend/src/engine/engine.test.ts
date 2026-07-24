@@ -5,7 +5,8 @@ import { createDb, type Db } from "../db/client"
 import { stageResults, smartSnapshots } from "../db/schema"
 import * as repo from "../db/repositories"
 import { FakeDeviceApi, type FakeDeviceApiState } from "../device/fakeDeviceApi"
-import { TestEngine, SafetyError, DriveNotFoundError } from "./engine"
+import { regimeStages } from "./regime"
+import { TestEngine, SafetyError, DriveNotFoundError, RunInProgressError } from "./engine"
 
 const drive = (over: Partial<DiscoveredDrive> = {}): DiscoveredDrive => ({
   devicePath: "/dev/sda",
@@ -43,6 +44,38 @@ function waitForSettled(engine: TestEngine, runId: number): Promise<RunUpdateEve
     }
     engine.on("run:update", handler)
   })
+}
+
+/** Flushes pending microtasks (no real timers involved) so a fire-and-forget
+ * async chain gets a chance to run to its next await point. */
+async function flushMicrotasks(times = 50): Promise<void> {
+  for (let i = 0; i < times; i++) await Promise.resolve()
+}
+
+/**
+ * FakeDeviceApi variant whose pollSelfTest never resolves on its own — it
+ * hands back a promise this test holds the resolver for. Parks the
+ * self-test poll loop deterministically so a run can be held "actively
+ * executing" (registered in the engine's internal controllers/activeSerials
+ * bookkeeping, not terminal) for as long as a test needs, then released on
+ * demand to let it unwind.
+ */
+class ParkableSelfTestApi extends FakeDeviceApi {
+  #release?: (progress: SelfTestProgress) => void
+
+  override async pollSelfTest(_devicePath: string): Promise<SelfTestProgress> {
+    return new Promise((resolve) => {
+      this.#release = resolve
+    })
+  }
+
+  /** Resolves the currently-parked pollSelfTest call. */
+  release(progress: SelfTestProgress): void {
+    const resolve = this.#release
+    if (!resolve) throw new Error("no parked pollSelfTest call to release")
+    this.#release = undefined
+    resolve(progress)
+  }
 }
 
 /** FakeDeviceApi variant whose pollSelfTest returns a scripted sequence across calls. */
@@ -315,6 +348,8 @@ describe("TestEngine SURFACE stage safety re-check (TOCTOU guard)", () => {
     const run = repo.getRun(db, runId)!
     expect(run.status).toBe("FAILED")
     expect(run.error).toContain("MOUNTED")
+    // Fix 3: current_stage shows where the FAILED run stopped.
+    expect(run.currentStage).toBe("SURFACE")
 
     const stages = db.select().from(stageResults).where(eq(stageResults.runId, runId)).all()
     expect(stages.find((s) => s.stage === "SURFACE")?.status).toBe("FAILED")
@@ -438,6 +473,8 @@ describe("TestEngine SMART_AFTER/VERDICT fresh device path (Fix B)", () => {
     const run = repo.getRun(db, runId)!
     expect(run.status).toBe("FAILED")
     expect(run.error).toContain("DRIVE_GONE")
+    // Fix 3: current_stage shows where the FAILED run stopped.
+    expect(run.currentStage).toBe("SMART_AFTER")
 
     // The destructive surface write already happened (the drive was still
     // present at that point)...
@@ -479,5 +516,170 @@ describe("TestEngine SMART_AFTER/VERDICT fresh device path (Fix B)", () => {
 
     expect(terminal.status).toBe("DONE")
     expect(readSmartSpy.mock.calls).toEqual([[original.devicePath], [relocated.devicePath]])
+  })
+})
+
+describe("TestEngine per-drive active-run guard (Fix 1)", () => {
+  it("rejects a second startRun for a drive with an in-flight run, creating no second run row", async () => {
+    const d = drive()
+    const api = new ParkableSelfTestApi({
+      drives: [d],
+      smartByPath: { [d.devicePath]: smartRaw() },
+    })
+    const engine = new TestEngine({ db, deviceApi: api, sleep: async () => {}, selfTestPollIntervalMs: 0 })
+
+    const runId = await engine.startRun({ serial: d.serial, mode: "destructive" })
+    // Let SMART_BEFORE finish and SELFTEST_LONG's poll loop park on its
+    // first pollSelfTest call — the run is now actively executing but not
+    // terminal, so its serial must be registered as active.
+    await flushMicrotasks()
+
+    expect(engine.isDriveActive(d.serial)).toBe(true)
+
+    let caught: unknown
+    try {
+      await engine.startRun({ serial: d.serial, mode: "destructive" })
+    } catch (err) {
+      caught = err
+    }
+
+    expect(caught).toBeInstanceOf(RunInProgressError)
+    expect((caught as RunInProgressError).serial).toBe(d.serial)
+    // No second run/audit row: the guard must fire before any DB write.
+    expect(repo.listRuns(db)).toHaveLength(1)
+    expect(repo.listRuns(db)[0]?.id).toBe(runId)
+    expect(repo.listAudit(db).filter((a) => a.action === "DESTRUCTIVE_START")).toHaveLength(1)
+
+    // Unwind cleanly rather than leaving the parked run hanging.
+    const settled = waitForSettled(engine, runId)
+    engine.abortRun(runId)
+    api.release({ running: true, percentRemaining: 50, result: null })
+    const terminal = await settled
+    expect(terminal.status).toBe("ABORTED")
+    // waitForSettled resolves as soon as the terminal event fires, which is
+    // slightly before #execute's own finally block (a few microtask ticks
+    // later) clears the serial — flush before asserting it's released.
+    await flushMicrotasks()
+    expect(engine.isDriveActive(d.serial)).toBe(false)
+  })
+
+  it("rejects a fresh startRun for a drive whose active run was dispatched via reconcile() (reconcile-vs-startRun)", async () => {
+    const d = drive()
+    repo.upsertDrive(db, d)
+    const runId = repo.createRun(db, {
+      driveSerial: d.serial,
+      regime: { mode: "destructive", stages: regimeStages("destructive").map((s) => s.stage) },
+    })
+    repo.updateRun(db, runId, { status: "RUNNING" })
+    repo.addStage(db, { runId, stage: "SMART_BEFORE", status: "DONE" })
+    repo.addStage(db, { runId, stage: "SELFTEST_LONG", status: "RUNNING" })
+
+    const api = new ParkableSelfTestApi({
+      drives: [d],
+      smartByPath: { [d.devicePath]: smartRaw() },
+    })
+    const engine = new TestEngine({ db, deviceApi: api, sleep: async () => {}, selfTestPollIntervalMs: 0 })
+
+    await engine.reconcile()
+    // Let #reconcileRun resume SELFTEST_LONG by polling and park on its
+    // first pollSelfTest call.
+    await flushMicrotasks()
+
+    expect(engine.isDriveActive(d.serial)).toBe(true)
+
+    await expect(engine.startRun({ serial: d.serial, mode: "destructive" })).rejects.toThrow(RunInProgressError)
+    // Only the reconcile()-resumed run row exists — startRun must not have
+    // created a second one.
+    expect(repo.listRuns(db)).toHaveLength(1)
+
+    const settled = waitForSettled(engine, runId)
+    engine.abortRun(runId)
+    api.release({ running: true, percentRemaining: 50, result: null })
+    const terminal = await settled
+    expect(terminal.status).toBe("ABORTED")
+  })
+
+  it("skips resuming a run in reconcile() when its drive serial is already active from a startRun dispatched in this process", async () => {
+    const d = drive()
+    const api = new ParkableSelfTestApi({
+      drives: [d],
+      smartByPath: { [d.devicePath]: smartRaw() },
+    })
+    const engine = new TestEngine({ db, deviceApi: api, sleep: async () => {}, selfTestPollIntervalMs: 0 })
+
+    // startRun dispatches (and parks) a run for this drive's serial.
+    const activeRunId = await engine.startRun({ serial: d.serial, mode: "destructive" })
+    await flushMicrotasks()
+    expect(engine.isDriveActive(d.serial)).toBe(true)
+
+    // A second, stale RUNNING run row for the SAME drive serial — e.g. left
+    // behind by a previous process death — must NOT be resumed by
+    // reconcile() while the drive is already active.
+    const staleRunId = repo.createRun(db, {
+      driveSerial: d.serial,
+      regime: { mode: "destructive", stages: regimeStages("destructive").map((s) => s.stage) },
+    })
+    repo.updateRun(db, staleRunId, { status: "RUNNING" })
+
+    const eventsForStaleRun: RunUpdateEvent[] = []
+    engine.on("run:update", (evt: RunUpdateEvent) => {
+      if (evt.runId === staleRunId) eventsForStaleRun.push(evt)
+    })
+
+    await engine.reconcile()
+    await flushMicrotasks()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    // reconcile() must not have dispatched the stale run at all: no events,
+    // no status change, no stage rows inserted for it.
+    expect(eventsForStaleRun).toHaveLength(0)
+    expect(repo.getRun(db, staleRunId)!.status).toBe("RUNNING")
+    const staleStages = db.select().from(stageResults).where(eq(stageResults.runId, staleRunId)).all()
+    expect(staleStages).toHaveLength(0)
+
+    // Unwind the active run.
+    const settled = waitForSettled(engine, activeRunId)
+    engine.abortRun(activeRunId)
+    api.release({ running: true, percentRemaining: 50, result: null })
+    const terminal = await settled
+    expect(terminal.status).toBe("ABORTED")
+  })
+})
+
+describe("TestEngine current_stage persistence (Fix 3)", () => {
+  it("persists current_stage in the DB as a RUNNING run advances through stages, observable mid-run via an event hook", async () => {
+    const d = drive()
+    const api = new FakeDeviceApi({
+      drives: [d],
+      smartByPath: { [d.devicePath]: smartRaw() },
+      selfTestByPath: { [d.devicePath]: PASSED_SELFTEST },
+      surface: { plan: [100], result: { mode: "write", badBlocks: 0, completed: true } },
+    })
+    const engine = new TestEngine({ db, deviceApi: api, sleep: async () => {}, selfTestPollIntervalMs: 0 })
+
+    const ctx: { runId?: number } = {}
+    let observedAtSelfTest: string | null | undefined
+    engine.on("run:update", (evt: RunUpdateEvent) => {
+      if (ctx.runId === undefined) return
+      if (
+        evt.runId === ctx.runId &&
+        evt.status === "RUNNING" &&
+        evt.currentStage === "SELFTEST_LONG" &&
+        observedAtSelfTest === undefined
+      ) {
+        // Read straight from the DB (not the event payload) to prove the
+        // stage is *persisted*, not just emitted.
+        observedAtSelfTest = repo.getRun(db, ctx.runId)?.currentStage ?? null
+      }
+    })
+
+    ctx.runId = await engine.startRun({ serial: d.serial, mode: "destructive" })
+    const terminal = await waitForSettled(engine, ctx.runId)
+
+    expect(terminal.status).toBe("DONE")
+    expect(observedAtSelfTest).toBe("SELFTEST_LONG")
+
+    const run = repo.getRun(db, ctx.runId)!
+    expect(run.currentStage).toBe("VERDICT")
   })
 })

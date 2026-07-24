@@ -23,10 +23,23 @@ const drive = (over: Partial<DiscoveredDrive> = {}): DiscoveredDrive => ({
 class EngineSpy {
   readonly calls: { serial: string; mode: RegimeMode }[] = []
   #nextId = 1
+  /** Serials this spy reports as already active (Fix 1's isDriveActive
+   * guard); overridden per-test where needed, false for everything by
+   * default. */
+  #activeSerials = new Set<string>()
 
   async startRun(input: { serial: string; mode: RegimeMode }): Promise<number> {
     this.calls.push(input)
     return this.#nextId++
+  }
+
+  isDriveActive(serial: string): boolean {
+    return this.#activeSerials.has(serial)
+  }
+
+  /** Test helper: makes isDriveActive report true for this serial. */
+  markActive(serial: string): void {
+    this.#activeSerials.add(serial)
   }
 }
 
@@ -82,6 +95,25 @@ describe("AutoModePoller.pollOnce", () => {
     const poller = new AutoModePoller({ db, deviceApi: api, engine })
 
     repo.updateConfig(db, { autoModeEnabled: true, protectList: ["PROTECTED1"] })
+
+    await poller.pollOnce()
+
+    expect(repo.listDrives(db)).toHaveLength(1)
+    expect(engine.calls).toEqual([])
+    expect(repo.listAudit(db)).toHaveLength(0)
+  })
+
+  it("does not call startRun for a drive the engine reports as already active (Fix 1 belt-and-suspenders)", async () => {
+    const clean = drive({ serial: "CLEAN1" })
+    const api = new FakeDeviceApi({ drives: [clean] })
+    const engine = new EngineSpy()
+    // Simulates the drive already having an active run in this process via
+    // a different path (e.g. a boot-time reconcile() resume) that this
+    // poller's own #enqueued set was never told about.
+    engine.markActive("CLEAN1")
+    const poller = new AutoModePoller({ db, deviceApi: api, engine })
+
+    repo.updateConfig(db, { autoModeEnabled: true })
 
     await poller.pollOnce()
 

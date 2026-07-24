@@ -105,10 +105,6 @@ export interface SelfTestProgress {
 
 export type RegimeMode = "destructive" | "read-only"
 
-export interface SurfaceProgress {
-  percent: number
-}
-
 export type RunStatus = "PENDING" | "RUNNING" | "DONE" | "FAILED" | "ABORTED"
 
 /** Emitted by TestEngine on every run status transition. */

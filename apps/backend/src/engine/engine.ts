@@ -59,6 +59,19 @@ export class DriveGoneError extends Error {
   }
 }
 
+/** Thrown by `startRun` when the target drive already has an active run in
+ * this process (dispatched either via `startRun` or a `reconcile()` resume).
+ * Prevents two concurrent runs — most critically two concurrent destructive
+ * `badblocks -w` writers — against the same physical drive. */
+export class RunInProgressError extends Error {
+  readonly serial: string
+  constructor(serial: string) {
+    super(`drive with serial "${serial}" already has an active run`)
+    this.name = "RunInProgressError"
+    this.serial = serial
+  }
+}
+
 export interface TestEngineDeps {
   db: Db
   deviceApi: DeviceApi
@@ -108,6 +121,15 @@ export class TestEngine extends EventEmitter {
   private readonly selfTestPollIntervalMs: number
   private readonly semaphore: Semaphore
   private readonly controllers = new Map<number, AbortController>()
+  /** Drive serials with a run currently dispatched in this process (via
+   * `startRun` or a `reconcile()` resume). Populated synchronously at
+   * dispatch — alongside `controllers.set(...)` — and removed in the same
+   * `finally` block that clears the controller, so a serial is "active" for
+   * exactly as long as its run id is in `controllers`. This is the guard
+   * that stops two concurrent runs (e.g. a boot-time `reconcile()` resume
+   * racing an `AutoModePoller` enqueue) from both driving a destructive
+   * `badblocks -w` against the same physical drive. */
+  readonly #activeSerials = new Set<string>()
   /** Run ids that have reached a terminal DB status (DONE/FAILED/ABORTED).
    * Never pruned: once a run is terminal it must stay that way forever, so
    * `abortRun` needs to keep no-op'ing for that id even long after the
@@ -127,6 +149,14 @@ export class TestEngine extends EventEmitter {
 
   async startRun(input: { serial: string; mode: RegimeMode }): Promise<number> {
     const { serial, mode } = input
+    // Checked before any DB write: a second startRun (or a reconcile()
+    // resume already in flight) for the same physical drive must be
+    // rejected before a run/audit row is created, not just before the write
+    // stage — this is the single guard preventing two concurrent runs
+    // (most critically two concurrent destructive badblocks -w) on the
+    // same drive.
+    if (this.#activeSerials.has(serial)) throw new RunInProgressError(serial)
+
     const drives = await this.deviceApi.listDevices()
     const drive = drives.find((d) => d.serial === serial)
     if (!drive) throw new DriveNotFoundError(serial)
@@ -151,6 +181,7 @@ export class TestEngine extends EventEmitter {
 
     const controller = new AbortController()
     this.controllers.set(runId, controller)
+    this.#activeSerials.add(serial)
     // Fire-and-forget: bounded by the semaphore inside #execute. #execute
     // never rejects — it catches its own stage failures and, as a last
     // resort, any unexpected error too — so this has no unhandled-rejection
@@ -158,6 +189,13 @@ export class TestEngine extends EventEmitter {
     void this.#execute(runId, drive, mode, controller)
 
     return runId
+  }
+
+  /** True while `serial` has a run actively dispatched in this process
+   * (via `startRun` or a `reconcile()` resume) — i.e. it would be rejected
+   * by a fresh `startRun` call right now. */
+  isDriveActive(serial: string): boolean {
+    return this.#activeSerials.has(serial)
   }
 
   /**
@@ -193,9 +231,17 @@ export class TestEngine extends EventEmitter {
       // controllers.set below, before any await, so nothing can race past
       // this check for the same run id.
       if (this.controllers.has(run.id) || this.terminalRuns.has(run.id)) continue
+      // Same-drive guard as startRun's RunInProgressError: don't resume a
+      // run whose serial already has another run active in this process
+      // (e.g. startRun already dispatched a fresh run for this drive, or an
+      // earlier run in this same reconcile() batch already claimed it).
+      // Checked synchronously alongside the id-based guard above and the
+      // #activeSerials.add below, so nothing can race past it either.
+      if (this.#activeSerials.has(run.driveSerial)) continue
 
       const controller = new AbortController()
       this.controllers.set(run.id, controller)
+      this.#activeSerials.add(run.driveSerial)
       // Fire-and-forget, same contract as #execute: never rejects, always
       // leaves the run in a persisted terminal or RUNNING state.
       void this.#reconcileRun(run, controller)
@@ -228,6 +274,7 @@ export class TestEngine extends EventEmitter {
     } finally {
       release()
       this.controllers.delete(runId)
+      this.#activeSerials.delete(drive.serial)
     }
   }
 
@@ -289,6 +336,7 @@ export class TestEngine extends EventEmitter {
     } finally {
       release()
       this.controllers.delete(runId)
+      this.#activeSerials.delete(run.driveSerial)
     }
   }
 
@@ -426,7 +474,7 @@ export class TestEngine extends EventEmitter {
 
       if (controller.signal.aborted) {
         this.terminalRuns.add(runId)
-        updateRun(this.db, runId, { status: "ABORTED", finishedAt: new Date() })
+        updateRun(this.db, runId, { status: "ABORTED", currentStage: stage, finishedAt: new Date() })
         this.#emitRunUpdate({ runId, status: "ABORTED", currentStage: stage })
         return
       }
@@ -441,6 +489,11 @@ export class TestEngine extends EventEmitter {
           ? resume.reuseStageId
           : addStage(this.db, { runId, stage, status: "RUNNING" })
       const skipSelfTestStart = isFirstResumedIteration && resume?.skipSelfTestStart === true
+      // Persisted (not just emitted) so a DB read reflects the live stage —
+      // e.g. a process restart mid-stage, or any reader that isn't
+      // listening for run:update events, can still see where a RUNNING run
+      // currently is.
+      updateRun(this.db, runId, { currentStage: stage })
       this.#emitRunUpdate({ runId, status: "RUNNING", currentStage: stage })
 
       try {
@@ -457,7 +510,7 @@ export class TestEngine extends EventEmitter {
       } catch (err) {
         updateStage(this.db, stageId, { status: "FAILED" })
         this.terminalRuns.add(runId)
-        updateRun(this.db, runId, { status: "FAILED", error: String(err), finishedAt: new Date() })
+        updateRun(this.db, runId, { status: "FAILED", currentStage: stage, error: String(err), finishedAt: new Date() })
         this.#emitRunUpdate({ runId, status: "FAILED" })
         return
       }

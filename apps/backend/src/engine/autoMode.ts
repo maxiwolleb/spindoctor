@@ -11,6 +11,11 @@ import { checkDestructiveAllowed } from "../safety/guards"
  */
 export interface AutoModeEngine {
   startRun(input: { serial: string; mode: RegimeMode }): Promise<number>
+  /** True while `serial` already has a run active in this process (via
+   * `startRun` or a `reconcile()` resume) — consulted so the poller doesn't
+   * enqueue a second destructive run against a drive a boot-time reconcile
+   * is already driving. */
+  isDriveActive(serial: string): boolean
 }
 
 export interface AutoModePollerDeps {
@@ -65,14 +70,22 @@ export class AutoModePoller {
 
     for (const drive of drives) {
       if (this.#enqueued.has(drive.serial)) continue
+      // Belt-and-suspenders alongside #enqueued: catches a drive with a run
+      // already active in this process via a different path (e.g. a
+      // boot-time reconcile() resume) that this poller was never told
+      // about directly.
+      if (this.#engine.isDriveActive(drive.serial)) continue
 
       const decision = checkDestructiveAllowed(drive, { protectList })
       if (!decision.allowed) continue
 
       try {
         await this.#engine.startRun({ serial: drive.serial, mode: "destructive" })
-        appendAudit(this.#db, { action: "AUTO_ENQUEUE", driveSerial: drive.serial })
+        // Marked immediately on success — before appendAudit — so an audit
+        // write failure can't leave the drive un-enqueued and get it
+        // re-enqueued (and a second run started) on the next poll.
         this.#enqueued.add(drive.serial)
+        appendAudit(this.#db, { action: "AUTO_ENQUEUE", driveSerial: drive.serial })
       } catch {
         // Per-drive isolation: e.g. a race where the drive became unsafe (or
         // vanished) between the check above and startRun actually resolving
