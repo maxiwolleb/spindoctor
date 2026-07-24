@@ -1,0 +1,1 @@
+{ "devices": [ { "name": "/dev/sda", "type": "sat" }, { "name": "/dev/sdb", "type": "sat" }, { "name": "/dev/nvme0", "type": "nvme" } ] }

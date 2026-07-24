@@ -1,0 +1,11 @@
+{
+  "blockdevices": [
+    { "name": "sda", "type": "disk", "serial": "WD-WCC7K1", "wwn": "0x50014ee1", "model": "WDC WD40EFRX-68N32N0", "size": 4000787030016, "rota": true, "tran": "sata", "mountpoint": null,
+      "children": [ { "name": "sda1", "type": "part", "mountpoint": "/mnt/data" } ] },
+    { "name": "sdb", "type": "disk", "serial": "ZFL9AB", "wwn": null, "model": "ST2000DM008", "size": 2000398934016, "rota": true, "tran": "sata", "mountpoint": null },
+    { "name": "nvme0n1", "type": "disk", "serial": "S4EWNX0M", "wwn": "eui.0025", "model": "Samsung SSD 970 EVO", "size": 1000204886016, "rota": false, "tran": "nvme", "mountpoint": null,
+      "children": [ { "name": "nvme0n1p1", "type": "part", "mountpoint": "/boot/efi" }, { "name": "nvme0n1p2", "type": "part", "mountpoint": "/" } ] },
+    { "name": "sdc", "type": "disk", "serial": null, "wwn": null, "model": "Generic USB", "size": 8000000000, "rota": false, "tran": "usb", "mountpoint": null },
+    { "name": "sr0", "type": "rom", "serial": null, "model": "DVD", "size": 0, "rota": true, "tran": "sata", "mountpoint": null }
+  ]
+}
