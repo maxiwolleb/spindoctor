@@ -36,7 +36,7 @@ const variant = computed<Variant | null>(() => {
     class="run-progress"
     :class="{ 'run-progress--signature': variant === 'signature' }"
   >
-    <v-progress-linear :model-value="live.percent" color="primary" height="6" rounded class="run-progress__bar" />
+    <v-progress-linear :model-value="live.percent" color="primary" height="6" class="run-progress__bar" />
     <span class="run-progress__label text-caption text-medium-emphasis">{{ stageLabel(live.stage) }}</span>
   </div>
 </template>
@@ -61,7 +61,7 @@ const variant = computed<Variant | null>(() => {
   content: "";
   position: absolute;
   inset: 0;
-  background: linear-gradient(90deg, transparent, rgba(78, 161, 255, 0.55), transparent);
+  background: linear-gradient(90deg, transparent, rgba(var(--v-theme-primary), 0.55), transparent);
   transform: translateX(-100%);
   animation: run-progress-sweep 1.6s linear infinite;
   pointer-events: none;

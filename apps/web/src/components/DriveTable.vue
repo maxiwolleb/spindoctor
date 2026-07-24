@@ -42,6 +42,22 @@ function onRowClick(_event: Event, row: { item: DriveView }): void {
 function onStartClick(serial: string): void {
   emit("start", serial)
 }
+
+/** Makes each data row keyboard-openable, not just clickable: focusable via
+ * Tab, and Enter/Space triggers the same `open` emit as a row click. Without
+ * this, the "Open" affordance would be mouse-only. */
+function rowProps({ item }: { item: DriveView }): Record<string, unknown> {
+  return {
+    tabindex: 0,
+    role: "button",
+    "aria-label": `Open ${item.model} ${item.serial}`,
+    onKeydown: (event: KeyboardEvent) => {
+      if (event.key !== "Enter" && event.key !== " ") return
+      event.preventDefault()
+      emit("open", item.serial)
+    },
+  }
+}
 </script>
 
 <template>
@@ -52,6 +68,7 @@ function onStartClick(serial: string): void {
     density="comfortable"
     :items-per-page="-1"
     hide-default-footer
+    :row-props="rowProps"
     @click:row="onRowClick"
   >
     <template #item.status="{ item }">
@@ -96,6 +113,15 @@ function onStartClick(serial: string): void {
 </template>
 
 <style scoped>
+:deep(tr.v-data-table__tr) {
+  cursor: pointer;
+}
+
+:deep(tr.v-data-table__tr:focus-visible) {
+  outline: 2px solid rgb(var(--v-theme-primary));
+  outline-offset: -2px;
+}
+
 .status-dot {
   display: inline-block;
   width: 8px;

@@ -26,7 +26,6 @@ defineProps<{
           :model-value="stage.progress"
           color="primary"
           height="4"
-          rounded
           class="mb-1"
         />
         <span class="mono text-caption text-medium-emphasis">{{ stage.progress }}%</span>
@@ -42,13 +41,21 @@ defineProps<{
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 16px;
 }
 
 .stage-timeline__item {
   display: flex;
   align-items: flex-start;
   gap: 12px;
+  padding-bottom: 16px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.stage-timeline__item:last-child {
+  padding-bottom: 0;
+  margin-bottom: 0;
+  border-bottom: none;
 }
 
 .stage-timeline__marker {

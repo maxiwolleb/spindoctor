@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from "vue"
+import { useConsoleStore } from "./stores/useConsoleStore"
 
 interface NavItem {
   label: string
@@ -12,8 +12,10 @@ const navItems: NavItem[] = [
   { label: "Audit", to: "/audit" },
 ]
 
-// Wired to the console store's live SSE connection in a later task.
-const connected = ref(false)
+// The dashboard (or any other view) owns connectEvents()/disconnectEvents()
+// on mount/unmount; this shell just reads the shared store's `connected` flag
+// so the indicator reflects whichever view's live SSE connection is active.
+const store = useConsoleStore()
 </script>
 
 <template>
@@ -29,8 +31,8 @@ const connected = ref(false)
       <template #append>
         <span
           class="connection-dot mr-4"
-          :class="connected ? 'connection-dot--live' : 'connection-dot--dead'"
-          :title="connected ? 'Connected' : 'Disconnected'"
+          :class="store.connected ? 'connection-dot--live' : 'connection-dot--dead'"
+          :title="store.connected ? 'Connected' : 'Disconnected'"
         />
       </template>
     </v-app-bar>

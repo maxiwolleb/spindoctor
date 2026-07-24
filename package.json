@@ -6,7 +6,9 @@
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "pnpm -r --parallel typecheck"
+    "typecheck": "pnpm -r --parallel typecheck",
+    "build": "pnpm --filter @spindoctor/shared run typecheck && pnpm --filter @spindoctor/backend --if-present run build && pnpm --filter @spindoctor/web run build",
+    "dev": "pnpm --parallel --filter @spindoctor/backend --filter @spindoctor/web run dev"
   },
   "devDependencies": {
     "@types/node": "^22",

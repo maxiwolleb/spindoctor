@@ -95,6 +95,31 @@ describe("DriveTable", () => {
     expect(wrapper.emitted("open")).toEqual([["SERA1234"]])
   })
 
+  it("is keyboard-openable: the row is focusable and Enter emits open", async () => {
+    const wrapper = mount(DriveTable, {
+      props: { drives: [driveA], liveByDrive: {} },
+      global: { plugins: [vuetify] },
+    })
+
+    const row = wrapper.find("tr.v-data-table__tr")
+    expect(row.attributes("tabindex")).toBe("0")
+
+    await row.trigger("keydown", { key: "Enter" })
+
+    expect(wrapper.emitted("open")).toEqual([["SERA1234"]])
+  })
+
+  it("is keyboard-openable via Space too", async () => {
+    const wrapper = mount(DriveTable, {
+      props: { drives: [driveA], liveByDrive: {} },
+      global: { plugins: [vuetify] },
+    })
+
+    await wrapper.find("tr.v-data-table__tr").trigger("keydown", { key: " " })
+
+    expect(wrapper.emitted("open")).toEqual([["SERA1234"]])
+  })
+
   it("does not let clicking 'Start test' also emit open (event does not bubble into the row)", async () => {
     const wrapper = mount(DriveTable, {
       props: { drives: [driveA], liveByDrive: {} },
