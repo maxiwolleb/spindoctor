@@ -1,0 +1,19 @@
+{
+  "device": { "name": "/dev/sda", "type": "sat", "protocol": "ATA" },
+  "model_name": "WDC WD40EFRX-68N32N0",
+  "serial_number": "WD-WCC7K1234567",
+  "rotation_rate": 5400,
+  "user_capacity": { "bytes": 4000787030016 },
+  "smart_status": { "passed": true },
+  "temperature": { "current": 36 },
+  "ata_smart_data": {
+    "self_test": {
+      "status": {
+        "value": 249,
+        "string": "Self-test routine in progress",
+        "remaining_percent": 60
+      },
+      "polling_minutes": { "short": 2, "extended": 289 }
+    }
+  }
+}
