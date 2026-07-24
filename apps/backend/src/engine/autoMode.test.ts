@@ -49,6 +49,18 @@ beforeEach(() => {
   repo.ensureConfig(db)
 })
 
+/**
+ * Drains the microtask queue a fixed number of times so promise chains
+ * spanning multiple `await` boundaries (loop -> pollOnce-wrapper -> pollOnce)
+ * have a chance to settle. Deterministic — no timers/wall-clock involved — a
+ * few spare iterations beyond what's strictly needed are harmless no-ops.
+ */
+async function flushMicrotasks(times = 10): Promise<void> {
+  for (let i = 0; i < times; i++) {
+    await Promise.resolve()
+  }
+}
+
 describe("AutoModePoller.pollOnce", () => {
   it("upserts every discovered drive but enqueues none when auto-mode is off", async () => {
     const clean = drive({ serial: "CLEAN1" })
@@ -187,12 +199,130 @@ describe("AutoModePoller.start/stop", () => {
     expect(repo.listDrives(db)).toHaveLength(1)
     expect(sleepCalls).toEqual([1234])
 
-    poller.stop()
+    await poller.stop()
     resolveSleep?.()
     await Promise.resolve()
     await Promise.resolve()
 
     // Loop must not schedule a second sleep once stopped.
     expect(sleepCalls).toEqual([1234])
+  })
+
+  it("keeps the running loop alive (and never produces an unhandled rejection) after pollOnce() throws", async () => {
+    // Overrides the public pollOnce() that #loop() drives, rather than
+    // faking listDevices()/getConfig() failures individually, so this test
+    // proves the *loop-level* guard (Fix 1) — the backstop that catches ANY
+    // pollOnce() rejection, not just the listDevices() one pollOnce() already
+    // guards internally.
+    class FlakyPoller extends AutoModePoller {
+      calls = 0
+      override async pollOnce(): Promise<void> {
+        this.calls++
+        if (this.calls === 1) {
+          throw new Error("boom: simulated pollOnce failure")
+        }
+      }
+    }
+
+    const api = new FakeDeviceApi({ drives: [] })
+    const engine = new EngineSpy()
+
+    const sleepCalls: number[] = []
+    let resolveSleep: (() => void) | undefined
+    const sleep = (ms: number): Promise<void> => {
+      sleepCalls.push(ms)
+      return new Promise((resolve) => {
+        resolveSleep = resolve
+      })
+    }
+
+    const poller = new FlakyPoller({ db, deviceApi: api, engine, intervalMs: 10, sleep })
+
+    const unhandledRejections: unknown[] = []
+    const onUnhandledRejection = (err: unknown): void => {
+      unhandledRejections.push(err)
+    }
+    process.on("unhandledRejection", onUnhandledRejection)
+
+    try {
+      poller.start()
+      await flushMicrotasks()
+
+      // The first, throwing cycle ran and the loop parked on its sleep call
+      // — proof the throw was caught inside #loop rather than escaping it.
+      expect(poller.calls).toBe(1)
+      expect(sleepCalls).toEqual([10])
+
+      resolveSleep?.()
+      await flushMicrotasks()
+
+      // A second, succeeding cycle followed the throw: the loop survived.
+      expect(poller.calls).toBe(2)
+      expect(sleepCalls).toEqual([10, 10])
+
+      await flushMicrotasks()
+      expect(unhandledRejections).toEqual([])
+    } finally {
+      resolveSleep?.()
+      await poller.stop()
+      process.off("unhandledRejection", onUnhandledRejection)
+    }
+  })
+
+  it("stop() awaits an in-flight pollOnce() cycle before resolving, instead of racing it", async () => {
+    const api = new FakeDeviceApi({ drives: [] })
+    const engine = new EngineSpy()
+
+    let pollOnceStarted = false
+    let releasePollOnce: (() => void) | undefined
+
+    class SlowPoller extends AutoModePoller {
+      override async pollOnce(): Promise<void> {
+        pollOnceStarted = true
+        await new Promise<void>((resolve) => {
+          releasePollOnce = resolve
+        })
+      }
+    }
+
+    const sleepCalls: number[] = []
+    const sleep = (ms: number): Promise<void> => {
+      sleepCalls.push(ms)
+      return new Promise(() => {
+        // Never resolves; stop() is expected to interrupt the loop before it
+        // would be reached (the in-flight cycle hasn't finished yet).
+      })
+    }
+
+    const poller = new SlowPoller({ db, deviceApi: api, engine, intervalMs: 10, sleep })
+
+    poller.start()
+    await flushMicrotasks()
+    expect(pollOnceStarted).toBe(true)
+
+    let stopResolved = false
+    const stopPromise = poller.stop().then(() => {
+      stopResolved = true
+    })
+
+    await flushMicrotasks()
+    // Must not resolve while the in-flight cycle is still pending — this is
+    // the race main.ts's stop() depends on being closed (db closed under a
+    // mid-cycle poll).
+    expect(stopResolved).toBe(false)
+    expect(sleepCalls).toEqual([])
+
+    releasePollOnce?.()
+    await stopPromise
+
+    expect(stopResolved).toBe(true)
+  })
+
+  it("stop() resolves cleanly when called on an idle poller (never started)", async () => {
+    const api = new FakeDeviceApi({ drives: [] })
+    const engine = new EngineSpy()
+    const poller = new AutoModePoller({ db, deviceApi: api, engine })
+
+    await expect(poller.stop()).resolves.toBeUndefined()
   })
 })

@@ -67,7 +67,10 @@ export function createServer(overrides: CreateServerOverrides = {}): Server {
   }
 
   async function stop(): Promise<void> {
-    poller.stop()
+    // Await the poller before closing the app/db: it awaits any in-flight
+    // poll cycle, so we can't close the sqlite handle out from under a poll
+    // that's still mid-DB-call.
+    await poller.stop()
     await app.close()
     sqlite.close()
   }
@@ -82,6 +85,15 @@ function isEntryModule(): boolean {
 }
 
 if (isEntryModule()) {
+  // Last-resort backstop: a stray unhandled rejection anywhere in the
+  // process (not just the auto-mode loop, which already guards itself)
+  // logs instead of taking the whole daemon down. Installed only here, not
+  // at module top-level, so importing this module in tests never touches
+  // global process listeners.
+  process.on("unhandledRejection", (err: unknown) => {
+    console.error("[spindoctor] unhandled rejection:", err)
+  })
+
   const server = createServer()
 
   server.start().catch((err: unknown) => {

@@ -48,6 +48,14 @@ export class AutoModePoller {
    */
   readonly #enqueued = new Set<string>()
   #running = false
+  /**
+   * The in-flight poll cycle (wrapped so it can never reject — see
+   * `#runPollCycle`), tracked so `stop()` can await the currently-executing
+   * cycle instead of returning while a poll is still mid-DB-call. `null`
+   * whenever no cycle is in flight (including the whole time the loop is
+   * parked in `#sleep`).
+   */
+  #current: Promise<void> | null = null
 
   constructor(deps: AutoModePollerDeps) {
     this.#db = deps.db
@@ -113,15 +121,48 @@ export class AutoModePoller {
     void this.#loop()
   }
 
-  /** Stops the poll loop after its current `sleep` resolves. */
-  stop(): void {
+  /**
+   * Stops the poll loop and awaits the currently-executing cycle (if any)
+   * before resolving, so a caller (e.g. server shutdown) that closes the
+   * db/app right after `stop()` resolves can't race an in-flight poll that's
+   * still mid-DB-call. Does not wait out an in-progress `sleep` — once
+   * `#running` flips false the loop exits at the top of its next iteration
+   * without starting another cycle.
+   */
+  async stop(): Promise<void> {
     this.#running = false
+    if (this.#current) {
+      await this.#current
+    }
   }
 
   async #loop(): Promise<void> {
     while (this.#running) {
-      await this.pollOnce()
+      const cycle = this.#runPollCycle()
+      this.#current = cycle
+      await cycle
+      this.#current = null
+      // Stop was requested mid-cycle: exit now rather than sleeping first.
+      if (!this.#running) break
       await this.#sleep(this.#intervalMs)
+    }
+  }
+
+  /**
+   * Runs one `pollOnce()`, converting any rejection into a single log line.
+   * `#loop()` is dispatched fire-and-forget (`void this.#loop()`) with
+   * nothing above it to `.catch()`, so without this guard ANY throw from
+   * `pollOnce()` — not just the `listDevices()` failure it already guards
+   * internally — becomes an unhandled rejection that crashes the whole
+   * process (e.g. `getConfig()` or the `upsertDrive`/`startRun` loop
+   * throwing). This is the crash backstop on top of that inner guard;
+   * `pollOnce()` itself still rejects as normal for direct callers.
+   */
+  async #runPollCycle(): Promise<void> {
+    try {
+      await this.pollOnce()
+    } catch (err) {
+      console.error("[autoMode] poll cycle failed:", err)
     }
   }
 }
