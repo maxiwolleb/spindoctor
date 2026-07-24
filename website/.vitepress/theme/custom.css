@@ -1,0 +1,54 @@
+/**
+ * Accent + dark "instrument" palette, matched to apps/web's Vuetify theme
+ * (apps/web/src/plugins/vuetify.ts) so the docs site and the app read as
+ * one product.
+ */
+
+:root {
+  --vp-c-brand-1: #4ea1ff;
+  --vp-c-brand-2: #6db4ff;
+  --vp-c-brand-3: #3a8eea;
+  --vp-c-brand-soft: rgba(78, 161, 255, 0.16);
+}
+
+.dark {
+  --vp-c-bg: #0e1116;
+  --vp-c-bg-alt: #171b22;
+  --vp-c-bg-elv: #1f242d;
+  --vp-c-bg-soft: #171b22;
+
+  --vp-c-divider: #2a313c;
+  --vp-c-gutter: #2a313c;
+
+  --vp-c-text-1: #e6eaf0;
+  --vp-c-text-2: #b8c0cc;
+  --vp-c-text-3: #8b95a5;
+}
+
+/* PASS / WARN / FAIL — same hues the app uses for verdict states, reused
+   here for the ::: tip / ::: warning / ::: danger custom containers. */
+.dark {
+  --vp-custom-block-tip-border: transparent;
+  --vp-custom-block-tip-text: #e6eaf0;
+  --vp-custom-block-tip-bg: rgba(63, 185, 80, 0.16);
+
+  --vp-custom-block-warning-border: transparent;
+  --vp-custom-block-warning-text: #e6eaf0;
+  --vp-custom-block-warning-bg: rgba(210, 153, 34, 0.16);
+
+  --vp-custom-block-danger-border: transparent;
+  --vp-custom-block-danger-text: #e6eaf0;
+  --vp-custom-block-danger-bg: rgba(248, 81, 73, 0.16);
+}
+
+/* Serials, device paths, thresholds, env vars — tabular mono, matching the
+   app's `.mono` readouts. */
+:root {
+  --vp-font-family-mono: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+}
+
+code,
+.vp-code,
+div[class*="language-"] {
+  font-variant-numeric: tabular-nums;
+}

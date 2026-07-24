@@ -6,6 +6,8 @@ node_modules/
 dist/
 build/
 *.tsbuildinfo
+website/.vitepress/dist/
+website/.vitepress/cache/
 
 # Runtime data / test artifacts
 data/
