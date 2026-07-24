@@ -84,3 +84,15 @@ export interface VerdictResult {
   verdict: Verdict
   reasons: Reason[]
 }
+
+export interface DiscoveredDrive {
+  devicePath: string
+  serial: string
+  wwn: string | null
+  model: string
+  sizeBytes: number
+  type: DriveType
+  transport: Transport
+  mounted: boolean
+  isSystemDisk: boolean
+}
