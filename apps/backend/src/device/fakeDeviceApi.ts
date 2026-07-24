@@ -1,14 +1,21 @@
-import type { DiscoveredDrive, SelfTestProgress } from "@spindoctor/shared"
+import type { DiscoveredDrive, RegimeMode, SelfTestProgress, SurfaceResult } from "@spindoctor/shared"
 import type { DeviceApi } from "./deviceApi"
 
 export interface FakeDeviceApiState {
   drives?: DiscoveredDrive[]
   smartByPath?: Record<string, unknown>
   selfTestByPath?: Record<string, SelfTestProgress>
+  surface?: { plan?: number[]; result?: SurfaceResult }
+}
+
+/** `RegimeMode` names the user-facing regime; `SurfaceResult.mode` names the badblocks flag used. */
+function toSurfaceMode(mode: RegimeMode): SurfaceResult["mode"] {
+  return mode === "destructive" ? "write" : "read-only"
 }
 
 export class FakeDeviceApi implements DeviceApi {
   readonly started: string[] = []
+  readonly surfaceCalls: { devicePath: string; mode: RegimeMode }[] = []
   constructor(private state: FakeDeviceApiState = {}) {}
 
   async listDevices(): Promise<DiscoveredDrive[]> {
@@ -30,5 +37,27 @@ export class FakeDeviceApi implements DeviceApi {
         result: { status: "UNKNOWN" },
       }
     )
+  }
+
+  async runSurfaceTest(
+    devicePath: string,
+    mode: RegimeMode,
+    onProgress: (percent: number) => void,
+    signal: AbortSignal,
+  ): Promise<SurfaceResult> {
+    this.surfaceCalls.push({ devicePath, mode })
+    const plan = this.state.surface?.plan ?? [25, 50, 75, 100]
+    const aborted: SurfaceResult = { mode: toSurfaceMode(mode), badBlocks: 0, completed: false }
+
+    for (const percent of plan) {
+      if (signal.aborted) return aborted
+      onProgress(percent)
+      // Yield so an abort fired from within (or concurrently with) onProgress
+      // has a chance to land before the next step runs.
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      if (signal.aborted) return aborted
+    }
+
+    return this.state.surface?.result ?? { mode: toSurfaceMode(mode), badBlocks: 0, completed: true }
   }
 }
