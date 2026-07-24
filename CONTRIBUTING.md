@@ -53,6 +53,16 @@ docs: clarify auto-mode acknowledgment requirement
 
 Keep commits focused — one logical change per commit.
 
+## Documentation
+
+The docs site lives in `website/` (VitePress) and is built with
+`pnpm --filter @spindoctor/website docs:build`. It deploys to **GitLab
+Pages**, not GitHub Pages: this repository is hosted on GitHub and mirrored
+to GitLab (Settings → Repository → Mirroring repositories → pull/push
+mirror), and GitLab CI runs the `pages` job (`.gitlab-ci.yml`) on the
+default branch to publish it at
+`https://maxiwolleb.gitlab.io/spindoctor/`.
+
 ## Safety-sensitive changes
 
 Anything touching `apps/backend/src/safety/`, the auto-mode poller, or the

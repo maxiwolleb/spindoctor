@@ -189,7 +189,14 @@ built for a trusted LAN — do not expose it directly to the internet.
 
 ## Documentation
 
-A full docs site is planned for a later phase — coming soon.
+Full docs, including install/run, how-it-works, safety, configuration, and
+architecture guides, are at
+**[maxiwolleb.gitlab.io/spindoctor](https://maxiwolleb.gitlab.io/spindoctor/)**.
+
+The docs site (`website/`, VitePress) deploys to GitLab Pages. This
+repository lives on GitHub and is mirrored to GitLab so that GitLab CI can
+run the `pages` job — see [CONTRIBUTING.md](CONTRIBUTING.md#documentation)
+for details.
 
 ## License
 

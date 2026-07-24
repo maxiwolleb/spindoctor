@@ -1,0 +1,19 @@
+stages:
+  - deploy
+
+pages:
+  stage: deploy
+  image: node:22
+  variables:
+    DOCS_BASE: /spindoctor/
+  script:
+    - corepack enable
+    - corepack prepare pnpm@10.34.1 --activate
+    - pnpm install --frozen-lockfile
+    - pnpm --filter @spindoctor/website docs:build
+    - mv website/.vitepress/dist public
+  artifacts:
+    paths:
+      - public
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH

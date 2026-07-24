@@ -7,6 +7,11 @@ export default defineConfig({
   lang: "en-US",
   appearance: "dark",
 
+  // Local dev/build serve from the root. The GitLab Pages deploy is a
+  // project site (https://maxiwolleb.gitlab.io/spindoctor/), so CI sets
+  // DOCS_BASE=/spindoctor/ for that build only.
+  base: process.env.DOCS_BASE ?? "/",
+
   head: [["link", { rel: "icon", href: "/favicon.svg", type: "image/svg+xml" }]],
 
   themeConfig: {
