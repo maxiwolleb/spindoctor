@@ -1,0 +1,107 @@
+import fs from "node:fs"
+import path from "node:path"
+import { fileURLToPath, pathToFileURL } from "node:url"
+import type { FastifyInstance } from "fastify"
+import { createDb, type Db } from "./db/client"
+import { ensureConfig } from "./db/repositories"
+import { RealDeviceApi } from "./device/realDeviceApi"
+import { execFileRunner } from "./device/runner"
+import type { DeviceApi } from "./device/deviceApi"
+import { TestEngine } from "./engine/engine"
+import { AutoModePoller } from "./engine/autoMode"
+import { buildApp } from "./api/app"
+
+/** Built frontend location once `apps/web` is built (Phase 5): resolved
+ * relative to this module so it works regardless of the process's cwd. Only
+ * ever used if the directory actually exists on disk (see `buildApp`). */
+const defaultWebRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "web", "dist")
+
+export interface CreateServerOverrides {
+  dbPath?: string
+  port?: number
+  host?: string
+  webRoot?: string
+  deviceApi?: DeviceApi
+}
+
+export interface Server {
+  app: FastifyInstance
+  db: Db
+  engine: TestEngine
+  deviceApi: DeviceApi
+  poller: AutoModePoller
+  /** Reconciles interrupted runs, starts the auto-mode poller, then binds the port. */
+  start(): Promise<void>
+  /** Stops the poller, closes the HTTP server, then closes the sqlite handle. */
+  stop(): Promise<void>
+}
+
+/**
+ * Composes the whole backend from env (or `overrides`, for tests) without
+ * binding a port — that only happens in `start()`. Kept separate from the
+ * top-level entry guard below so tests can construct + inject against the
+ * app, or call `engine.reconcile()` directly, without ever opening a socket.
+ */
+export function createServer(overrides: CreateServerOverrides = {}): Server {
+  const dbPath = overrides.dbPath ?? process.env.SPINDOCTOR_DB ?? "./data/spindoctor.sqlite"
+  const port = overrides.port ?? Number(process.env.PORT ?? 8080)
+  const host = overrides.host ?? process.env.HOST ?? "0.0.0.0"
+  const webRoot = overrides.webRoot ?? process.env.SPINDOCTOR_WEB_ROOT ?? defaultWebRoot
+
+  if (dbPath !== ":memory:") {
+    fs.mkdirSync(path.dirname(dbPath), { recursive: true })
+  }
+
+  const { db, sqlite } = createDb(dbPath)
+  ensureConfig(db)
+
+  const deviceApi = overrides.deviceApi ?? new RealDeviceApi(execFileRunner)
+  const engine = new TestEngine({ db, deviceApi })
+  const app = buildApp({ db, deviceApi, engine, webRoot })
+  const poller = new AutoModePoller({ db, deviceApi, engine })
+
+  async function start(): Promise<void> {
+    await engine.reconcile()
+    poller.start()
+    await app.listen({ port, host })
+  }
+
+  async function stop(): Promise<void> {
+    poller.stop()
+    await app.close()
+    sqlite.close()
+  }
+
+  return { app, db, engine, deviceApi, poller, start, stop }
+}
+
+function isEntryModule(): boolean {
+  const entry = process.argv[1]
+  if (!entry) return false
+  return import.meta.url === pathToFileURL(entry).href
+}
+
+if (isEntryModule()) {
+  const server = createServer()
+
+  server.start().catch((err: unknown) => {
+    console.error(err)
+    process.exit(1)
+  })
+
+  let shuttingDown = false
+  const shutdown = (signal: NodeJS.Signals): void => {
+    if (shuttingDown) return
+    shuttingDown = true
+    console.log(`received ${signal}, shutting down...`)
+    server
+      .stop()
+      .then(() => process.exit(0))
+      .catch((err: unknown) => {
+        console.error(err)
+        process.exit(1)
+      })
+  }
+  process.on("SIGINT", shutdown)
+  process.on("SIGTERM", shutdown)
+}

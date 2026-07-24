@@ -1,4 +1,7 @@
-import Fastify, { type FastifyInstance } from "fastify"
+import fs from "node:fs"
+import path from "node:path"
+import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify"
+import fastifyStatic from "@fastify/static"
 import type { Db } from "../db/client"
 import type { DeviceApi } from "../device/deviceApi"
 import type { TestEngine } from "../engine/engine"
@@ -12,6 +15,13 @@ export interface AppDeps {
   db: Db
   deviceApi: DeviceApi
   engine: TestEngine
+  /**
+   * Directory containing the built frontend (e.g. `apps/web/dist`). Static
+   * serving + the SPA fallback are registered only when this is set AND the
+   * directory exists on disk, so tests and pre-web-build checkouts still
+   * boot the API cleanly with no static route at all.
+   */
+  webRoot?: string
 }
 
 /** Builds the Fastify instance with all `/api` routes registered. Does not `.listen()`. */
@@ -22,5 +32,21 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   void app.register(settingsRoutes(deps), { prefix: "/api" })
   void app.register(auditRoutes(deps), { prefix: "/api" })
   void app.register(eventsRoutes(deps), { prefix: "/api" })
+
+  if (deps.webRoot && fs.existsSync(deps.webRoot)) {
+    const webRoot = path.resolve(deps.webRoot)
+    void app.register(fastifyStatic, { root: webRoot })
+
+    // SPA fallback: any non-/api GET that didn't match a static file (or an
+    // API route) gets index.html so client-side routing works on a hard
+    // refresh/deep link. API 404s must stay JSON, never fall through to HTML.
+    app.setNotFoundHandler((request: FastifyRequest, reply: FastifyReply) => {
+      if (request.method === "GET" && !request.url.startsWith("/api")) {
+        return reply.sendFile("index.html", webRoot)
+      }
+      return reply.code(404).send({ error: `route not found: ${request.method} ${request.url}` })
+    })
+  }
+
   return app
 }
