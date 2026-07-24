@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from "vitest"
 import { DEFAULT_THRESHOLDS } from "@spindoctor/shared"
 import type { DiscoveredDrive } from "@spindoctor/shared"
 import { createDb, type Db } from "./client"
+import { auditLog } from "./schema"
 import * as repo from "./repositories"
 
 const drive = (over: Partial<DiscoveredDrive> = {}): DiscoveredDrive => ({
@@ -40,6 +41,13 @@ describe("config", () => {
     expect(c.autoModeEnabled).toBe(true)
     expect(c.protectList).toEqual(["X"])
     expect(c.thresholds).toEqual(DEFAULT_THRESHOLDS)
+  })
+  it("no-ops on an empty patch instead of throwing", () => {
+    repo.ensureConfig(db)
+    const before = repo.getConfig(db)
+    expect(() => repo.updateConfig(db, {})).not.toThrow()
+    const after = repo.updateConfig(db, {})
+    expect(after).toEqual(before)
   })
 })
 
@@ -80,5 +88,28 @@ describe("runs / stages / snapshots / audit", () => {
     const rows = repo.listAudit(db)
     expect(rows).toHaveLength(1)
     expect(rows[0]).toMatchObject({ action: "DESTRUCTIVE_START", driveSerial: "SER123", detail: "manual" })
+  })
+
+  it("no-ops on empty patches for updateRun and updateStage instead of throwing", () => {
+    const runId = repo.createRun(db, { driveSerial: "SER123", regime: ["SMART_BEFORE", "VERDICT"] })
+    const stageId = repo.addStage(db, { runId, stage: "SMART_BEFORE", status: "RUNNING" })
+    expect(() => repo.updateRun(db, runId, {})).not.toThrow()
+    expect(() => repo.updateStage(db, stageId, {})).not.toThrow()
+    expect(repo.getRun(db, runId)!.status).toBe("PENDING")
+  })
+})
+
+describe("audit ordering", () => {
+  let auditDb: Db
+  beforeEach(() => {
+    auditDb = createDb(":memory:").db
+  })
+
+  it("breaks same-timestamp ties by id descending (newest insert first)", () => {
+    const t = new Date(1_000_000)
+    auditDb.insert(auditLog).values({ ts: t, action: "A", driveSerial: null, detail: null }).run()
+    auditDb.insert(auditLog).values({ ts: t, action: "B", driveSerial: null, detail: null }).run()
+    const rows = repo.listAudit(auditDb)
+    expect(rows.map((r) => r.action)).toEqual(["B", "A"])
   })
 })

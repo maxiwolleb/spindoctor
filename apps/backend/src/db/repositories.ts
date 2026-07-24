@@ -41,6 +41,7 @@ export function getConfig(db: Db): ConfigRow {
 }
 
 export function updateConfig(db: Db, patch: Partial<ConfigUpdate>): ConfigRow {
+  if (Object.keys(patch).length === 0) return getConfig(db)
   db.update(config).set(patch).where(eq(config.id, 1)).run()
   return getConfig(db)
 }
@@ -125,6 +126,7 @@ export interface RunUpdate {
 }
 
 export function updateRun(db: Db, id: number, patch: Partial<RunUpdate>): void {
+  if (Object.keys(patch).length === 0) return
   db.update(testRuns).set(patch).where(eq(testRuns.id, id)).run()
 }
 
@@ -152,6 +154,7 @@ export interface StageUpdate {
 }
 
 export function updateStage(db: Db, id: number, patch: Partial<StageUpdate>): void {
+  if (Object.keys(patch).length === 0) return
   db.update(stageResults).set(patch).where(eq(stageResults.id, id)).run()
 }
 
@@ -186,5 +189,5 @@ export function appendAudit(db: Db, input: { action: string; driveSerial?: strin
 }
 
 export function listAudit(db: Db): AuditRow[] {
-  return db.select().from(auditLog).orderBy(desc(auditLog.ts)).all()
+  return db.select().from(auditLog).orderBy(desc(auditLog.ts), desc(auditLog.id)).all()
 }
