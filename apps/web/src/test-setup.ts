@@ -28,9 +28,9 @@ if (typeof window.matchMedia !== "function") {
 
 // jsdom's CSS.supports throws "not implemented" for most feature queries;
 // Vuetify probes it for progressive-enhancement checks, so make it a no-op.
-if (typeof global.CSS === "undefined" || typeof global.CSS.supports !== "function") {
+if (typeof globalThis.CSS === "undefined" || typeof globalThis.CSS.supports !== "function") {
   // @ts-expect-error minimal jsdom shim, not a full CSSOM implementation
-  global.CSS = { supports: (): boolean => false }
+  globalThis.CSS = { supports: (): boolean => false }
 }
 
 // jsdom has no visualViewport at all (not even as `undefined` on `window`),
