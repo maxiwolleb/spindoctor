@@ -108,3 +108,20 @@ export type RegimeMode = "destructive" | "read-only"
 export interface SurfaceProgress {
   percent: number
 }
+
+export type RunStatus = "PENDING" | "RUNNING" | "DONE" | "FAILED" | "ABORTED"
+
+/** Emitted by TestEngine on every run status transition. */
+export interface RunUpdateEvent {
+  runId: number
+  status: RunStatus
+  currentStage?: StageName
+  verdict?: Verdict
+}
+
+/** Emitted by TestEngine for in-progress stages (SELFTEST_LONG, SURFACE). */
+export interface StageProgressEvent {
+  runId: number
+  stage: StageName
+  percent: number
+}
