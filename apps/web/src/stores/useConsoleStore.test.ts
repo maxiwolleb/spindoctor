@@ -110,6 +110,28 @@ describe("useConsoleStore", () => {
     expect(store.connected).toBe(false)
   })
 
+  it("a second connectEvents() call closes the previous EventSource (no double-subscribe)", () => {
+    const store = useConsoleStore()
+
+    store.connectEvents()
+    const first = source
+    first.emit("open")
+    expect(first.closed).toBe(false)
+    expect(store.connected).toBe(true)
+
+    const second = new FakeEventSource()
+    setConsoleDeps({ eventSourceFactory: () => second })
+    store.connectEvents()
+
+    expect(first.closed).toBe(true)
+    // Re-mount tore down the stale connection: connected reflects only the
+    // new source now, not a leftover "true" from the closed one.
+    expect(store.connected).toBe(false)
+
+    second.emit("open")
+    expect(store.connected).toBe(true)
+  })
+
   it("disconnectEvents closes the source and sets connected false", () => {
     const store = useConsoleStore()
     store.connectEvents()

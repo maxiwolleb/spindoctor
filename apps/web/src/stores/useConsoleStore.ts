@@ -167,6 +167,11 @@ export const useConsoleStore = defineStore("console", () => {
   }
 
   function connectEvents(): void {
+    // Idempotent: a re-mount (or any accidental double-call) tears down any
+    // existing connection first, so we never leak a stale EventSource or
+    // double-register its listeners.
+    disconnectEvents()
+
     const es = deps.eventSourceFactory("/api/events")
 
     es.addEventListener("open", () => {
