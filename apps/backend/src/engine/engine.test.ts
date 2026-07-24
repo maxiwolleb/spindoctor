@@ -64,6 +64,29 @@ class SequencedSelfTestApi extends FakeDeviceApi {
   }
 }
 
+/**
+ * FakeDeviceApi variant whose listDevices() returns a different snapshot on
+ * each call — used to simulate a drive's state changing between startRun's
+ * initial safety check and the SURFACE stage's pre-write re-check.
+ */
+class ChangingDeviceApi extends FakeDeviceApi {
+  private calls = 0
+  constructor(
+    state: FakeDeviceApiState,
+    private readonly snapshots: DiscoveredDrive[][],
+  ) {
+    super(state)
+  }
+
+  override async listDevices(): Promise<DiscoveredDrive[]> {
+    const idx = Math.min(this.calls, this.snapshots.length - 1)
+    this.calls++
+    const snapshot = this.snapshots[idx]
+    if (!snapshot) throw new Error("no scripted listDevices snapshot")
+    return snapshot
+  }
+}
+
 let db: Db
 beforeEach(() => {
   db = createDb(":memory:").db
@@ -126,6 +149,10 @@ describe("TestEngine full-run behavior", () => {
     const stages = db.select().from(stageResults).where(eq(stageResults.runId, runId)).all()
     expect(stages).toHaveLength(5)
     expect(stages.every((s) => s.status === "DONE")).toBe(true)
+
+    // Fix 4: the SURFACE stage row persists the SurfaceResult for forensics.
+    const surfaceStage = stages.find((s) => s.stage === "SURFACE")
+    expect(surfaceStage?.metrics).toEqual({ mode: "write", badBlocks: 0, completed: true })
 
     expect(events.some((e) => e.status === "DONE")).toBe(true)
   })
@@ -211,6 +238,94 @@ describe("TestEngine full-run behavior", () => {
     const terminal = await waitForSettled(engine, ctx.runId)
 
     expect(terminal.status).toBe("ABORTED")
-    expect(repo.getRun(db, ctx.runId)!.status).toBe("ABORTED")
+    const run = repo.getRun(db, ctx.runId)!
+    expect(run.status).toBe("ABORTED")
+
+    // Fix 2: the stage that was actually interrupted (SURFACE) must be
+    // recorded ABORTED — not DONE — and currentStage must point at it, not
+    // at the next stage in the regime.
+    expect(terminal.currentStage).toBe("SURFACE")
+    expect(run.currentStage).toBe("SURFACE")
+    const stages = db.select().from(stageResults).where(eq(stageResults.runId, ctx.runId)).all()
+    const surfaceStage = stages.find((s) => s.stage === "SURFACE")
+    expect(surfaceStage?.status).toBe("ABORTED")
+  })
+})
+
+describe("TestEngine SURFACE stage safety re-check (TOCTOU guard)", () => {
+  it("denies the destructive write when the drive becomes mounted between startRun and the SURFACE stage", async () => {
+    const clean = drive()
+    const mountedNow = drive({ mounted: true })
+    const api = new ChangingDeviceApi(
+      {
+        smartByPath: { [clean.devicePath]: smartRaw() },
+        selfTestByPath: { [clean.devicePath]: PASSED_SELFTEST },
+        surface: { plan: [100], result: { mode: "write", badBlocks: 0, completed: true } },
+      },
+      [[clean], [mountedNow]],
+    )
+    const engine = new TestEngine({ db, deviceApi: api, sleep: async () => {}, selfTestPollIntervalMs: 0 })
+
+    const runId = await engine.startRun({ serial: clean.serial, mode: "destructive" })
+    const terminal = await waitForSettled(engine, runId)
+
+    expect(terminal.status).toBe("FAILED")
+    expect(api.surfaceCalls).toEqual([])
+
+    const run = repo.getRun(db, runId)!
+    expect(run.status).toBe("FAILED")
+    expect(run.error).toContain("MOUNTED")
+
+    const stages = db.select().from(stageResults).where(eq(stageResults.runId, runId)).all()
+    expect(stages.find((s) => s.stage === "SURFACE")?.status).toBe("FAILED")
+
+    const audit = repo.listAudit(db)
+    expect(audit).toContainEqual(
+      expect.objectContaining({ action: "DESTRUCTIVE_RECHECK_DENIED", driveSerial: clean.serial, detail: "MOUNTED" }),
+    )
+  })
+
+  it("denies the destructive write when the drive is no longer present at the SURFACE stage", async () => {
+    const clean = drive()
+    const api = new ChangingDeviceApi(
+      {
+        smartByPath: { [clean.devicePath]: smartRaw() },
+        selfTestByPath: { [clean.devicePath]: PASSED_SELFTEST },
+      },
+      [[clean], []],
+    )
+    const engine = new TestEngine({ db, deviceApi: api, sleep: async () => {}, selfTestPollIntervalMs: 0 })
+
+    const runId = await engine.startRun({ serial: clean.serial, mode: "destructive" })
+    const terminal = await waitForSettled(engine, runId)
+
+    expect(terminal.status).toBe("FAILED")
+    expect(api.surfaceCalls).toEqual([])
+
+    const audit = repo.listAudit(db)
+    expect(audit).toContainEqual(
+      expect.objectContaining({ action: "DESTRUCTIVE_RECHECK_DENIED", driveSerial: clean.serial, detail: "DRIVE_GONE" }),
+    )
+  })
+
+  it("does not re-check safety for a read-only regime", async () => {
+    const clean = drive()
+    const mountedNow = drive({ mounted: true })
+    const api = new ChangingDeviceApi(
+      {
+        smartByPath: { [clean.devicePath]: smartRaw() },
+        selfTestByPath: { [clean.devicePath]: PASSED_SELFTEST },
+        surface: { plan: [100], result: { mode: "read-only", badBlocks: 0, completed: true } },
+      },
+      [[clean], [mountedNow]],
+    )
+    const engine = new TestEngine({ db, deviceApi: api, sleep: async () => {}, selfTestPollIntervalMs: 0 })
+
+    const runId = await engine.startRun({ serial: clean.serial, mode: "read-only" })
+    const terminal = await waitForSettled(engine, runId)
+
+    expect(terminal.status).toBe("DONE")
+    expect(api.surfaceCalls).toEqual([{ devicePath: clean.devicePath, mode: "read-only" }])
+    expect(repo.listAudit(db).some((a) => a.action === "DESTRUCTIVE_RECHECK_DENIED")).toBe(false)
   })
 })

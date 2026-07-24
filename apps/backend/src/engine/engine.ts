@@ -91,8 +91,7 @@ export class TestEngine extends EventEmitter {
     if (!drive) throw new DriveNotFoundError(serial)
 
     if (mode === "destructive") {
-      const protectList = getConfig(this.db).protectList as string[]
-      const decision = checkDestructiveAllowed(drive, { protectList })
+      const decision = checkDestructiveAllowed(drive, { protectList: this.#protectList() })
       if (!decision.allowed) {
         appendAudit(this.db, { action: "DESTRUCTIVE_DENIED", driveSerial: serial, detail: decision.code })
         throw new SafetyError(decision.code, decision.reason)
@@ -168,18 +167,31 @@ export class TestEngine extends EventEmitter {
 
       try {
         await this.#runStage(runId, stage, stageId, surfaceMode, drive, state, controller)
-        // Idempotent: VERDICT already persists its own DONE status (see
-        // #runVerdictStage) before emitting the terminal run:update, so
-        // that a listener reacting to that event never observes a stale
-        // RUNNING stage row. This call is a harmless no-op re-write for
-        // VERDICT and the normal completion path for every other stage.
-        updateStage(this.db, stageId, { status: "DONE", progress: 100 })
       } catch (err) {
         updateStage(this.db, stageId, { status: "FAILED" })
         updateRun(this.db, runId, { status: "FAILED", error: String(err), finishedAt: new Date() })
         this.#emitRunUpdate({ runId, status: "FAILED" })
         return
       }
+
+      // Stages return cooperatively on abort (they don't throw), so check
+      // right here — not on the next loop iteration — or the interrupted
+      // stage gets mis-recorded DONE and the reported currentStage becomes
+      // the *next* stage instead of the one that was actually interrupted.
+      if (controller.signal.aborted) {
+        updateStage(this.db, stageId, { status: "ABORTED" })
+        updateRun(this.db, runId, { status: "ABORTED", currentStage: stage, finishedAt: new Date() })
+        this.#emitRunUpdate({ runId, status: "ABORTED", currentStage: stage })
+        return
+      }
+
+      // Idempotent: VERDICT and SURFACE already persist their own terminal
+      // status (see #runVerdictStage and #runSurfaceStage) before this
+      // point, so that a listener reacting to the terminal run:update event
+      // never observes a stale RUNNING stage row. This call is a harmless
+      // no-op re-write for them and the normal completion path for every
+      // other stage.
+      updateStage(this.db, stageId, { status: "DONE", progress: 100 })
     }
   }
 
@@ -203,7 +215,7 @@ export class TestEngine extends EventEmitter {
         state.selfTest = await this.#runSelfTestStage(runId, drive.devicePath, controller)
         return
       case "SURFACE":
-        state.surface = await this.#runSurfaceStage(runId, drive.devicePath, surfaceMode!, controller)
+        state.surface = await this.#runSurfaceStage(runId, stageId, surfaceMode!, drive, controller)
         return
       case "VERDICT":
         this.#runVerdictStage(runId, stageId, drive, state)
@@ -248,16 +260,71 @@ export class TestEngine extends EventEmitter {
 
   async #runSurfaceStage(
     runId: number,
-    devicePath: string,
+    stageId: number,
     mode: RegimeMode,
+    drive: DiscoveredDrive,
     controller: AbortController,
   ): Promise<SurfaceResult> {
-    return this.deviceApi.runSurfaceTest(
+    let devicePath = drive.devicePath
+
+    // TOCTOU guard: startRun's safety check ran before the (possibly
+    // hours-long) self-test stage. A drive can become mounted/system/
+    // protected — or vanish entirely — in that window, so re-resolve and
+    // re-check immediately before the destructive write, never trusting
+    // the drive snapshot the run started with. Read-only surface scans
+    // don't write anything, so they don't need this.
+    if (mode === "destructive") {
+      const recheck = await this.#recheckDestructiveSafety(drive.serial)
+      if (!recheck.allowed) {
+        appendAudit(this.db, {
+          action: "DESTRUCTIVE_RECHECK_DENIED",
+          driveSerial: drive.serial,
+          detail: recheck.code,
+        })
+        throw new SafetyError(recheck.code, `safety re-check failed: ${recheck.code}`)
+      }
+      // Device paths are transient — use the freshly-resolved one, not the
+      // possibly-stale path captured at startRun time.
+      devicePath = recheck.drive.devicePath
+    }
+
+    const surfaceResult = await this.deviceApi.runSurfaceTest(
       devicePath,
       mode,
       (percent) => this.#emitStageProgress({ runId, stage: "SURFACE", percent }),
       controller.signal,
     )
+
+    // Persist the bad-block count + completed flag for forensics/reconcile
+    // regardless of outcome. #run's post-stage abort check is the single
+    // source of truth for the final DONE-vs-ABORTED call and harmlessly
+    // re-writes `status` afterwards, so it's fine to set it here too.
+    updateStage(this.db, stageId, {
+      status: surfaceResult.completed ? "DONE" : "ABORTED",
+      progress: 100,
+      metrics: surfaceResult,
+    })
+
+    return surfaceResult
+  }
+
+  /** Re-resolves the drive by serial and re-runs the destructive safety check. */
+  async #recheckDestructiveSafety(
+    serial: string,
+  ): Promise<{ allowed: true; drive: DiscoveredDrive } | { allowed: false; code: string }> {
+    const drives = await this.deviceApi.listDevices()
+    const fresh = drives.find((d) => d.serial === serial)
+    if (!fresh) return { allowed: false, code: "DRIVE_GONE" }
+
+    const decision = checkDestructiveAllowed(fresh, { protectList: this.#protectList() })
+    if (!decision.allowed) return { allowed: false, code: decision.code }
+    return { allowed: true, drive: fresh }
+  }
+
+  /** Guards against a malformed config throwing a raw TypeError inside a safety check. */
+  #protectList(): string[] {
+    const cfg = getConfig(this.db)
+    return Array.isArray(cfg.protectList) ? (cfg.protectList as string[]) : []
   }
 
   #runVerdictStage(runId: number, stageId: number, drive: DiscoveredDrive, state: RunState): void {
