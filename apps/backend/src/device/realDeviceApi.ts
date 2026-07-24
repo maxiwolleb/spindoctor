@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process"
-import { readFile } from "node:fs/promises"
+import { readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { randomUUID } from "node:crypto"
@@ -137,11 +137,18 @@ export class RealDeviceApi implements DeviceApi {
       signal.addEventListener("abort", onAbort, { once: true })
 
       child.stderr.on("data", (chunk: Buffer) => {
+        if (signal.aborted) return
         const percent = parseBadblocksPercent(chunk.toString())
         if (percent !== null) onProgress(percent)
       })
 
+      // Both `close` and `error` fire on a spawn failure (confirmed on Node
+      // 22), so `finish` must only act once: only the first termination
+      // event reads the logfile, tears down listeners, and resolves.
+      let settled = false
       const finish = async (code: number | null) => {
+        if (settled) return
+        settled = true
         signal.removeEventListener("abort", onAbort)
         let log = ""
         try {
@@ -150,7 +157,13 @@ export class RealDeviceApi implements DeviceApi {
           // Logfile may legitimately be absent (killed before badblocks wrote it).
           log = ""
         }
-        resolve({ mode: surfaceMode, badBlocks: countBadBlocks(log), completed: code === 0 })
+        const badBlocks = countBadBlocks(log)
+        resolve({ mode: surfaceMode, badBlocks, completed: code === 0 })
+        try {
+          await rm(logfile, { force: true })
+        } catch {
+          // Best-effort cleanup only — a failure/absent file must never throw.
+        }
       }
 
       child.on("close", (code) => {

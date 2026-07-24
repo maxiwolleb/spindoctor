@@ -85,4 +85,26 @@ describe("RealDeviceApi.runSurfaceTest (against the badblocks emulator)", () => 
     expect(elapsed).toBeLessThan(2000)
     expect(result).toEqual({ mode: "write", badBlocks: 0, completed: false })
   }, 8000)
+
+  it("resolves once (not hanging or throwing) when the command fails to spawn", async () => {
+    const api = new RealDeviceApi(execFileRunner, {
+      logDir: dir,
+      surfaceCommand: "/nonexistent/definitely-not-badblocks-xyz",
+    })
+
+    // Both the child's `error` and `close` events fire on a spawn failure
+    // (confirmed on Node 22) — without a single-resolution guard this would
+    // either throw on a double `resolve()` call or hang the test.
+    const start = Date.now()
+    const result = await api.runSurfaceTest(
+      "/dev/fake",
+      "destructive",
+      () => {},
+      new AbortController().signal,
+    )
+    const elapsed = Date.now() - start
+
+    expect(elapsed).toBeLessThan(2000)
+    expect(result).toMatchObject({ completed: false, badBlocks: 0 })
+  }, 3000)
 })
