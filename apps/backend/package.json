@@ -4,9 +4,11 @@
   "private": true,
   "type": "module",
   "dependencies": {
+    "@fastify/static": "^10.1.2",
     "@spindoctor/shared": "workspace:*",
     "better-sqlite3": "^13.0.1",
-    "drizzle-orm": "^0.45.2"
+    "drizzle-orm": "^0.45.2",
+    "fastify": "^5.10.0"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

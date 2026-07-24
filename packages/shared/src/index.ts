@@ -121,3 +121,17 @@ export interface StageProgressEvent {
   stage: StageName
   percent: number
 }
+
+/** API-facing view of a drive: DB-known fields plus live discovery state. */
+export interface DriveView {
+  serial: string
+  model: string
+  sizeBytes: number
+  type: DriveType
+  transport: Transport
+  present: boolean
+  mounted: boolean
+  isSystemDisk: boolean
+  protected: boolean
+  latestRun: { id: number; status: string; verdict: Verdict | null; currentStage: string | null } | null
+}
