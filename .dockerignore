@@ -1,0 +1,25 @@
+# Dependencies / build output — reinstalled and rebuilt inside the image
+**/node_modules
+**/dist
+
+# Runtime data — never bake a DB into the image
+**/*.sqlite*
+data
+
+# VCS
+.git
+
+# Docs/notes and screenshots — not needed at runtime
+docs
+assets
+
+# Root-level dotfiles/dot-directories (editor + local tooling config, env
+# files, etc.) — none of it belongs in the image.
+/.*
+
+# Root-level docs/notes (README stays out too — not needed at runtime)
+/*.md
+
+# Tests — not needed at runtime
+**/*.test.ts
+**/*.spec.ts

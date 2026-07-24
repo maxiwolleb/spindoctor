@@ -1,0 +1,46 @@
+# Example deployment. Adjust the image/tag, ports, and (if you intend to run
+# destructive drive tests) the device-passthrough block below before use.
+services:
+  spindoctor:
+    image: ghcr.io/maxiwolleb/spindoctor:latest
+    # Uncomment to build from a local checkout instead of pulling the image:
+    # build: .
+    ports:
+      - "8080:8080"
+    volumes:
+      # App database (SQLite) lives here; back this up like you would any
+      # other stateful volume.
+      - ./data:/data
+    restart: unless-stopped
+
+    # ---------------------------------------------------------------------
+    # Device passthrough — REQUIRED for real SMART/badblocks/hdparm access,
+    # OFF by default so a plain `docker compose up` never touches host disks.
+    #
+    # ⚠️  DESTRUCTIVE: any drive you pass through here (or grant raw access
+    # to via privileged/cap_add) can be WIPED by this tool's badblocks -w
+    # stage. Only enable this for disks you intend to test-to-destruction,
+    # never for a disk holding data you want to keep, and never for the
+    # host's own system/boot disk.
+    #
+    # Pick ONE of the two approaches below, then also add the `devices:`
+    # list naming the specific drives to expose (do not omit `devices:` —
+    # without it, `privileged: true` alone still hands the container every
+    # block device on the host).
+    #
+    # Option A — broadest, simplest, most dangerous: full device access.
+    # privileged: true
+    #
+    # Option B — narrower: only the raw-I/O + admin capabilities the CLI
+    # tools need (smartctl/badblocks/hdparm), without full privileged mode.
+    # cap_add:
+    #   - SYS_RAWIO
+    #   - SYS_ADMIN
+    #
+    # Either way, list the exact drives to pass through (replace /dev/sdX,
+    # /dev/sdY with the real device paths on the host — double-check with
+    # `lsblk` first):
+    # devices:
+    #   - "/dev/sdX:/dev/sdX"
+    #   - "/dev/sdY:/dev/sdY"
+    # ---------------------------------------------------------------------
