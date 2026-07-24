@@ -44,6 +44,17 @@ export class SafetyError extends Error {
   }
 }
 
+/** Thrown when a drive vanishes between stages — device paths are transient,
+ * so any stage that needs to touch the device after a long-running
+ * intermediate stage (self-test, surface write) must re-resolve by serial
+ * rather than trust an earlier snapshot, and fail closed if it's gone. */
+export class DriveGoneError extends Error {
+  constructor(serial: string) {
+    super(`drive with serial "${serial}" is no longer present (DRIVE_GONE)`)
+    this.name = "DriveGoneError"
+  }
+}
+
 export interface TestEngineDeps {
   db: Db
   deviceApi: DeviceApi
@@ -74,6 +85,11 @@ export class TestEngine extends EventEmitter {
   private readonly selfTestPollIntervalMs: number
   private readonly semaphore: Semaphore
   private readonly controllers = new Map<number, AbortController>()
+  /** Run ids that have reached a terminal DB status (DONE/FAILED/ABORTED).
+   * Never pruned: once a run is terminal it must stay that way forever, so
+   * `abortRun` needs to keep no-op'ing for that id even long after the
+   * controller itself has been cleaned up. */
+  private readonly terminalRuns = new Set<number>()
 
   constructor(deps: TestEngineDeps) {
     super()
@@ -119,7 +135,17 @@ export class TestEngine extends EventEmitter {
     return runId
   }
 
+  /**
+   * No-ops for a run that has already reached a terminal status (or that
+   * has no active controller, e.g. an unknown/already-finished run id).
+   * Without this guard, a `run:update` listener that reacts synchronously to
+   * a terminal DONE/FAILED/ABORTED event — e.g. Phase 4's SSE bridge and
+   * cancel button — could call `abortRun` on an already-settled run and
+   * re-trigger the post-stage abort path, corrupting a persisted verdict
+   * and emitting a second terminal event.
+   */
   abortRun(runId: number): void {
+    if (this.terminalRuns.has(runId)) return
     this.controllers.get(runId)?.abort()
   }
 
@@ -138,6 +164,7 @@ export class TestEngine extends EventEmitter {
       // a persisted FAILED run. This only guards run-level bookkeeping
       // (e.g. an unexpected DB error) that would otherwise escape as an
       // unhandled rejection from the fire-and-forget call in startRun.
+      this.terminalRuns.add(runId)
       try {
         updateRun(this.db, runId, { status: "FAILED", error: String(err), finishedAt: new Date() })
         this.#emitRunUpdate({ runId, status: "FAILED" })
@@ -154,9 +181,15 @@ export class TestEngine extends EventEmitter {
   async #run(runId: number, drive: DiscoveredDrive, mode: RegimeMode, controller: AbortController): Promise<void> {
     updateRun(this.db, runId, { status: "RUNNING" })
     const state: RunState = { surface: null }
+    // Device paths are transient, so this is reassigned whenever a stage
+    // re-resolves the drive (SURFACE's destructive re-check, SMART_AFTER's
+    // fresh by-serial lookup) — every later stage, including VERDICT, uses
+    // whatever is current at the time it runs.
+    let currentDrive = drive
 
     for (const { stage, surfaceMode } of regimeStages(mode)) {
       if (controller.signal.aborted) {
+        this.terminalRuns.add(runId)
         updateRun(this.db, runId, { status: "ABORTED", finishedAt: new Date() })
         this.#emitRunUpdate({ runId, status: "ABORTED", currentStage: stage })
         return
@@ -166,13 +199,24 @@ export class TestEngine extends EventEmitter {
       this.#emitRunUpdate({ runId, status: "RUNNING", currentStage: stage })
 
       try {
-        await this.#runStage(runId, stage, stageId, surfaceMode, drive, state, controller)
+        currentDrive = await this.#runStage(runId, stage, stageId, surfaceMode, currentDrive, state, controller)
       } catch (err) {
         updateStage(this.db, stageId, { status: "FAILED" })
+        this.terminalRuns.add(runId)
         updateRun(this.db, runId, { status: "FAILED", error: String(err), finishedAt: new Date() })
         this.#emitRunUpdate({ runId, status: "FAILED" })
         return
       }
+
+      // VERDICT already persisted its own terminal DONE status and emitted
+      // the terminal run:update *inside* #runVerdictStage — marking the run
+      // terminal (see there) before it does, so abortRun() is already a
+      // no-op for a listener reacting synchronously to that event. Returning
+      // immediately here is belt-and-suspenders: it also means the
+      // cooperative-abort check below (meant for stages that can be
+      // interrupted mid-flight) never runs for VERDICT, so a DONE run can
+      // never be re-labelled ABORTED afterwards.
+      if (stage === "VERDICT") return
 
       // Stages return cooperatively on abort (they don't throw), so check
       // right here — not on the next loop iteration — or the interrupted
@@ -180,21 +224,27 @@ export class TestEngine extends EventEmitter {
       // the *next* stage instead of the one that was actually interrupted.
       if (controller.signal.aborted) {
         updateStage(this.db, stageId, { status: "ABORTED" })
+        this.terminalRuns.add(runId)
         updateRun(this.db, runId, { status: "ABORTED", currentStage: stage, finishedAt: new Date() })
         this.#emitRunUpdate({ runId, status: "ABORTED", currentStage: stage })
         return
       }
 
-      // Idempotent: VERDICT and SURFACE already persist their own terminal
-      // status (see #runVerdictStage and #runSurfaceStage) before this
-      // point, so that a listener reacting to the terminal run:update event
-      // never observes a stale RUNNING stage row. This call is a harmless
-      // no-op re-write for them and the normal completion path for every
-      // other stage.
+      // Idempotent: SURFACE already persists its own terminal status (see
+      // #runSurfaceStage) before this point, so that a listener reacting to
+      // an ABORTED run:update event never observes a stale RUNNING stage
+      // row. This call is a harmless no-op re-write for it and the normal
+      // completion path for every other non-VERDICT stage.
       updateStage(this.db, stageId, { status: "DONE", progress: 100 })
     }
   }
 
+  /**
+   * Runs one stage and returns the drive to use for every subsequent stage.
+   * Most stages return `drive` unchanged; SURFACE and SMART_AFTER may
+   * re-resolve it (device paths are transient — see the DriveGoneError/
+   * #resolveDriveBySerial doc comments) and hand back a fresher snapshot.
+   */
   async #runStage(
     runId: number,
     stage: StageName,
@@ -203,23 +253,39 @@ export class TestEngine extends EventEmitter {
     drive: DiscoveredDrive,
     state: RunState,
     controller: AbortController,
-  ): Promise<void> {
+  ): Promise<DiscoveredDrive> {
     switch (stage) {
       case "SMART_BEFORE":
         state.before = await this.#runSmartStage(runId, drive.devicePath, "before")
-        return
-      case "SMART_AFTER":
-        state.after = await this.#runSmartStage(runId, drive.devicePath, "after")
-        return
+        return drive
+      case "SMART_AFTER": {
+        // The drive may have sat through a long self-test and/or a
+        // destructive surface write since it was last resolved — re-resolve
+        // by serial rather than trust a stale/possibly-reused device path.
+        const fresh = await this.#resolveDriveBySerial(drive.serial)
+        if (!fresh) throw new DriveGoneError(drive.serial)
+        state.after = await this.#runSmartStage(runId, fresh.devicePath, "after")
+        return fresh
+      }
       case "SELFTEST_LONG":
         state.selfTest = await this.#runSelfTestStage(runId, drive.devicePath, controller)
-        return
-      case "SURFACE":
-        state.surface = await this.#runSurfaceStage(runId, stageId, surfaceMode!, drive, controller)
-        return
+        return drive
+      case "SURFACE": {
+        const result = await this.#runSurfaceStage(runId, stageId, surfaceMode!, drive, controller)
+        state.surface = result.surface
+        return result.drive
+      }
       case "VERDICT":
         this.#runVerdictStage(runId, stageId, drive, state)
-        return
+        return drive
+      default: {
+        // Exhaustiveness guard: StageName covers exactly these five stages,
+        // so this is unreachable — keeps the return type honest without a
+        // non-null assertion if a new stage is ever added without updating
+        // this switch.
+        const unhandled: never = stage
+        throw new Error(`unhandled stage: ${String(unhandled)}`)
+      }
     }
   }
 
@@ -264,8 +330,9 @@ export class TestEngine extends EventEmitter {
     mode: RegimeMode,
     drive: DiscoveredDrive,
     controller: AbortController,
-  ): Promise<SurfaceResult> {
+  ): Promise<{ surface: SurfaceResult; drive: DiscoveredDrive }> {
     let devicePath = drive.devicePath
+    let currentDrive = drive
 
     // TOCTOU guard: startRun's safety check ran before the (possibly
     // hours-long) self-test stage. A drive can become mounted/system/
@@ -284,8 +351,11 @@ export class TestEngine extends EventEmitter {
         throw new SafetyError(recheck.code, `safety re-check failed: ${recheck.code}`)
       }
       // Device paths are transient — use the freshly-resolved one, not the
-      // possibly-stale path captured at startRun time.
+      // possibly-stale path captured at startRun time. Thread it forward so
+      // later stages (SMART_AFTER's own re-resolve, VERDICT) start from it
+      // too instead of falling back to the startRun-time snapshot.
       devicePath = recheck.drive.devicePath
+      currentDrive = recheck.drive
     }
 
     const surfaceResult = await this.deviceApi.runSurfaceTest(
@@ -305,20 +375,32 @@ export class TestEngine extends EventEmitter {
       metrics: surfaceResult,
     })
 
-    return surfaceResult
+    return { surface: surfaceResult, drive: currentDrive }
   }
 
   /** Re-resolves the drive by serial and re-runs the destructive safety check. */
   async #recheckDestructiveSafety(
     serial: string,
   ): Promise<{ allowed: true; drive: DiscoveredDrive } | { allowed: false; code: string }> {
-    const drives = await this.deviceApi.listDevices()
-    const fresh = drives.find((d) => d.serial === serial)
+    const fresh = await this.#resolveDriveBySerial(serial)
     if (!fresh) return { allowed: false, code: "DRIVE_GONE" }
 
     const decision = checkDestructiveAllowed(fresh, { protectList: this.#protectList() })
     if (!decision.allowed) return { allowed: false, code: decision.code }
     return { allowed: true, drive: fresh }
+  }
+
+  /**
+   * Re-resolves a drive by serial via a fresh `listDevices()` call. Device
+   * paths are transient (a device node can be reassigned or reused across a
+   * long-running regime), so any stage that still needs to touch the
+   * physical device after a long intermediate stage (self-test, surface
+   * write) must re-resolve rather than trust a snapshot captured earlier in
+   * the run. Returns `undefined` if the drive is no longer present.
+   */
+  async #resolveDriveBySerial(serial: string): Promise<DiscoveredDrive | undefined> {
+    const drives = await this.deviceApi.listDevices()
+    return drives.find((d) => d.serial === serial)
   }
 
   /** Guards against a malformed config throwing a raw TypeError inside a safety check. */
@@ -343,6 +425,12 @@ export class TestEngine extends EventEmitter {
       surface,
       thresholds: getConfig(this.db).thresholds as Thresholds,
     })
+
+    // Mark the run terminal *before* persisting/emitting DONE: abortRun() is
+    // a no-op for a terminal run (see there), so a run:update listener that
+    // reacts synchronously to this very event by calling abortRun() can
+    // never race a second ABORTED transition underneath it.
+    this.terminalRuns.add(runId)
 
     // Persist the VERDICT stage row as DONE *before* marking the run DONE
     // and emitting the terminal run:update — otherwise a listener reacting

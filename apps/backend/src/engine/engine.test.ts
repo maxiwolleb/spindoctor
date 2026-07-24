@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest"
+import { describe, it, expect, beforeEach, vi } from "vitest"
 import { eq } from "drizzle-orm"
 import type { DiscoveredDrive, RunUpdateEvent, SelfTestProgress } from "@spindoctor/shared"
 import { createDb, type Db } from "../db/client"
@@ -250,6 +250,46 @@ describe("TestEngine full-run behavior", () => {
     const surfaceStage = stages.find((s) => s.stage === "SURFACE")
     expect(surfaceStage?.status).toBe("ABORTED")
   })
+
+  it("does not let abortRun called from a DONE listener re-label an already-terminal run (Fix A)", async () => {
+    const d = drive()
+    const api = new FakeDeviceApi({
+      drives: [d],
+      smartByPath: { [d.devicePath]: smartRaw() },
+      selfTestByPath: { [d.devicePath]: PASSED_SELFTEST },
+      surface: { plan: [100], result: { mode: "write", badBlocks: 0, completed: true } },
+    })
+    const engine = new TestEngine({ db, deviceApi: api, sleep: async () => {}, selfTestPollIntervalMs: 0 })
+
+    const terminalEvents: RunUpdateEvent[] = []
+    engine.on("run:update", (evt: RunUpdateEvent) => {
+      if (!isTerminal(evt.status)) return
+      terminalEvents.push(evt)
+      // Simulates Phase 4's SSE/cancel-button wiring: a listener reacting
+      // synchronously to the terminal event calls abortRun on the very run
+      // that just finished.
+      if (evt.status === "DONE") engine.abortRun(evt.runId)
+    })
+
+    const runId = await engine.startRun({ serial: d.serial, mode: "destructive" })
+    const terminal = await waitForSettled(engine, runId)
+    // Give any (incorrect) re-labelling a chance to land before asserting.
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(terminal.status).toBe("DONE")
+
+    const run = repo.getRun(db, runId)!
+    expect(run.status).toBe("DONE")
+    expect(run.verdict).toBe("PASS")
+
+    expect(terminalEvents).toHaveLength(1)
+    expect(terminalEvents[0]?.status).toBe("DONE")
+
+    // A no-op abortRun on an already-terminal run must not touch the
+    // controller/stage bookkeeping either.
+    const stages = db.select().from(stageResults).where(eq(stageResults.runId, runId)).all()
+    expect(stages.every((s) => s.status === "DONE")).toBe(true)
+  })
 })
 
 describe("TestEngine SURFACE stage safety re-check (TOCTOU guard)", () => {
@@ -327,5 +367,117 @@ describe("TestEngine SURFACE stage safety re-check (TOCTOU guard)", () => {
     expect(terminal.status).toBe("DONE")
     expect(api.surfaceCalls).toEqual([{ devicePath: clean.devicePath, mode: "read-only" }])
     expect(repo.listAudit(db).some((a) => a.action === "DESTRUCTIVE_RECHECK_DENIED")).toBe(false)
+  })
+})
+
+describe("TestEngine.abortRun no-op guards (Fix A)", () => {
+  it("no-ops for a run id with no active controller (unknown/already-finished run)", () => {
+    const engine = new TestEngine({ db, deviceApi: new FakeDeviceApi({ drives: [] }) })
+    expect(() => engine.abortRun(999)).not.toThrow()
+  })
+})
+
+describe("TestEngine SMART_AFTER/VERDICT fresh device path (Fix B)", () => {
+  it("re-resolves the drive by serial before SMART_AFTER and reads from the fresh device path", async () => {
+    const original = drive()
+    const relocated = drive({ devicePath: "/dev/sdz" })
+    const api = new ChangingDeviceApi(
+      {
+        smartByPath: {
+          [original.devicePath]: smartRaw({ temperature: { current: 30 } }),
+          [relocated.devicePath]: smartRaw({ temperature: { current: 31 } }),
+        },
+        selfTestByPath: { [original.devicePath]: PASSED_SELFTEST },
+        surface: { plan: [100], result: { mode: "write", badBlocks: 0, completed: true } },
+      },
+      // call 0: startRun's listDevices, call 1: SURFACE's destructive
+      // re-check (drive hasn't moved yet), call 2: the new pre-SMART_AFTER
+      // re-resolve — this is where the device node has been reassigned.
+      [[original], [original], [relocated]],
+    )
+    const engine = new TestEngine({ db, deviceApi: api, sleep: async () => {}, selfTestPollIntervalMs: 0 })
+    const readSmartSpy = vi.spyOn(api, "readSmartRaw")
+
+    const runId = await engine.startRun({ serial: original.serial, mode: "destructive" })
+    const terminal = await waitForSettled(engine, runId)
+
+    expect(terminal.status).toBe("DONE")
+
+    // SURFACE wrote to the path resolved at that point (unchanged here).
+    expect(api.surfaceCalls).toEqual([{ devicePath: original.devicePath, mode: "destructive" }])
+
+    // SMART_BEFORE read the original path; SMART_AFTER must have read the
+    // freshly re-resolved one, not the stale startRun-time snapshot.
+    expect(readSmartSpy.mock.calls).toEqual([[original.devicePath], [relocated.devicePath]])
+
+    const snapshots = db.select().from(smartSnapshots).where(eq(smartSnapshots.runId, runId)).all()
+    expect(snapshots.map((s) => s.phase).sort()).toEqual(["after", "before"])
+  })
+
+  it("fails the run with DRIVE_GONE, without reading SMART_AFTER, when the drive disappears before SMART_AFTER", async () => {
+    const clean = drive()
+    const api = new ChangingDeviceApi(
+      {
+        smartByPath: { [clean.devicePath]: smartRaw() },
+        selfTestByPath: { [clean.devicePath]: PASSED_SELFTEST },
+        surface: { plan: [100], result: { mode: "write", badBlocks: 0, completed: true } },
+      },
+      // call 0: startRun, call 1: SURFACE's destructive re-check (still
+      // present, the write proceeds), call 2: pre-SMART_AFTER re-resolve —
+      // the drive is gone.
+      [[clean], [clean], []],
+    )
+    const engine = new TestEngine({ db, deviceApi: api, sleep: async () => {}, selfTestPollIntervalMs: 0 })
+    const readSmartSpy = vi.spyOn(api, "readSmartRaw")
+
+    const runId = await engine.startRun({ serial: clean.serial, mode: "destructive" })
+    const terminal = await waitForSettled(engine, runId)
+
+    expect(terminal.status).toBe("FAILED")
+
+    const run = repo.getRun(db, runId)!
+    expect(run.status).toBe("FAILED")
+    expect(run.error).toContain("DRIVE_GONE")
+
+    // The destructive surface write already happened (the drive was still
+    // present at that point)...
+    expect(api.surfaceCalls).toHaveLength(1)
+
+    // ...but the after-read must fail closed: only the "before" SMART read
+    // was ever attempted, never an "after" read against a vanished drive.
+    expect(readSmartSpy.mock.calls).toEqual([[clean.devicePath]])
+    const snapshots = db.select().from(smartSnapshots).where(eq(smartSnapshots.runId, runId)).all()
+    expect(snapshots.map((s) => s.phase)).toEqual(["before"])
+
+    const stages = db.select().from(stageResults).where(eq(stageResults.runId, runId)).all()
+    expect(stages.find((s) => s.stage === "SMART_AFTER")?.status).toBe("FAILED")
+    // VERDICT never ran.
+    expect(stages.find((s) => s.stage === "VERDICT")).toBeUndefined()
+  })
+
+  it("re-resolves the drive before SMART_AFTER for a read-only regime too (device paths are transient regardless of mode)", async () => {
+    const original = drive()
+    const relocated = drive({ devicePath: "/dev/sdz" })
+    const api = new ChangingDeviceApi(
+      {
+        smartByPath: {
+          [original.devicePath]: smartRaw(),
+          [relocated.devicePath]: smartRaw(),
+        },
+        selfTestByPath: { [original.devicePath]: PASSED_SELFTEST },
+        surface: { plan: [100], result: { mode: "read-only", badBlocks: 0, completed: true } },
+      },
+      // call 0: startRun, call 1: pre-SMART_AFTER re-resolve (no SURFACE
+      // re-check call for read-only regimes).
+      [[original], [relocated]],
+    )
+    const engine = new TestEngine({ db, deviceApi: api, sleep: async () => {}, selfTestPollIntervalMs: 0 })
+    const readSmartSpy = vi.spyOn(api, "readSmartRaw")
+
+    const runId = await engine.startRun({ serial: original.serial, mode: "read-only" })
+    const terminal = await waitForSettled(engine, runId)
+
+    expect(terminal.status).toBe("DONE")
+    expect(readSmartSpy.mock.calls).toEqual([[original.devicePath], [relocated.devicePath]])
   })
 })
