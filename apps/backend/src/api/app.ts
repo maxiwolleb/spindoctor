@@ -4,6 +4,7 @@ import type { DeviceApi } from "../device/deviceApi"
 import type { TestEngine } from "../engine/engine"
 import { auditRoutes } from "./routes/audit"
 import { drivesRoutes } from "./routes/drives"
+import { eventsRoutes } from "./routes/events"
 import { runsRoutes } from "./routes/runs"
 import { settingsRoutes } from "./routes/settings"
 
@@ -20,5 +21,6 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   void app.register(runsRoutes(deps), { prefix: "/api" })
   void app.register(settingsRoutes(deps), { prefix: "/api" })
   void app.register(auditRoutes(deps), { prefix: "/api" })
+  void app.register(eventsRoutes(deps), { prefix: "/api" })
   return app
 }
