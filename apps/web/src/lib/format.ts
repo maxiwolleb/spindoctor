@@ -63,7 +63,9 @@ export function stageLabel(stage: string): string {
 }
 
 /** `RunStatus` → Vuetify color name, following the same palette as
- * `verdictColor` (idle/pending → secondary, running → primary). */
+ * `verdictColor` (idle/pending → secondary, running → primary). Stage rows
+ * carry the same status vocabulary plus `INTERRUPTED` (a reconciled-away
+ * stale surface stage); that falls through to the neutral default here. */
 export function runStatusColor(status: string): "primary" | "secondary" | "success" | "warning" | "error" {
   switch (status) {
     case "PENDING":
@@ -79,4 +81,19 @@ export function runStatusColor(status: string): "primary" | "secondary" | "succe
     default:
       return "secondary"
   }
+}
+
+const STAGE_STATUS_LABELS: Record<string, string> = {
+  PENDING: "Pending",
+  RUNNING: "Running",
+  DONE: "Done",
+  FAILED: "Failed",
+  ABORTED: "Aborted",
+  INTERRUPTED: "Interrupted",
+}
+
+/** Human label for a stage-result `status`. Falls back to the raw value,
+ * same policy as `stageLabel`. */
+export function stageStatusLabel(status: string): string {
+  return STAGE_STATUS_LABELS[status] ?? status
 }

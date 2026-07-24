@@ -1,4 +1,4 @@
-import type { CreateRunRequest, DriveView, RunView, SettingsView, StageView } from "@spindoctor/shared"
+import type { CreateRunRequest, DriveView, RunView, SettingsView, SmartKeyMetrics, StageView } from "@spindoctor/shared"
 
 /** Wire shape of `GET /api/audit`. Not part of `@spindoctor/shared` because
  * it mirrors a DB row rather than an engine-crossing DTO; `ts` arrives as an
@@ -20,6 +20,9 @@ export interface DriveDetail {
 export interface RunDetail {
   run: RunView
   stages: StageView[]
+  /** Before/after SMART key metrics for the run, `null` for a phase not yet
+   * captured (still running, or a regime that skips one side). */
+  snapshots: { before: SmartKeyMetrics | null; after: SmartKeyMetrics | null }
 }
 
 interface ErrorBody {

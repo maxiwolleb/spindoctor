@@ -32,3 +32,14 @@ if (typeof global.CSS === "undefined" || typeof global.CSS.supports !== "functio
   // @ts-expect-error minimal jsdom shim, not a full CSSOM implementation
   global.CSS = { supports: (): boolean => false }
 }
+
+// jsdom has no visualViewport at all (not even as `undefined` on `window`),
+// so Vuetify's overlay location strategies (used by v-dialog/v-menu, first
+// exercised by StartTestDialog) throw a bare `ReferenceError` resolving the
+// global. A minimal stub is enough for it to attach/detach its listeners.
+if (typeof window.visualViewport === "undefined") {
+  window.visualViewport = {
+    addEventListener: () => {},
+    removeEventListener: () => {},
+  } as unknown as VisualViewport
+}

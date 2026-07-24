@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { Verdict } from "@spindoctor/shared"
-import { humanBytes, runStatusColor, stageLabel, verdictColor, verdictLabel } from "./format"
+import { humanBytes, runStatusColor, stageLabel, stageStatusLabel, verdictColor, verdictLabel } from "./format"
 
 describe("humanBytes", () => {
   const cases: Array<[number, string]> = [
@@ -80,5 +80,21 @@ describe("runStatusColor", () => {
 
   it.each(cases)("maps %s to %s", (status, color) => {
     expect(runStatusColor(status)).toBe(color)
+  })
+})
+
+describe("stageStatusLabel", () => {
+  const cases: Array<[string, string]> = [
+    ["PENDING", "Pending"],
+    ["RUNNING", "Running"],
+    ["DONE", "Done"],
+    ["FAILED", "Failed"],
+    ["ABORTED", "Aborted"],
+    ["INTERRUPTED", "Interrupted"],
+    ["SOME_UNKNOWN_STATUS", "SOME_UNKNOWN_STATUS"],
+  ]
+
+  it.each(cases)("labels %s as %s", (status, label) => {
+    expect(stageStatusLabel(status)).toBe(label)
   })
 })
