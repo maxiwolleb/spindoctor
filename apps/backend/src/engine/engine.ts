@@ -1,4 +1,5 @@
 import { EventEmitter } from "node:events"
+import { and, desc, eq } from "drizzle-orm"
 import type {
   DiscoveredDrive,
   RegimeMode,
@@ -15,16 +16,19 @@ import type { DeviceApi } from "../device/deviceApi"
 import { parseSmartMetrics } from "../device/smartParser"
 import { evaluateVerdict } from "../verdict/evaluate"
 import { checkDestructiveAllowed } from "../safety/guards"
+import { smartSnapshots, stageResults } from "../db/schema"
 import {
   addStage,
   appendAudit,
   createRun,
   getConfig,
+  listRuns,
   saveSnapshot,
   updateRun,
   updateStage,
   upsertDrive,
 } from "../db/repositories"
+import type { RunRow, StageRow } from "../db/repositories"
 import { Semaphore } from "./semaphore"
 import { regimeStages } from "./regime"
 
@@ -72,6 +76,25 @@ interface RunState {
 }
 
 /**
+ * Resume instructions threaded from `reconcile()`/`#reconcileRun` into
+ * `#run`, so a startup-interrupted run continues through the exact same
+ * stage-execution loop a fresh run uses instead of a parallel code path.
+ */
+interface ResumeInfo {
+  /** Index into `regimeStages(mode)` to start the loop at. */
+  fromIndex: number
+  /** Pre-populated with the outcomes of every stage strictly before `fromIndex`. */
+  state: RunState
+  /** Set only when resuming a SELFTEST_LONG stage by polling: the existing
+   * RUNNING stage row to keep updating instead of inserting a new one. */
+  reuseStageId?: number
+  /** Set only when resuming a SELFTEST_LONG stage by polling: the firmware
+   * test itself kept running across the restart, so don't call
+   * `startLongSelfTest` again. */
+  skipSelfTestStart?: boolean
+}
+
+/**
  * Orchestrates a single drive through the health regime (SMART -> long
  * self-test -> surface scan -> SMART -> verdict), persisting every
  * transition and emitting progress events. Stage execution runs
@@ -90,6 +113,8 @@ export class TestEngine extends EventEmitter {
    * `abortRun` needs to keep no-op'ing for that id even long after the
    * controller itself has been cleaned up. */
   private readonly terminalRuns = new Set<number>()
+  /** Cap on SURFACE-stage restarts via reconcile() before giving up on a run. */
+  private static readonly MAX_RESTARTS = 3
 
   constructor(deps: TestEngineDeps) {
     super()
@@ -149,6 +174,34 @@ export class TestEngine extends EventEmitter {
     this.controllers.get(runId)?.abort()
   }
 
+  /**
+   * Resumes every run left non-terminal (RUNNING/PENDING) by a previous
+   * process's death — a container restart, most commonly. Each run is
+   * resumed from the first stage its persisted `stage_results` don't show
+   * as DONE, reusing the same stage-execution loop (`#run`) a fresh run
+   * uses; see `#reconcileRun`/`#planResume` for the per-stage resume rules.
+   * Fire-and-forget per run (bounded by the same semaphore as `startRun`),
+   * so this resolves once every non-terminal run has been dispatched, not
+   * once they've all finished running.
+   */
+  async reconcile(): Promise<void> {
+    const runs = listRuns(this.db).filter((r) => r.status === "RUNNING" || r.status === "PENDING")
+    for (const run of runs) {
+      // Guard against double-starting a run already being executed in this
+      // process — e.g. a run already driven by startRun, or an overlapping
+      // reconcile() call. Checked synchronously, together with the
+      // controllers.set below, before any await, so nothing can race past
+      // this check for the same run id.
+      if (this.controllers.has(run.id) || this.terminalRuns.has(run.id)) continue
+
+      const controller = new AbortController()
+      this.controllers.set(run.id, controller)
+      // Fire-and-forget, same contract as #execute: never rejects, always
+      // leaves the run in a persisted terminal or RUNNING state.
+      void this.#reconcileRun(run, controller)
+    }
+  }
+
   /** Wraps #run so the fire-and-forget call in startRun can never reject. */
   async #execute(
     runId: number,
@@ -178,16 +231,199 @@ export class TestEngine extends EventEmitter {
     }
   }
 
-  async #run(runId: number, drive: DiscoveredDrive, mode: RegimeMode, controller: AbortController): Promise<void> {
-    updateRun(this.db, runId, { status: "RUNNING" })
+  /** Resumes a single interrupted run; wraps #run so reconcile()'s fire-and-forget dispatch can never reject. */
+  async #reconcileRun(run: RunRow, controller: AbortController): Promise<void> {
+    const runId = run.id
+    const release = await this.semaphore.acquire()
+    try {
+      const regime = run.regime as { mode: RegimeMode }
+      const drive = await this.#resolveDriveBySerial(run.driveSerial)
+      if (!drive) {
+        this.terminalRuns.add(runId)
+        updateRun(this.db, runId, { status: "FAILED", error: "DRIVE_GONE", finishedAt: new Date() })
+        this.#emitRunUpdate({ runId, status: "FAILED" })
+        return
+      }
+
+      const plan = this.#planResume(run, regime.mode)
+
+      if (plan.tooManyRestarts) {
+        this.terminalRuns.add(runId)
+        updateRun(this.db, runId, { status: "FAILED", error: "TOO_MANY_RESTARTS", finishedAt: new Date() })
+        this.#emitRunUpdate({ runId, status: "FAILED" })
+        return
+      }
+
+      // SURFACE interrupted mid-write/scan: the old attempt is
+      // unsalvageable (badblocks doesn't checkpoint), so it's restarted
+      // from scratch — the stale row is relabelled INTERRUPTED (it was
+      // neither DONE nor FAILED) and the restart is counted before #run
+      // inserts a fresh SURFACE row and re-runs it, destructive safety
+      // re-check included (that guard already lives in #runSurfaceStage
+      // and fires unconditionally for every destructive SURFACE attempt).
+      if (plan.staleSurfaceStageId !== undefined) {
+        updateStage(this.db, plan.staleSurfaceStageId, { status: "INTERRUPTED" })
+        updateRun(this.db, runId, { restartCount: run.restartCount + 1 })
+      }
+
+      await this.#run(runId, drive, regime.mode, controller, {
+        fromIndex: plan.fromIndex,
+        state: plan.state,
+        reuseStageId: plan.reuseStageId,
+        skipSelfTestStart: plan.skipSelfTestStart,
+      })
+    } catch (err) {
+      // Defense in depth, mirroring #execute: the logic above already turns
+      // expected failures (DRIVE_GONE, TOO_MANY_RESTARTS, stage errors via
+      // #run) into a persisted FAILED run. This only guards against
+      // something unexpected (e.g. a DB error) escaping as an unhandled
+      // rejection from the fire-and-forget call in reconcile().
+      this.terminalRuns.add(runId)
+      try {
+        updateRun(this.db, runId, { status: "FAILED", error: String(err), finishedAt: new Date() })
+        this.#emitRunUpdate({ runId, status: "FAILED" })
+      } catch {
+        // Truly last resort (e.g. the DB itself is broken): swallow rather
+        // than crash the process from a background task.
+      }
+    } finally {
+      release()
+      this.controllers.delete(runId)
+    }
+  }
+
+  /**
+   * Works out where a non-terminal run left off, from its persisted
+   * `stage_results`, and what resuming that stage requires:
+   *  - SELFTEST_LONG still RUNNING → resume by polling only (the firmware
+   *    kept the test running across the restart); reuse the existing row.
+   *  - SURFACE still RUNNING → cannot be resumed in place (badblocks
+   *    doesn't checkpoint); restart it from scratch, unless `restartCount`
+   *    has already hit the cap, in which case give up.
+   *  - anything else → just re-run that stage via the normal fresh-row path.
+   * Also reconstructs the in-memory `RunState` for every stage strictly
+   * before the resume point from smart snapshots and (for SELFTEST_LONG/
+   * SURFACE) each stage row's persisted `metrics`, since #run's loop never
+   * re-executes those stages on a resumed run.
+   */
+  #planResume(
+    run: RunRow,
+    mode: RegimeMode,
+  ): {
+    fromIndex: number
+    state: RunState
+    reuseStageId?: number
+    skipSelfTestStart?: boolean
+    staleSurfaceStageId?: number
+    tooManyRestarts?: boolean
+  } {
+    const stages = regimeStages(mode)
+    const stageRows = this.db
+      .select()
+      .from(stageResults)
+      .where(eq(stageResults.runId, run.id))
+      .orderBy(stageResults.id)
+      .all()
+
+    const latestByStage = new Map<StageName, StageRow>()
+    for (const row of stageRows) {
+      latestByStage.set(row.stage as StageName, row)
+    }
+
+    let resumeIndex = stages.findIndex((s) => latestByStage.get(s.stage)?.status !== "DONE")
+    if (resumeIndex === -1) {
+      // Defensive fallback: every persisted stage is DONE but the run
+      // itself was never marked terminal. Shouldn't happen — VERDICT marks
+      // both the stage row and the run DONE in the same synchronous call —
+      // but re-running VERDICT is the safe default over a silent no-op.
+      resumeIndex = stages.length - 1
+    }
+
     const state: RunState = { surface: null }
+    for (let i = 0; i < resumeIndex; i++) {
+      const step = stages[i]
+      if (!step) continue
+      const row = latestByStage.get(step.stage)
+      if (!row) continue
+      switch (step.stage) {
+        case "SMART_BEFORE":
+          state.before = this.#loadSnapshot(run.id, "before")
+          break
+        case "SELFTEST_LONG":
+          if (row.metrics) state.selfTest = row.metrics as SelfTestResult
+          break
+        case "SURFACE":
+          if (row.metrics) state.surface = row.metrics as SurfaceResult
+          break
+        case "SMART_AFTER":
+          state.after = this.#loadSnapshot(run.id, "after")
+          break
+        default:
+          break
+      }
+    }
+
+    const resumeStage = stages[resumeIndex]
+    if (!resumeStage) return { fromIndex: resumeIndex, state } // unreachable given the bounds above
+    const currentRow = latestByStage.get(resumeStage.stage)
+
+    if (resumeStage.stage === "SELFTEST_LONG" && currentRow?.status === "RUNNING") {
+      return { fromIndex: resumeIndex, state, reuseStageId: currentRow.id, skipSelfTestStart: true }
+    }
+
+    if (resumeStage.stage === "SURFACE" && currentRow?.status === "RUNNING") {
+      if (run.restartCount >= TestEngine.MAX_RESTARTS) {
+        return { fromIndex: resumeIndex, state, tooManyRestarts: true }
+      }
+      return { fromIndex: resumeIndex, state, staleSurfaceStageId: currentRow.id }
+    }
+
+    return { fromIndex: resumeIndex, state }
+  }
+
+  /** Loads the most recent SMART snapshot for a run/phase, for reconstructing RunState on resume. */
+  #loadSnapshot(runId: number, phase: "before" | "after"): SmartKeyMetrics | undefined {
+    const row = this.db
+      .select()
+      .from(smartSnapshots)
+      .where(and(eq(smartSnapshots.runId, runId), eq(smartSnapshots.phase, phase)))
+      .orderBy(desc(smartSnapshots.id))
+      .get()
+    return row ? (row.keyMetrics as SmartKeyMetrics) : undefined
+  }
+
+  /**
+   * Runs the regime stage loop, optionally resuming partway through after a
+   * startup reconciliation (see `reconcile()`/`#reconcileRun`). `resume`
+   * carries the stage index to start at, a pre-populated `RunState` for
+   * every stage that already completed before an interruption, and (for
+   * the one case that doesn't get a fresh stage row — SELFTEST_LONG
+   * resumed by polling) the existing stage row id to reuse instead of
+   * inserting a new one.
+   */
+  async #run(
+    runId: number,
+    drive: DiscoveredDrive,
+    mode: RegimeMode,
+    controller: AbortController,
+    resume?: ResumeInfo,
+  ): Promise<void> {
+    updateRun(this.db, runId, { status: "RUNNING" })
+    const state: RunState = resume?.state ?? { surface: null }
     // Device paths are transient, so this is reassigned whenever a stage
     // re-resolves the drive (SURFACE's destructive re-check, SMART_AFTER's
     // fresh by-serial lookup) — every later stage, including VERDICT, uses
     // whatever is current at the time it runs.
     let currentDrive = drive
 
-    for (const { stage, surfaceMode } of regimeStages(mode)) {
+    const stages = regimeStages(mode)
+    const startIndex = resume?.fromIndex ?? 0
+
+    for (let i = startIndex; i < stages.length; i++) {
+      const step = stages[i]
+      if (!step) break // unreachable — i stays within [startIndex, stages.length)
+      const { stage, surfaceMode } = step
+
       if (controller.signal.aborted) {
         this.terminalRuns.add(runId)
         updateRun(this.db, runId, { status: "ABORTED", finishedAt: new Date() })
@@ -195,11 +431,29 @@ export class TestEngine extends EventEmitter {
         return
       }
 
-      const stageId = addStage(this.db, { runId, stage, status: "RUNNING" })
+      // Only the very first resumed iteration can reuse an existing stage
+      // row (SELFTEST_LONG resumed by polling — the row is already RUNNING
+      // from before the restart); every other iteration, resumed or not,
+      // starts a fresh row exactly as a non-reconciled run does.
+      const isFirstResumedIteration = resume !== undefined && i === startIndex
+      const stageId =
+        isFirstResumedIteration && resume?.reuseStageId !== undefined
+          ? resume.reuseStageId
+          : addStage(this.db, { runId, stage, status: "RUNNING" })
+      const skipSelfTestStart = isFirstResumedIteration && resume?.skipSelfTestStart === true
       this.#emitRunUpdate({ runId, status: "RUNNING", currentStage: stage })
 
       try {
-        currentDrive = await this.#runStage(runId, stage, stageId, surfaceMode, currentDrive, state, controller)
+        currentDrive = await this.#runStage(
+          runId,
+          stage,
+          stageId,
+          surfaceMode,
+          currentDrive,
+          state,
+          controller,
+          skipSelfTestStart,
+        )
       } catch (err) {
         updateStage(this.db, stageId, { status: "FAILED" })
         this.terminalRuns.add(runId)
@@ -253,6 +507,7 @@ export class TestEngine extends EventEmitter {
     drive: DiscoveredDrive,
     state: RunState,
     controller: AbortController,
+    skipSelfTestStart = false,
   ): Promise<DiscoveredDrive> {
     switch (stage) {
       case "SMART_BEFORE":
@@ -267,9 +522,15 @@ export class TestEngine extends EventEmitter {
         state.after = await this.#runSmartStage(runId, fresh.devicePath, "after")
         return fresh
       }
-      case "SELFTEST_LONG":
-        state.selfTest = await this.#runSelfTestStage(runId, drive.devicePath, controller)
+      case "SELFTEST_LONG": {
+        const result = await this.#runSelfTestStage(runId, drive.devicePath, controller, skipSelfTestStart)
+        state.selfTest = result
+        // Persisted so a later reconcile() (e.g. a run interrupted again at
+        // SMART_AFTER/VERDICT) can reconstruct this result from the DONE
+        // row's metrics without re-running the self-test.
+        updateStage(this.db, stageId, { metrics: result })
         return drive
+      }
       case "SURFACE": {
         const result = await this.#runSurfaceStage(runId, stageId, surfaceMode!, drive, controller)
         state.surface = result.surface
@@ -304,8 +565,15 @@ export class TestEngine extends EventEmitter {
     runId: number,
     devicePath: string,
     controller: AbortController,
+    skipStart = false,
   ): Promise<SelfTestResult> {
-    await this.deviceApi.startLongSelfTest(devicePath)
+    // On a reconcile()-resumed run, the firmware self-test itself kept
+    // running across the process restart — only this process's tracking of
+    // it was interrupted — so starting it again would restart the timer
+    // for no reason. Skip straight to polling in that case.
+    if (!skipStart) {
+      await this.deviceApi.startLongSelfTest(devicePath)
+    }
     let result: SelfTestResult = { status: "UNKNOWN" }
 
     while (!controller.signal.aborted) {
