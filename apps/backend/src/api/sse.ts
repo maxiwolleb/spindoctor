@@ -1,5 +1,15 @@
 import type { EventEmitter } from "node:events"
-import type { RunUpdateEvent, StageProgressEvent } from "@spindoctor/shared"
+import { and, desc, eq } from "drizzle-orm"
+import type {
+  RunStatus,
+  RunUpdateEvent,
+  StageName,
+  StageProgressEvent,
+  Verdict,
+} from "@spindoctor/shared"
+import type { Db } from "../db/client"
+import { listRuns } from "../db/repositories"
+import { stageResults } from "../db/schema"
 
 /** Formats a single Server-Sent Events frame: `event: <name>\ndata: <json>\n\n`. */
 export function formatSse(event: string, data: unknown): string {
@@ -27,4 +37,49 @@ export function subscribeEngine(engine: EventEmitter, write: (frame: string) => 
     engine.off("run:update", onRunUpdate)
     engine.off("stage:progress", onStageProgress)
   }
+}
+
+/**
+ * SSE frames replaying the current state of every RUNNING run — one
+ * `run:update`, plus (for its current stage) one `stage:progress` with the
+ * persisted percent. Sent to a client the moment it connects so a fresh page
+ * load / reconnect hydrates its live view immediately, instead of showing an
+ * empty progress bar until the next engine event (which can be a poll interval
+ * away). The store already handles these two frame types, so no client change
+ * is needed.
+ */
+export function snapshotFrames(db: Db): string[] {
+  const frames: string[] = []
+  for (const run of listRuns(db)) {
+    if (run.status !== "RUNNING") continue
+
+    frames.push(
+      formatSse("run:update", {
+        runId: run.id,
+        driveSerial: run.driveSerial,
+        status: run.status as RunStatus,
+        currentStage: (run.currentStage as StageName | null) ?? undefined,
+        verdict: (run.verdict as Verdict | null) ?? undefined,
+      } satisfies RunUpdateEvent),
+    )
+
+    if (!run.currentStage) continue
+    const stageRow = db
+      .select()
+      .from(stageResults)
+      .where(and(eq(stageResults.runId, run.id), eq(stageResults.stage, run.currentStage)))
+      .orderBy(desc(stageResults.id))
+      .get()
+    if (stageRow) {
+      frames.push(
+        formatSse("stage:progress", {
+          runId: run.id,
+          driveSerial: run.driveSerial,
+          stage: run.currentStage as StageName,
+          percent: stageRow.progress ?? 0,
+        } satisfies StageProgressEvent),
+      )
+    }
+  }
+  return frames
 }
