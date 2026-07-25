@@ -76,6 +76,7 @@ export class RealDeviceApi implements DeviceApi {
     } catch (err) {
       throw new Error(
         `smartctl produced non-JSON output for ${devicePath}: ${(err as Error).message}`,
+        { cause: err },
       )
     }
   }
@@ -156,7 +157,7 @@ export class RealDeviceApi implements DeviceApi {
         if (settled) return
         settled = true
         signal.removeEventListener("abort", onAbort)
-        let log = ""
+        let log: string
         try {
           log = await readFile(logfile, "utf8")
         } catch {

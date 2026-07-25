@@ -1,5 +1,4 @@
 import { describe, it, expect } from "vitest"
-import type { RegimeMode } from "@spindoctor/shared"
 import { regimeStages } from "./regime"
 
 describe("regimeStages", () => {

@@ -47,7 +47,7 @@ describe("Semaphore", () => {
     const order: number[] = []
 
     const release1Holder: { release?: () => void } = {}
-    const p1 = (async () => {
+    const _p1 = (async () => {
       const release = await sem.acquire()
       order.push(1)
       release1Holder.release = release
@@ -90,7 +90,7 @@ describe("Semaphore", () => {
     const order: string[] = []
 
     const release1Holder: { release?: () => void } = {}
-    const p1 = (async () => {
+    const _p1 = (async () => {
       const release = await sem.acquire()
       order.push("acquired-1")
       release1Holder.release = release

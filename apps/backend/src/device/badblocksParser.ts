@@ -12,7 +12,7 @@
 export function parseBadblocksPercent(chunk: string): number | null {
   const regex = /([\d.]+)%\s*done/g
   let lastMatch: RegExpExecArray | null = null
-  let match: RegExpExecArray | null = null
+  let match: RegExpExecArray | null
 
   while ((match = regex.exec(chunk)) !== null) {
     lastMatch = match
