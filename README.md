@@ -182,6 +182,41 @@ The backend runs under `tsx` (not a bundler) in both development and
 production, so `packages/shared`'s source-only exports resolve the same
 way everywhere.
 
+## Testing
+
+Tests are written before (or alongside) the code they cover, and are built to
+run anywhere without touching real hardware:
+
+- **Pure, deterministic core.** The verdict evaluator
+  (`apps/backend/src/verdict`) and the device-output parsers (`smartParser`,
+  `lsblkParser`, `badblocksParser`, `scanParser` under `apps/backend/src/device`)
+  are plain functions with no I/O — they're exercised against captured
+  `smartctl`/`lsblk`/`badblocks`-shaped fixtures with a scenario per
+  threshold/edge case (clean, warn, fail, boundary values, missing metrics).
+- **Nothing real runs.** All disk access goes through a `DeviceApi`
+  interface; tests use `FakeDeviceApi` (in-memory, scripted responses)
+  instead of the real implementation. No test in this repo runs `smartctl`,
+  `badblocks`, or `lsblk` against an actual disk, and none ever will —
+  destructive commands are never exercised against real hardware in
+  tests or CI.
+- **No wall-clock waits.** The engine's poll loops (self-test polling,
+  auto-mode discovery) take an injectable `sleep` function instead of calling
+  `setTimeout` directly, so tests drive them deterministically without real
+  delays or flaky timing.
+- **The one real-I/O path is emulated, not mocked away.** The surface-scan
+  runner does spawn a real child process, so it's tested against a small
+  Node script (`__testhelpers__/fake-badblocks.mjs`) that stands in for the
+  `badblocks` binary — same stdout/stderr/log-file shape, so the runner's
+  process handling (progress parsing, abort/kill, spawn failures) is
+  exercised for real without needing `badblocks` or a disk to be present.
+
+Run the suite:
+
+```
+pnpm test             # vitest, whole workspace
+pnpm test:coverage     # same, plus a v8 coverage report (text + html + lcov)
+```
+
 ## No auth in v1
 
 The web UI and API have **no authentication** in this version. It is
