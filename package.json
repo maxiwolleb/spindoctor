@@ -15,8 +15,8 @@
     "typecheck": "pnpm -r --parallel typecheck",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "format": "prettier --write . --ignore-path .prettierignore --ignore-path .git/info/exclude",
-    "format:check": "prettier --check . --ignore-path .prettierignore --ignore-path .git/info/exclude",
+    "format": "prettier --write apps packages website .github README.md CONTRIBUTING.md CODE_OF_CONDUCT.md \"*.json\" \"*.yml\" \"*.yaml\" \"*.mjs\" \"*.ts\"",
+    "format:check": "prettier --check apps packages website .github README.md CONTRIBUTING.md CODE_OF_CONDUCT.md \"*.json\" \"*.yml\" \"*.yaml\" \"*.mjs\" \"*.ts\"",
     "build": "pnpm --filter @spindoctor/shared run typecheck && pnpm --filter @spindoctor/backend --if-present run build && pnpm --filter @spindoctor/web run build",
     "dev": "pnpm --parallel --filter @spindoctor/backend --filter @spindoctor/web run dev"
   },
