@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest"
-import { eq } from "drizzle-orm"
+import { and, eq } from "drizzle-orm"
 import type {
   DiscoveredDrive,
   RunUpdateEvent,
@@ -466,6 +466,81 @@ describe("TestEngine full-run behavior", () => {
     // controller/stage bookkeeping either.
     const stages = db.select().from(stageResults).where(eq(stageResults.runId, runId)).all()
     expect(stages.every((s) => s.status === "DONE")).toBe(true)
+  })
+})
+
+describe("TestEngine run-state persistence (#12 timestamps, #16 progress)", () => {
+  it("records start/finish timestamps on the run and every stage (#12)", async () => {
+    const d = drive()
+    const api = new FakeDeviceApi({
+      drives: [d],
+      smartByPath: { [d.devicePath]: smartRaw() },
+      selfTestByPath: { [d.devicePath]: PASSED_SELFTEST },
+      surface: { plan: [100], result: { mode: "write", badBlocks: 0, completed: true } },
+    })
+    const engine = new TestEngine({
+      db,
+      deviceApi: api,
+      sleep: async () => {},
+      selfTestPollIntervalMs: 0,
+    })
+
+    const runId = await engine.startRun({ serial: d.serial, mode: "destructive" })
+    await waitForSettled(engine, runId)
+
+    const run = repo.getRun(db, runId)!
+    expect(run.startedAt).toBeInstanceOf(Date)
+    expect(run.finishedAt).toBeInstanceOf(Date)
+
+    const stages = db.select().from(stageResults).where(eq(stageResults.runId, runId)).all()
+    expect(stages).toHaveLength(5)
+    for (const s of stages) {
+      expect(s.startedAt, `${s.stage} startedAt`).toBeInstanceOf(Date)
+      expect(s.finishedAt, `${s.stage} finishedAt`).toBeInstanceOf(Date)
+    }
+  })
+
+  it("persists in-progress stage percent to the DB, not just via SSE (#16)", async () => {
+    const d = drive()
+    const api = new SequencedSelfTestApi(
+      {
+        drives: [d],
+        smartByPath: { [d.devicePath]: smartRaw() },
+        surface: { plan: [100], result: { mode: "write", badBlocks: 0, completed: true } },
+      },
+      [
+        { running: true, percentRemaining: 60, result: null },
+        { running: false, percentRemaining: 0, result: { status: "PASSED" } },
+      ],
+    )
+    const engine = new TestEngine({
+      db,
+      deviceApi: api,
+      sleep: async () => {},
+      selfTestPollIntervalMs: 0,
+    })
+
+    const ctx: { runId?: number } = {}
+    let persistedMidStage: number | null | undefined
+    engine.on("stage:progress", (evt: StageProgressEvent) => {
+      if (evt.stage !== "SELFTEST_LONG" || evt.percent !== 40 || ctx.runId === undefined) return
+      if (persistedMidStage !== undefined) return
+      // Read straight from the DB (not the event) to prove the percent is
+      // *persisted*, not merely emitted to SSE.
+      const row = db
+        .select()
+        .from(stageResults)
+        .where(and(eq(stageResults.runId, ctx.runId), eq(stageResults.stage, "SELFTEST_LONG")))
+        .get()
+      persistedMidStage = row?.progress ?? null
+    })
+
+    ctx.runId = await engine.startRun({ serial: d.serial, mode: "destructive" })
+    await waitForSettled(engine, ctx.runId)
+
+    // First poll reports 60% remaining -> 40% done; that value must be in the
+    // stage row while the run is still mid-flight, not just after it finishes.
+    expect(persistedMidStage).toBe(40)
   })
 })
 

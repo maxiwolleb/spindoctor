@@ -19,6 +19,13 @@ export function mergeDiscovery(lsblk: LsblkDisk[], scan: ScanDevice[]): Discover
   for (const disk of lsblk) {
     if (disk.serial == null || disk.serial === "") continue
     if (!isSmartctlVisible(disk.devicePath)) continue
+    // Skip virtual / non-physical block devices. Real drives always report a
+    // physical transport (SATA/USB/NVMe/SAS); a disk with no
+    // recognizable transport — a hypervisor's own virtual disks under WSL/VMs,
+    // loop devices, etc. — is not something to test, and must never be
+    // destructively writable by accident. Filtering here also keeps such a
+    // device out of listDevices(), so startRun() can't target it either.
+    if (disk.transport === "UNKNOWN") continue
 
     result.push({
       devicePath: disk.devicePath,

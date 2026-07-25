@@ -156,6 +156,11 @@ export function addStage(
       runId: input.runId,
       stage: input.stage,
       status: input.status,
+      // A stage row is created exactly when the stage begins running, so its
+      // creation time is its start time. The reconcile-resume path reuses the
+      // existing row instead of calling addStage, so a resumed SELFTEST_LONG
+      // keeps its original startedAt.
+      startedAt: new Date(),
     })
     .run()
   return Number(result.lastInsertRowid)
