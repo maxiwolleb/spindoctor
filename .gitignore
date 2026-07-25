@@ -10,6 +10,7 @@ website/.vitepress/dist/
 website/.vitepress/cache/
 
 # Runtime data / test artifacts
+coverage/
 data/
 logs/
 *.log
