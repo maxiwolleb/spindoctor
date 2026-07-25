@@ -141,6 +141,10 @@ export class TestEngine extends EventEmitter {
    * `abortRun` needs to keep no-op'ing for that id even long after the
    * controller itself has been cleaned up. */
   private readonly terminalRuns = new Set<number>()
+  /** Last whole-percent value persisted per stage id, so #emitStageProgress
+   * only writes the stage row when the rounded percent actually changes —
+   * bounding DB writes on fast progress streams like badblocks. */
+  readonly #lastStageProgress = new Map<number, number>()
   /** Cap on SURFACE-stage restarts via reconcile() before giving up on a run. */
   private static readonly MAX_RESTARTS = 3
 
@@ -334,7 +338,10 @@ export class TestEngine extends EventEmitter {
       // re-check included (that guard already lives in #runSurfaceStage
       // and fires unconditionally for every destructive SURFACE attempt).
       if (plan.staleSurfaceStageId !== undefined) {
-        updateStage(this.db, plan.staleSurfaceStageId, { status: "INTERRUPTED" })
+        updateStage(this.db, plan.staleSurfaceStageId, {
+          status: "INTERRUPTED",
+          finishedAt: new Date(),
+        })
         updateRun(this.db, runId, { restartCount: run.restartCount + 1 })
       }
 
@@ -481,7 +488,14 @@ export class TestEngine extends EventEmitter {
     controller: AbortController,
     resume?: ResumeInfo,
   ): Promise<void> {
-    updateRun(this.db, runId, { status: "RUNNING" })
+    // Stamp the run's start time on its first (fresh) RUNNING transition. A
+    // reconcile()-resumed run already started earlier, so it keeps its
+    // original startedAt rather than resetting it here.
+    updateRun(
+      this.db,
+      runId,
+      resume === undefined ? { status: "RUNNING", startedAt: new Date() } : { status: "RUNNING" },
+    )
     const state: RunState = resume?.state ?? { surface: null }
     // Device paths are transient, so this is reassigned whenever a stage
     // re-resolves the drive (SURFACE's destructive re-check, SMART_AFTER's
@@ -547,7 +561,7 @@ export class TestEngine extends EventEmitter {
           skipSelfTestStart,
         )
       } catch (err) {
-        updateStage(this.db, stageId, { status: "FAILED" })
+        updateStage(this.db, stageId, { status: "FAILED", finishedAt: new Date() })
         this.terminalRuns.add(runId)
         updateRun(this.db, runId, {
           status: "FAILED",
@@ -574,7 +588,7 @@ export class TestEngine extends EventEmitter {
       // stage gets mis-recorded DONE and the reported currentStage becomes
       // the *next* stage instead of the one that was actually interrupted.
       if (controller.signal.aborted) {
-        updateStage(this.db, stageId, { status: "ABORTED" })
+        updateStage(this.db, stageId, { status: "ABORTED", finishedAt: new Date() })
         this.terminalRuns.add(runId)
         updateRun(this.db, runId, {
           status: "ABORTED",
@@ -595,7 +609,7 @@ export class TestEngine extends EventEmitter {
       // an ABORTED run:update event never observes a stale RUNNING stage
       // row. This call is a harmless no-op re-write for it and the normal
       // completion path for every other non-VERDICT stage.
-      updateStage(this.db, stageId, { status: "DONE", progress: 100 })
+      updateStage(this.db, stageId, { status: "DONE", progress: 100, finishedAt: new Date() })
     }
   }
 
@@ -631,6 +645,7 @@ export class TestEngine extends EventEmitter {
       case "SELFTEST_LONG": {
         const result = await this.#runSelfTestStage(
           runId,
+          stageId,
           drive.serial,
           drive.devicePath,
           controller,
@@ -675,6 +690,7 @@ export class TestEngine extends EventEmitter {
 
   async #runSelfTestStage(
     runId: number,
+    stageId: number,
     driveSerial: string,
     devicePath: string,
     controller: AbortController,
@@ -692,7 +708,7 @@ export class TestEngine extends EventEmitter {
     while (!controller.signal.aborted) {
       const progress = await this.deviceApi.pollSelfTest(devicePath)
       const percent = progress.percentRemaining == null ? 0 : 100 - progress.percentRemaining
-      this.#emitStageProgress({ runId, driveSerial, stage: "SELFTEST_LONG", percent })
+      this.#emitStageProgress(stageId, { runId, driveSerial, stage: "SELFTEST_LONG", percent })
 
       if (!progress.running) {
         result = progress.result ?? { status: "UNKNOWN" }
@@ -743,7 +759,7 @@ export class TestEngine extends EventEmitter {
       devicePath,
       mode,
       (percent) =>
-        this.#emitStageProgress({
+        this.#emitStageProgress(stageId, {
           runId,
           driveSerial: currentDrive.serial,
           stage: "SURFACE",
@@ -760,6 +776,7 @@ export class TestEngine extends EventEmitter {
       status: surfaceResult.completed ? "DONE" : "ABORTED",
       progress: 100,
       metrics: surfaceResult,
+      finishedAt: new Date(),
     })
 
     return { surface: surfaceResult, drive: currentDrive }
@@ -822,7 +839,7 @@ export class TestEngine extends EventEmitter {
     // Persist the VERDICT stage row as DONE *before* marking the run DONE
     // and emitting the terminal run:update — otherwise a listener reacting
     // to that event could read a stage row that's still RUNNING.
-    updateStage(this.db, stageId, { status: "DONE", progress: 100 })
+    updateStage(this.db, stageId, { status: "DONE", progress: 100, finishedAt: new Date() })
     updateRun(this.db, runId, {
       status: "DONE",
       verdict,
@@ -837,7 +854,15 @@ export class TestEngine extends EventEmitter {
     this.emit("run:update", payload)
   }
 
-  #emitStageProgress(payload: StageProgressEvent): void {
+  #emitStageProgress(stageId: number, payload: StageProgressEvent): void {
+    // Persist the rounded percent so a fresh GET/reconnect reflects live
+    // progress instead of 0 until the stage completes. Throttled to
+    // whole-percent changes to bound DB writes on fast streams (badblocks).
+    const pct = Math.max(0, Math.min(100, Math.round(payload.percent)))
+    if (this.#lastStageProgress.get(stageId) !== pct) {
+      this.#lastStageProgress.set(stageId, pct)
+      updateStage(this.db, stageId, { progress: pct })
+    }
     this.emit("stage:progress", payload)
   }
 }
