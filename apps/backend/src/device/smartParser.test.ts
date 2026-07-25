@@ -82,4 +82,33 @@ describe("parseSelfTest", () => {
       status: "UNKNOWN",
     })
   })
+
+  it("reads a completed self-test from the execution-status field when the log lags (#23)", () => {
+    // Real-hardware race: ata_smart_data.self_test.status flips to "completed"
+    // the moment the test stops running, but ata_smart_self_test_log's newest
+    // row hasn't been written yet (here: empty). Reading the result from the
+    // log alone surfaced UNKNOWN → a spurious WARN on a healthy drive. The
+    // execution-status field must win.
+    const raw = {
+      device: { protocol: "ATA" },
+      rotation_rate: 7200,
+      ata_smart_data: {
+        self_test: { status: { value: 0, string: "Completed without error", passed: true } },
+      },
+      ata_smart_self_test_log: { standard: { table: [] } },
+    }
+    expect(parseSelfTest(raw)).toEqual({ status: "PASSED" })
+  })
+
+  it("still reports a failed self-test from the execution-status field (log lagging)", () => {
+    const raw = {
+      device: { protocol: "ATA" },
+      rotation_rate: 7200,
+      ata_smart_data: {
+        self_test: { status: { value: 117, string: "Completed: read failure", passed: false } },
+      },
+      ata_smart_self_test_log: { standard: { table: [] } },
+    }
+    expect(parseSelfTest(raw).status).toBe("FAILED")
+  })
 })
