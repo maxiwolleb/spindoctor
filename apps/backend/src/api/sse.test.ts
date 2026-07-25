@@ -1,6 +1,28 @@
 import { EventEmitter } from "node:events"
 import { describe, it, expect } from "vitest"
-import { formatSse, subscribeEngine } from "./sse"
+import { createDb } from "../db/client"
+import {
+  addStage,
+  createRun,
+  ensureConfig,
+  updateRun,
+  updateStage,
+  upsertDrive,
+} from "../db/repositories"
+import { formatSse, snapshotFrames, subscribeEngine } from "./sse"
+
+const seedDrive = (db: Parameters<typeof upsertDrive>[0], serial: string): void =>
+  upsertDrive(db, {
+    devicePath: "/dev/sda",
+    serial,
+    wwn: null,
+    model: "M",
+    sizeBytes: 1,
+    type: "HDD",
+    transport: "SATA",
+    mounted: false,
+    isSystemDisk: false,
+  })
 
 describe("formatSse", () => {
   it("formats an SSE frame exactly as event: <name>\\ndata: <json>\\n\\n", () => {
@@ -46,5 +68,34 @@ describe("subscribeEngine", () => {
     engine.emit("stage:progress", { runId: 2, driveSerial: "SER1", stage: "SURFACE", percent: 100 })
 
     expect(frames).toHaveLength(2)
+  })
+})
+
+describe("snapshotFrames", () => {
+  it("replays a RUNNING run's current stage + persisted progress as run:update + stage:progress", () => {
+    const { db } = createDb(":memory:")
+    ensureConfig(db)
+    seedDrive(db, "SER1")
+    const runId = createRun(db, {
+      driveSerial: "SER1",
+      regime: { mode: "destructive", stages: [] },
+    })
+    updateRun(db, runId, { status: "RUNNING", currentStage: "SURFACE" })
+    const stageId = addStage(db, { runId, stage: "SURFACE", status: "RUNNING" })
+    updateStage(db, stageId, { progress: 42 })
+
+    expect(snapshotFrames(db)).toEqual([
+      `event: run:update\ndata: {"runId":${runId},"driveSerial":"SER1","status":"RUNNING","currentStage":"SURFACE"}\n\n`,
+      `event: stage:progress\ndata: {"runId":${runId},"driveSerial":"SER1","stage":"SURFACE","percent":42}\n\n`,
+    ])
+  })
+
+  it("emits nothing when no run is RUNNING", () => {
+    const { db } = createDb(":memory:")
+    ensureConfig(db)
+    seedDrive(db, "SER1")
+    const runId = createRun(db, { driveSerial: "SER1", regime: { mode: "read-only", stages: [] } })
+    updateRun(db, runId, { status: "DONE" })
+    expect(snapshotFrames(db)).toEqual([])
   })
 })

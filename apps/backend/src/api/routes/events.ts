@@ -1,8 +1,10 @@
 import type { FastifyInstance, FastifyPluginAsync } from "fastify"
+import type { Db } from "../../db/client"
 import type { TestEngine } from "../../engine/engine"
-import { subscribeEngine } from "../sse"
+import { snapshotFrames, subscribeEngine } from "../sse"
 
 export interface EventsRouteDeps {
+  db: Db
   engine: TestEngine
 }
 
@@ -10,7 +12,7 @@ const HEARTBEAT_INTERVAL_MS = 15_000
 
 /** SSE stream of the engine's live `run:update`/`stage:progress` events. */
 export function eventsRoutes(deps: EventsRouteDeps): FastifyPluginAsync {
-  const { engine } = deps
+  const { db, engine } = deps
 
   return async function (fastify: FastifyInstance): Promise<void> {
     fastify.get("/events", (request, reply) => {
@@ -26,7 +28,10 @@ export function eventsRoutes(deps: EventsRouteDeps): FastifyPluginAsync {
       })
       reply.raw.write(": connected\n\n")
 
+      // Subscribe before snapshotting so no event fired mid-read is missed; a
+      // duplicate frame is harmless (the store re-applies the same value).
       const unsub = subscribeEngine(engine, (frame) => reply.raw.write(frame))
+      for (const frame of snapshotFrames(db)) reply.raw.write(frame)
 
       const heartbeat = setInterval(() => {
         reply.raw.write(": ping\n\n")
