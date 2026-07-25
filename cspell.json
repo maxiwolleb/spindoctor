@@ -1,0 +1,50 @@
+{
+  "version": "0.2",
+  "language": "en",
+  "words": [
+    "badblocks",
+    "blockdevices",
+    "buildx",
+    "fsprogs",
+    "idempotently",
+    "logfile",
+    "losetup",
+    "maxiwolleb",
+    "mountpoint",
+    "mountpoints",
+    "nums",
+    "nvme",
+    "rawio",
+    "selftest",
+    "smartctl",
+    "smartmontools",
+    "softprops",
+    "spindoctor",
+    "testhelpers",
+    "toctou",
+    "udma",
+    "uncorrect",
+    "unparseable",
+    "unsalvageable",
+    "unsub",
+    "upserts",
+    "vuetify"
+  ],
+  "ignorePaths": [
+    "cspell.json",
+    "node_modules/**",
+    "**/node_modules/**",
+    "pnpm-lock.yaml",
+    "**/dist/**",
+    "website/.vitepress/cache/**",
+    "apps/backend/drizzle/**",
+    "**/__fixtures__/**",
+    "assets/**"
+  ],
+  "overrides": [
+    {
+      "filename": ["**/*.test.ts", "**/*.spec.ts", "**/__testhelpers__/**"],
+      "words": ["efrx", "ewnx", "newserial", "parkable", "serc"]
+    }
+  ]
+}
