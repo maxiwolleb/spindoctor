@@ -16,6 +16,7 @@ export default tseslint.config(
       "website/.vitepress/cache/**",
       "website/.vitepress/dist/**",
       "**/__fixtures__/**",
+      "coverage/**",
       "pnpm-lock.yaml",
     ],
   },

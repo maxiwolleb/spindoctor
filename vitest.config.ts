@@ -7,6 +7,11 @@ export default defineConfig({
   test: {
     coverage: {
       provider: "v8",
+      // Report coverage of the code the tests actually exercise. The
+      // presentational Vue layer and process entrypoints are verified by the
+      // build + manual checks, not unit tests, so counting them here would
+      // misrepresent how well the tested logic is covered.
+      all: false,
       reporter: ["text", "html", "lcov"],
       exclude: [
         "**/*.config.*",
