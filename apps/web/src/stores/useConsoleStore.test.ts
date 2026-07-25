@@ -151,7 +151,7 @@ describe("useConsoleStore", () => {
     expect(store.connected).toBe(false)
   })
 
-  it("a stage:progress frame updates liveByDrive percent/stage for the known driveSerial", () => {
+  it("a stage:progress frame updates liveByDrive percent/stage/startedAt for the known driveSerial", () => {
     const store = useConsoleStore()
     store.connectEvents()
 
@@ -160,10 +160,16 @@ describe("useConsoleStore", () => {
       driveSerial: "SERA",
       stage: "SURFACE",
       percent: 42,
+      startedAt: "2026-07-25T09:00:00.000Z",
     }
     source.emit("stage:progress", frame)
 
-    expect(store.liveByDrive.SERA).toMatchObject({ runId: 1, stage: "SURFACE", percent: 42 })
+    expect(store.liveByDrive.SERA).toMatchObject({
+      runId: 1,
+      stage: "SURFACE",
+      percent: 42,
+      startedAt: "2026-07-25T09:00:00.000Z",
+    })
     expect(store.liveForDrive("SERA")).toMatchObject({ stage: "SURFACE", percent: 42 })
   })
 
@@ -188,6 +194,36 @@ describe("useConsoleStore", () => {
     expect(store.driveBySerial("SERA")?.latestRun).toBeNull()
   })
 
+  it("a stage transition drops the previous stage's percent/startedAt instead of carrying them under the new stage's name", () => {
+    const store = useConsoleStore()
+    store.connectEvents()
+
+    source.emit("stage:progress", {
+      runId: 1,
+      driveSerial: "SERA",
+      stage: "SELFTEST_LONG",
+      percent: 80,
+      startedAt: "2026-07-25T08:00:00.000Z",
+    } satisfies StageProgressEvent)
+    expect(store.liveByDrive.SERA).toMatchObject({ stage: "SELFTEST_LONG", percent: 80 })
+
+    // SELFTEST_LONG finished; the run moves on to SURFACE. Until SURFACE's
+    // own stage:progress frame arrives, percent/startedAt must reset rather
+    // than keep showing SELFTEST_LONG's 80%/08:00 under the SURFACE label.
+    source.emit("run:update", {
+      runId: 1,
+      driveSerial: "SERA",
+      status: "RUNNING",
+      currentStage: "SURFACE",
+    } satisfies RunUpdateEvent)
+
+    expect(store.liveByDrive.SERA).toMatchObject({
+      stage: "SURFACE",
+      percent: 0,
+      startedAt: null,
+    })
+  })
+
   it("a terminal run:update frame patches the drive's latestRun verdict and clears liveByDrive", async () => {
     const store = useConsoleStore()
     await store.refreshDrives()
@@ -198,6 +234,7 @@ describe("useConsoleStore", () => {
       driveSerial: "SERA",
       stage: "SURFACE",
       percent: 90,
+      startedAt: "2026-07-25T09:00:00.000Z",
     } satisfies StageProgressEvent)
     expect(store.liveByDrive.SERA).toBeDefined()
 

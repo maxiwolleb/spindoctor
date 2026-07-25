@@ -1,7 +1,8 @@
-import { describe, expect, it } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { mount } from "@vue/test-utils"
 import type { StageView } from "@spindoctor/shared"
 import { vuetify } from "../plugins/vuetify"
+import { formatEtaClock } from "../lib/eta"
 import StageTimeline from "./StageTimeline.vue"
 
 function stage(over: Partial<StageView>): StageView {
@@ -145,6 +146,102 @@ describe("StageTimeline", () => {
       const logs = wrapper.findAll(".stage-timeline__log")
       expect(logs).toHaveLength(1)
       expect(logs[0]!.text()).toContain("self-test log")
+    })
+  })
+
+  describe("ETA for a running stage (#15)", () => {
+    beforeEach(() => {
+      vi.useFakeTimers()
+      vi.setSystemTime(new Date("2026-07-25T10:00:00.000Z"))
+    })
+
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it("shows a remaining-time + completion-clock estimate for a RUNNING stage", () => {
+      const wrapper = mount(StageTimeline, {
+        props: {
+          stages: [
+            stage({
+              stage: "SURFACE",
+              status: "RUNNING",
+              progress: 50,
+              startedAt: "2026-07-25T09:00:00.000Z", // 1h elapsed, 50% done -> 1h left, eta 11:00
+            }),
+          ],
+        },
+        global: { plugins: [vuetify] },
+      })
+
+      // 1h elapsed, 50% done -> 1h remaining -> eta at 11:00 UTC. The clock
+      // half renders in local time (see `formatEtaClock`), so build the
+      // expected string with it too instead of hardcoding a UTC hour that'd
+      // only match in a UTC-local test environment.
+      const expectedEtaMs = Date.parse("2026-07-25T11:00:00.000Z")
+      const eta = wrapper.find(".stage-timeline__eta")
+      expect(eta.exists()).toBe(true)
+      expect(eta.text()).toBe(`~1h 0m left (${formatEtaClock(expectedEtaMs)})`)
+    })
+
+    it("shows 'estimating…' when progress is too low to extrapolate from", () => {
+      const wrapper = mount(StageTimeline, {
+        props: {
+          stages: [
+            stage({
+              stage: "SURFACE",
+              status: "RUNNING",
+              progress: 1,
+              startedAt: "2026-07-25T09:59:00.000Z",
+            }),
+          ],
+        },
+        global: { plugins: [vuetify] },
+      })
+
+      expect(wrapper.find(".stage-timeline__eta").text()).toBe("estimating…")
+    })
+
+    it("shows 'estimating…' when startedAt hasn't been recorded", () => {
+      const wrapper = mount(StageTimeline, {
+        props: {
+          stages: [
+            stage({ stage: "SELFTEST_LONG", status: "RUNNING", progress: 40, startedAt: null }),
+          ],
+        },
+        global: { plugins: [vuetify] },
+      })
+
+      expect(wrapper.find(".stage-timeline__eta").text()).toBe("estimating…")
+    })
+
+    it("shows no ETA line at all for a DONE stage", () => {
+      const wrapper = mount(StageTimeline, {
+        props: {
+          stages: [
+            stage({
+              stage: "SURFACE",
+              status: "DONE",
+              progress: 100,
+              startedAt: "2026-07-25T09:00:00.000Z",
+            }),
+          ],
+        },
+        global: { plugins: [vuetify] },
+      })
+
+      expect(wrapper.find(".stage-timeline__eta").exists()).toBe(false)
+    })
+
+    it("shows no ETA line for a PENDING stage", () => {
+      const wrapper = mount(StageTimeline, {
+        props: {
+          stages: [stage({ stage: "SMART_AFTER", status: "PENDING", progress: 0 })],
+        },
+        global: { plugins: [vuetify] },
+      })
+
+      expect(wrapper.find(".stage-timeline__eta").exists()).toBe(false)
     })
   })
 })

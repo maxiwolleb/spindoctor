@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue"
 import { stageLabel } from "../lib/format"
+import { computeEta, formatRemaining } from "../lib/eta"
 
 /** The store's `LiveProgress` carries more fields (`runId`, `verdict`) than
  * this component reads; a wider object is fine to pass in, so the prop only
@@ -9,6 +10,10 @@ export interface RunProgressLive {
   stage: string
   percent: number
   status: string
+  /** The current stage's start time, ISO string — see `LiveProgress.startedAt`.
+   * Optional because a few tests/callers only care about the stage/percent
+   * bar itself; `undefined` is treated exactly like `null` (no ETA yet). */
+  startedAt?: string | null
 }
 
 const props = defineProps<{
@@ -28,6 +33,19 @@ const variant = computed<Variant | null>(() => {
   if (props.live.stage === "SELFTEST_LONG") return "plain"
   return null
 })
+
+/** Remaining-time estimate for the dashboard's compact activity cell (issue
+ * #15) — just the "~Xh Ym left" half of the full line the stage timeline
+ * shows; the wall-clock half isn't worth the extra width in a table row.
+ * `null` while there's no live stage at all; "estimating…" once there is one
+ * but `computeEta` doesn't have enough signal yet (missing `startedAt`, or
+ * progress still too low to extrapolate from). */
+const etaLabel = computed<string | null>(() => {
+  if (!props.live) return null
+  const startedAtMs = props.live.startedAt ? new Date(props.live.startedAt).getTime() : null
+  const eta = computeEta(startedAtMs, props.live.percent, Date.now())
+  return eta ? formatRemaining(eta.remainingMs) : "estimating…"
+})
 </script>
 
 <template>
@@ -42,9 +60,10 @@ const variant = computed<Variant | null>(() => {
       height="6"
       class="run-progress__bar"
     />
-    <span class="run-progress__label text-caption text-medium-emphasis">{{
-      stageLabel(live.stage)
-    }}</span>
+    <div class="run-progress__meta text-caption text-medium-emphasis">
+      <span class="run-progress__label">{{ stageLabel(live.stage) }}</span>
+      <span v-if="etaLabel" class="run-progress__eta">· {{ etaLabel }}</span>
+    </div>
   </div>
 </template>
 
@@ -59,6 +78,12 @@ const variant = computed<Variant | null>(() => {
 .run-progress__bar {
   position: relative;
   overflow: hidden;
+}
+
+.run-progress__meta {
+  display: flex;
+  gap: 4px;
+  white-space: nowrap;
 }
 
 /* Live signal glow — static (not animated), so it stays on even under

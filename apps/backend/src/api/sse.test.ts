@@ -1,4 +1,5 @@
 import { EventEmitter } from "node:events"
+import { eq } from "drizzle-orm"
 import { describe, it, expect } from "vitest"
 import { createDb } from "../db/client"
 import {
@@ -9,6 +10,7 @@ import {
   updateStage,
   upsertDrive,
 } from "../db/repositories"
+import { stageResults } from "../db/schema"
 import { formatSse, snapshotFrames, subscribeEngine } from "./sse"
 
 const seedDrive = (db: Parameters<typeof upsertDrive>[0], serial: string): void =>
@@ -83,10 +85,12 @@ describe("snapshotFrames", () => {
     updateRun(db, runId, { status: "RUNNING", currentStage: "SURFACE" })
     const stageId = addStage(db, { runId, stage: "SURFACE", status: "RUNNING" })
     updateStage(db, stageId, { progress: 42 })
+    const stageRow = db.select().from(stageResults).where(eq(stageResults.id, stageId)).get()
+    const startedAtIso = stageRow?.startedAt?.toISOString()
 
     expect(snapshotFrames(db)).toEqual([
       `event: run:update\ndata: {"runId":${runId},"driveSerial":"SER1","status":"RUNNING","currentStage":"SURFACE"}\n\n`,
-      `event: stage:progress\ndata: {"runId":${runId},"driveSerial":"SER1","stage":"SURFACE","percent":42}\n\n`,
+      `event: stage:progress\ndata: {"runId":${runId},"driveSerial":"SER1","stage":"SURFACE","percent":42,"startedAt":"${startedAtIso}"}\n\n`,
     ])
   })
 
