@@ -77,6 +77,7 @@ export function snapshotFrames(db: Db): string[] {
           driveSerial: run.driveSerial,
           stage: run.currentStage as StageName,
           percent: stageRow.progress ?? 0,
+          startedAt: stageRow.startedAt ? stageRow.startedAt.toISOString() : null,
         } satisfies StageProgressEvent),
       )
     }

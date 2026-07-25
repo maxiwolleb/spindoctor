@@ -145,6 +145,11 @@ export class TestEngine extends EventEmitter {
    * only writes the stage row when the rounded percent actually changes —
    * bounding DB writes on fast progress streams like badblocks. */
   readonly #lastStageProgress = new Map<number, number>()
+  /** A stage's `startedAt` (ISO string), cached per stage id once resolved —
+   * it's set once when the stage row is created and never changes, so a fast
+   * progress stream like badblocks doesn't need a DB read on every callback,
+   * only the first one per stage (see `#emitStageProgress`). */
+  readonly #stageStartedAt = new Map<number, string | null>()
   /** Cap on SURFACE-stage restarts via reconcile() before giving up on a run. */
   private static readonly MAX_RESTARTS = 3
 
@@ -878,7 +883,7 @@ export class TestEngine extends EventEmitter {
     this.emit("run:update", payload)
   }
 
-  #emitStageProgress(stageId: number, payload: StageProgressEvent): void {
+  #emitStageProgress(stageId: number, payload: Omit<StageProgressEvent, "startedAt">): void {
     // Persist the rounded percent so a fresh GET/reconnect reflects live
     // progress instead of 0 until the stage completes. Throttled to
     // whole-percent changes to bound DB writes on fast streams (badblocks).
@@ -887,6 +892,25 @@ export class TestEngine extends EventEmitter {
       this.#lastStageProgress.set(stageId, pct)
       updateStage(this.db, stageId, { progress: pct })
     }
-    this.emit("stage:progress", payload)
+    this.emit("stage:progress", {
+      ...payload,
+      startedAt: this.#stageStartedAtFor(stageId),
+    } satisfies StageProgressEvent)
+  }
+
+  /** Resolves + caches a stage row's `startedAt` for `#emitStageProgress`
+   * (see `#stageStartedAt` doc comment). */
+  #stageStartedAtFor(stageId: number): string | null {
+    const cached = this.#stageStartedAt.get(stageId)
+    if (cached !== undefined) return cached
+
+    const row = this.db
+      .select({ startedAt: stageResults.startedAt })
+      .from(stageResults)
+      .where(eq(stageResults.id, stageId))
+      .get()
+    const startedAt = row?.startedAt ? row.startedAt.toISOString() : null
+    this.#stageStartedAt.set(stageId, startedAt)
+    return startedAt
   }
 }

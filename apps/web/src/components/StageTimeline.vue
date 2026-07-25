@@ -2,6 +2,7 @@
 import { ref } from "vue"
 import type { StageView } from "@spindoctor/shared"
 import { runStatusColor, stageLabel, stageStatusLabel } from "../lib/format"
+import { computeEta, formatEtaClock, formatRemaining } from "../lib/eta"
 
 // The array's order IS the pipeline order (stages are persisted and listed
 // oldest-first — see `listStageRows` in the backend's runs route), so a
@@ -20,6 +21,18 @@ function toggleLog(stageId: number): void {
   if (next.has(stageId)) next.delete(stageId)
   else next.add(stageId)
   expandedLogs.value = next
+}
+
+/** "~Xh Ym left (≈ HH:MM)" for a RUNNING stage, or "estimating…" once it's
+ * running but `computeEta` doesn't have enough signal yet (issue #15) — a
+ * stage that isn't RUNNING never reaches this (only called from behind
+ * `v-if="stage.status === 'RUNNING'"` below), so there's no PENDING/DONE case
+ * to handle here. */
+function stageEtaLine(stage: StageView): string {
+  const startedAtMs = stage.startedAt ? new Date(stage.startedAt).getTime() : null
+  const eta = computeEta(startedAtMs, stage.progress, Date.now())
+  if (!eta) return "estimating…"
+  return `${formatRemaining(eta.remainingMs)} (${formatEtaClock(eta.etaMs)})`
 }
 </script>
 
@@ -45,6 +58,12 @@ function toggleLog(stageId: number): void {
           class="mb-1"
         />
         <span class="mono text-caption text-medium-emphasis">{{ stage.progress }}%</span>
+        <span
+          v-if="stage.status === 'RUNNING'"
+          class="stage-timeline__eta text-caption text-medium-emphasis"
+        >
+          {{ stageEtaLine(stage) }}
+        </span>
 
         <div v-if="stage.log" class="mt-1">
           <button
@@ -137,6 +156,11 @@ function toggleLog(stageId: number): void {
 
 .stage-timeline__label {
   font-weight: 500;
+}
+
+.stage-timeline__eta {
+  display: block;
+  margin-top: 2px;
 }
 
 .stage-timeline__log-toggle {

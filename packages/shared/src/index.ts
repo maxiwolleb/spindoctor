@@ -151,6 +151,12 @@ export interface StageProgressEvent {
   driveSerial: string
   stage: StageName
   percent: number
+  /** The stage's start time, ISO-8601 — same value as `StageView.startedAt`
+   * for the stage row this progress belongs to. Lets a listener (issue #15's
+   * ETA estimate) extrapolate a completion time from elapsed time + percent
+   * without a separate `GET /api/runs/:id` round-trip. `null` only in the
+   * pathological case where the stage row's start time couldn't be resolved. */
+  startedAt: string | null
 }
 
 /** API-facing view of a drive: DB-known fields plus live discovery state. */
