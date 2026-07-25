@@ -5,16 +5,24 @@ export default defineConfig({
   description:
     "Qualify used and refurbished drives with a repeatable SMART / self-test / surface-scan regime and a strict PASS / WARN / FAIL verdict.",
   lang: "en-US",
-  appearance: "dark",
+  // Dark-only identity — no light theme, no toggle.
+  appearance: "force-dark",
 
   // Local dev/build serve from the root. The GitLab Pages deploy is a
   // project site (https://maxiwolleb.gitlab.io/spindoctor/), so CI sets
   // DOCS_BASE=/spindoctor/ for that build only.
   base: process.env.DOCS_BASE ?? "/",
 
-  head: [["link", { rel: "icon", href: "/favicon.svg", type: "image/svg+xml" }]],
+  head: [
+    ["link", { rel: "icon", href: "/favicon.svg", type: "image/svg+xml" }],
+    ["link", { rel: "icon", type: "image/png", href: "/favicon-512.png" }],
+    ["link", { rel: "apple-touch-icon", href: "/apple-touch-icon.png" }],
+    ["link", { rel: "icon", href: "/favicon.ico", sizes: "any" }],
+  ],
 
   themeConfig: {
+    logo: "/logo-mark.svg",
+
     nav: [
       { text: "Guide", link: "/guide/" },
       { text: "GitHub", link: "https://github.com/maxiwolleb/spindoctor" },

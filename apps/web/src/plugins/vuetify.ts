@@ -1,22 +1,22 @@
 import "vuetify/styles"
 import { createVuetify, type ThemeDefinition } from "vuetify"
 
-/** The dark "instrument console" theme — exact tokens from Plan 5's Global
- * Constraints. Keep these values in sync with `styles/tokens.css`. */
+/** The "Phosphor Scope" theme — the exact brand tokens. Keep these values in
+ * sync with `styles/tokens.css`. */
 const spindoctor: ThemeDefinition = {
   dark: true,
   colors: {
-    background: "#0E1116",
-    surface: "#171B22",
-    "surface-bright": "#1F242D",
-    primary: "#4EA1FF",
-    secondary: "#8B95A5",
-    success: "#3FB950",
-    warning: "#D29922",
-    error: "#F85149",
-    info: "#4EA1FF",
-    "on-background": "#E6EAF0",
-    "on-surface": "#E6EAF0",
+    background: "#0A0F0D",
+    surface: "#0F1613",
+    "surface-bright": "#14201A",
+    primary: "#38F5A2",
+    secondary: "#5FA8FF",
+    success: "#38F5A2",
+    warning: "#E3B341",
+    error: "#FF5C57",
+    info: "#5FA8FF",
+    "on-background": "#DDE9E1",
+    "on-surface": "#DDE9E1",
   },
 }
 

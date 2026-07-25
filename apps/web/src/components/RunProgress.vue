@@ -54,6 +54,12 @@ const variant = computed<Variant | null>(() => {
   overflow: hidden;
 }
 
+/* Live signal glow — static (not animated), so it stays on even under
+   prefers-reduced-motion; only the sweep below is motion. */
+.run-progress--signature .run-progress__bar {
+  box-shadow: 0 0 6px rgba(56, 245, 162, 0.5);
+}
+
 /* The signature "write-head" sweep: a soft highlight band that travels
    across the bar continuously while the surface scan is in flight —
    visually distinct from the plain determinate bar used elsewhere. */

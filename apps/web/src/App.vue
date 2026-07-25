@@ -27,11 +27,18 @@ const store = useConsoleStore()
     </v-navigation-drawer>
 
     <v-app-bar flat density="comfortable" border>
-      <v-app-bar-title>spindoctor</v-app-bar-title>
+      <template #prepend>
+        <img src="/logo-mark.svg" alt="" width="28" height="28" class="brand-mark ml-2" />
+      </template>
+      <v-app-bar-title>
+        <span class="brand-wordmark mono">
+          <span class="on-surface">spin</span><span class="brand-wordmark__doctor">doctor</span>
+        </span>
+      </v-app-bar-title>
       <template #append>
         <span
           class="connection-dot mr-4"
-          :class="store.connected ? 'connection-dot--live' : 'connection-dot--dead'"
+          :class="store.connected ? 'connection-dot--live glow' : 'connection-dot--dead'"
           :title="store.connected ? 'Connected' : 'Disconnected'"
         />
       </template>
@@ -44,6 +51,22 @@ const store = useConsoleStore()
 </template>
 
 <style scoped>
+.brand-mark {
+  display: block;
+}
+
+/* Wordmark lockup: JetBrains Mono, lowercase, "spin" in on-surface text +
+   "doctor" in phosphor — never re-spaced or recolored beyond this. */
+.brand-wordmark {
+  font-size: 1.05rem;
+  letter-spacing: 0.4px;
+  font-weight: 500;
+}
+
+.brand-wordmark__doctor {
+  color: var(--phosphor);
+}
+
 .connection-dot {
   display: inline-block;
   width: 8px;
@@ -51,8 +74,10 @@ const store = useConsoleStore()
   border-radius: 50%;
 }
 
+/* Live connection is the signal: phosphor + a soft glow. Static elements
+   (the dead/disconnected state) never glow. */
 .connection-dot--live {
-  background: rgb(var(--v-theme-success));
+  background: var(--phosphor);
 }
 
 .connection-dot--dead {

@@ -6,7 +6,11 @@
     "blockdevices",
     "buildx",
     "fsprogs",
+    "grotesk",
     "idempotently",
+    "labelledby",
+    "linecap",
+    "linejoin",
     "logfile",
     "losetup",
     "maxiwolleb",
@@ -15,6 +19,8 @@
     "nums",
     "nvme",
     "rawio",
+    "scanline",
+    "scanlines",
     "selftest",
     "smartctl",
     "smartmontools",
@@ -28,7 +34,8 @@
     "unsalvageable",
     "unsub",
     "upserts",
-    "vuetify"
+    "vuetify",
+    "wordmark"
   ],
   "ignorePaths": [
     "cspell.json",

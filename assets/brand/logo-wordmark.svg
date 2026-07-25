@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 80" width="300" height="80" role="img" aria-labelledby="title desc">
+  <title id="title">spindoctor</title>
+  <desc id="desc">Pulse Ring mark with the spindoctor wordmark</desc>
+  <g>
+    <circle cx="40" cy="40" r="29" fill="none" stroke="#22332B" stroke-width="2.5"/>
+    <circle cx="40" cy="40" r="18" fill="none" stroke="#22332B" stroke-width="1.5" opacity=".7"/>
+    <polyline points="12,40 27,40 32,40 36,25 41,55 45,40 53,40 68,40" fill="none"
+      stroke="#38F5A2" stroke-width="2.8" stroke-linejoin="round" stroke-linecap="round"/>
+  </g>
+  <text x="98" y="51" font-family="'JetBrains Mono', ui-monospace, monospace" font-weight="600" font-size="30" letter-spacing="0.4"><tspan fill="#DDE9E1">spin</tspan><tspan fill="#38F5A2">doctor</tspan></text>
+</svg>

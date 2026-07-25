@@ -4,6 +4,9 @@ layout: home
 hero:
   name: spindoctor
   tagline: Qualify used and refurbished drives — SMART, self-test, destructive surface scan, and a clear PASS / WARN / FAIL verdict, from a live web console.
+  image:
+    src: /logo-mark.svg
+    alt: spindoctor
   actions:
     - theme: brand
       text: Get started

@@ -1,52 +1,81 @@
 /**
- * Accent + dark "instrument" palette, matched to apps/web's Vuetify theme
- * (apps/web/src/plugins/vuetify.ts) so the docs site and the app read as
- * one product.
+ * "Phosphor Scope" identity — matched to apps/web's Vuetify theme
+ * (apps/web/src/plugins/vuetify.ts) so the docs site and the app read as one
+ * product. Dark-only (see config.ts `appearance: 'force-dark'`) — no
+ * light-theme variant needed.
  */
 
 :root {
-  --vp-c-brand-1: #4ea1ff;
-  --vp-c-brand-2: #6db4ff;
-  --vp-c-brand-3: #3a8eea;
-  --vp-c-brand-soft: rgba(78, 161, 255, 0.16);
+  --vp-c-brand-1: #38f5a2;
+  --vp-c-brand-2: #5eeba8;
+  --vp-c-brand-3: #1f9e67;
+  --vp-c-brand-soft: rgba(56, 245, 162, 0.14);
+
+  /* Self-hosted fonts (no CDN) — headings get the technical-grotesk display
+     face, body stays on Inter, code/data stays tabular mono. */
+  --vp-font-family-base:
+    "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --vp-font-family-mono:
+    "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 }
 
 .dark {
-  --vp-c-bg: #0e1116;
-  --vp-c-bg-alt: #171b22;
-  --vp-c-bg-elv: #1f242d;
-  --vp-c-bg-soft: #171b22;
+  --vp-c-bg: #0a0f0d;
+  --vp-c-bg-alt: #0f1613;
+  --vp-c-bg-elv: #14201a;
+  --vp-c-bg-soft: #14201a;
 
-  --vp-c-divider: #2a313c;
-  --vp-c-gutter: #2a313c;
+  --vp-c-divider: #21322a;
+  --vp-c-gutter: #21322a;
 
-  --vp-c-text-1: #e6eaf0;
-  --vp-c-text-2: #b8c0cc;
-  --vp-c-text-3: #8b95a5;
+  --vp-c-text-1: #dde9e1;
+  --vp-c-text-2: #7c8c82;
+  --vp-c-text-3: #7c8c82;
+}
+
+/* Brand button (the "Get started" hero action) — solid phosphor with dark
+   text, so it reads as a state/signal rather than plain link-colored text. */
+.dark {
+  --vp-button-brand-bg: var(--vp-c-brand-1);
+  --vp-button-brand-hover-bg: var(--vp-c-brand-2);
+  --vp-button-brand-active-bg: var(--vp-c-brand-3);
+  --vp-button-brand-text: #052015;
+  --vp-button-brand-hover-text: #052015;
+  --vp-button-brand-active-text: #052015;
+  --vp-button-brand-border: transparent;
 }
 
 /* PASS / WARN / FAIL — same hues the app uses for verdict states, reused
    here for the ::: tip / ::: warning / ::: danger custom containers. */
 .dark {
   --vp-custom-block-tip-border: transparent;
-  --vp-custom-block-tip-text: #e6eaf0;
-  --vp-custom-block-tip-bg: rgba(63, 185, 80, 0.16);
+  --vp-custom-block-tip-text: #dde9e1;
+  --vp-custom-block-tip-bg: rgba(56, 245, 162, 0.14);
 
   --vp-custom-block-warning-border: transparent;
-  --vp-custom-block-warning-text: #e6eaf0;
-  --vp-custom-block-warning-bg: rgba(210, 153, 34, 0.16);
+  --vp-custom-block-warning-text: #dde9e1;
+  --vp-custom-block-warning-bg: rgba(227, 179, 65, 0.16);
 
   --vp-custom-block-danger-border: transparent;
-  --vp-custom-block-danger-text: #e6eaf0;
-  --vp-custom-block-danger-bg: rgba(248, 81, 73, 0.16);
+  --vp-custom-block-danger-text: #dde9e1;
+  --vp-custom-block-danger-bg: rgba(255, 92, 87, 0.16);
+}
+
+/* Headings — Space Grotesk, the technical-grotesk display face. */
+.vp-doc h1,
+.vp-doc h2,
+.vp-doc h3,
+.vp-doc h4,
+.VPHero .name,
+.VPHero .text,
+.VPFeature .title {
+  font-family:
+    "Space Grotesk",
+    var(--vp-font-family-base);
 }
 
 /* Serials, device paths, thresholds, env vars — tabular mono, matching the
    app's `.mono` readouts. */
-:root {
-  --vp-font-family-mono: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
-}
-
 code,
 .vp-code,
 div[class*="language-"] {

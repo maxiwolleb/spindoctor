@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 80" width="80" height="80" role="img" aria-labelledby="title">
+  <title id="title">spindoctor Pulse Ring mark (monochrome)</title>
+  <circle cx="40" cy="40" r="29" fill="none" stroke="currentColor" stroke-width="2.5"/>
+  <circle cx="40" cy="40" r="18" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".7"/>
+  <polyline points="12,40 27,40 32,40 36,25 41,55 45,40 53,40 68,40" fill="none"
+    stroke="currentColor" stroke-width="2.8" stroke-linejoin="round" stroke-linecap="round"/>
+</svg>

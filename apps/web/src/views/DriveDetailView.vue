@@ -74,7 +74,7 @@ onMounted(load)
 
 <template>
   <div class="pa-6">
-    <router-link to="/" class="d-inline-block mb-4 text-decoration-none">&larr; Back to dashboard</router-link>
+    <router-link to="/" class="d-inline-block mb-4 text-decoration-none text-info">&larr; Back to dashboard</router-link>
 
     <div v-if="loading" class="text-medium-emphasis">Loading drive…</div>
 
