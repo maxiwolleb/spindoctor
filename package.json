@@ -2,6 +2,7 @@
   "name": "spindoctor",
   "private": true,
   "type": "module",
+  "packageManager": "pnpm@10.34.1",
   "engines": {
     "node": ">=22",
     "pnpm": ">=9"
