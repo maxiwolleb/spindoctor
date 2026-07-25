@@ -56,12 +56,13 @@ Keep commits focused — one logical change per commit.
 ## Documentation
 
 The docs site lives in `website/` (VitePress) and is built with
-`pnpm --filter @spindoctor/website docs:build`. It deploys to **GitLab
-Pages**, not GitHub Pages: this repository is hosted on GitHub and mirrored
-to GitLab (Settings → Repository → Mirroring repositories → pull/push
-mirror), and GitLab CI runs the `pages` job (`.gitlab-ci.yml`) on the
-default branch to publish it at
-`https://maxiwolleb.gitlab.io/spindoctor/`.
+`pnpm --filter @spindoctor/website docs:build`. It deploys to **GitHub
+Pages**: the `Docs` workflow (`.github/workflows/docs.yml`) builds the site
+on every push to `main` — with `DOCS_BASE=/spindoctor/` so links resolve
+under the project path — and publishes it at
+`https://maxiwolleb.github.io/spindoctor/`. Pages must be set to build from
+GitHub Actions (repo Settings → Pages → Build and deployment → Source:
+GitHub Actions).
 
 ## Safety-sensitive changes
 
