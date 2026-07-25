@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeEach } from "vitest"
+import { eq } from "drizzle-orm"
 import { DEFAULT_THRESHOLDS } from "@spindoctor/shared"
 import type { DiscoveredDrive } from "@spindoctor/shared"
 import { createDb, type Db } from "./client"
-import { auditLog } from "./schema"
+import { auditLog, stageResults } from "./schema"
 import * as repo from "./repositories"
 
 const drive = (over: Partial<DiscoveredDrive> = {}): DiscoveredDrive => ({
@@ -146,6 +147,24 @@ describe("runs / stages / snapshots / audit", () => {
       driveSerial: "SER123",
       detail: "manual",
     })
+  })
+
+  it("round-trips a stage's captured log via updateStage (#13)", () => {
+    const runId = repo.createRun(db, { driveSerial: "SER123", regime: ["SMART_BEFORE", "VERDICT"] })
+    const stageId = repo.addStage(db, { runId, stage: "SURFACE", status: "RUNNING" })
+    expect(repo.getRun(db, runId)).toBeDefined()
+
+    let stage = db.select().from(stageResults).where(eq(stageResults.id, stageId)).get()
+    expect(stage?.log).toBeNull()
+
+    repo.updateStage(db, stageId, {
+      status: "DONE",
+      log: "=== badblocks stdout ===\n(empty)\n\n=== bad-block logfile ===\n12345",
+    })
+
+    stage = db.select().from(stageResults).where(eq(stageResults.id, stageId)).get()
+    expect(stage?.log).toContain("=== badblocks stdout ===")
+    expect(stage?.log).toContain("12345")
   })
 
   it("no-ops on empty patches for updateRun and updateStage instead of throwing", () => {

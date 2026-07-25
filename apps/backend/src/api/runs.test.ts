@@ -407,6 +407,73 @@ describe("GET /api/runs/:id", () => {
     expect(body.snapshots.before).toMatchObject({ reallocatedSectors: 0, powerOnHours: 100 })
     expect(body.snapshots.after).toBeNull()
   })
+
+  it("includes each stage's captured log, null for a stage that has none (#13)", async () => {
+    const { app } = build()
+    repo.upsertDrive(db, cleanDrive)
+    const runId = repo.createRun(db, {
+      driveSerial: cleanDrive.serial,
+      regime: { mode: "destructive" },
+    })
+    const smartStageId = repo.addStage(db, { runId, stage: "SMART_BEFORE", status: "DONE" })
+    const surfaceStageId = repo.addStage(db, { runId, stage: "SURFACE", status: "DONE" })
+    repo.updateStage(db, surfaceStageId, { log: "=== badblocks stdout ===\n(empty)" })
+
+    const res = await app.inject({ method: "GET", url: `/api/runs/${runId}` })
+    expect(res.statusCode).toBe(200)
+    const body = res.json<{ stages: { id: number; log: string | null }[] }>()
+    expect(body.stages.find((s) => s.id === smartStageId)?.log).toBeNull()
+    expect(body.stages.find((s) => s.id === surfaceStageId)?.log).toContain(
+      "=== badblocks stdout ===",
+    )
+  })
+})
+
+describe("GET /api/runs/:id/log", () => {
+  it("returns the concatenated per-stage log as a text/plain attachment", async () => {
+    const { app } = build()
+    repo.upsertDrive(db, cleanDrive)
+    const runId = repo.createRun(db, {
+      driveSerial: cleanDrive.serial,
+      regime: { mode: "destructive" },
+    })
+    repo.addStage(db, { runId, stage: "SMART_BEFORE", status: "DONE" })
+    const surfaceStageId = repo.addStage(db, { runId, stage: "SURFACE", status: "DONE" })
+    repo.updateStage(db, surfaceStageId, { log: "=== badblocks stdout ===\nall clear" })
+
+    const res = await app.inject({ method: "GET", url: `/api/runs/${runId}/log` })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.headers["content-type"]).toContain("text/plain")
+    expect(res.headers["content-disposition"]).toContain("attachment")
+    expect(res.headers["content-disposition"]).toContain(`spindoctor-run-${runId}-log.txt`)
+    expect(res.body).toContain("SMART_BEFORE")
+    expect(res.body).toContain("(no log captured for this stage)")
+    expect(res.body).toContain("SURFACE")
+    expect(res.body).toContain("all clear")
+  })
+
+  it("orders stages oldest-first in the downloaded text, matching the timeline order", async () => {
+    const { app } = build()
+    repo.upsertDrive(db, cleanDrive)
+    const runId = repo.createRun(db, {
+      driveSerial: cleanDrive.serial,
+      regime: { mode: "destructive" },
+    })
+    repo.addStage(db, { runId, stage: "SMART_BEFORE", status: "DONE" })
+    repo.addStage(db, { runId, stage: "SELFTEST_LONG", status: "DONE" })
+
+    const res = await app.inject({ method: "GET", url: `/api/runs/${runId}/log` })
+    expect(res.statusCode).toBe(200)
+    expect(res.body.indexOf("SMART_BEFORE")).toBeLessThan(res.body.indexOf("SELFTEST_LONG"))
+  })
+
+  it("404s for an unknown run id with a RUN_NOT_FOUND code", async () => {
+    const { app } = build()
+    const res = await app.inject({ method: "GET", url: "/api/runs/999/log" })
+    expect(res.statusCode).toBe(404)
+    expect(res.json()).toMatchObject({ code: "RUN_NOT_FOUND" })
+  })
 })
 
 describe("POST /api/runs/:id/abort", () => {

@@ -15,7 +15,7 @@ import { parseLsblk } from "./lsblkParser"
 import { parseSmartctlScan } from "./scanParser"
 import { mergeDiscovery } from "./discovery"
 import { parseSelfTest } from "./smartParser"
-import { parseBadblocksPercent, countBadBlocks } from "./badblocksParser"
+import { parseBadblocksPercent, countBadBlocks, formatSurfaceLog } from "./badblocksParser"
 
 function asRecord(v: unknown): Record<string, any> {
   return v && typeof v === "object" ? (v as Record<string, any>) : {}
@@ -120,6 +120,7 @@ export class RealDeviceApi implements DeviceApi {
     mode: RegimeMode,
     onProgress: (percent: number) => void,
     signal: AbortSignal,
+    onLog?: (log: string) => void,
   ): Promise<SurfaceResult> {
     const surfaceMode = toSurfaceMode(mode)
     if (signal.aborted) {
@@ -136,14 +137,25 @@ export class RealDeviceApi implements DeviceApi {
     const args = [...flags, devicePath]
 
     return new Promise((resolve) => {
-      const child = spawn(command, args, { stdio: ["ignore", "ignore", "pipe"] })
+      // stdout is piped (not ignored) even though badblocks rarely writes to
+      // it: it's captured for the persisted log, and an unconsumed pipe can
+      // otherwise backpressure/hang the child if it ever does write.
+      const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] })
+
+      const stdoutChunks: Buffer[] = []
+      const stderrChunks: Buffer[] = []
 
       const onAbort = () => {
         child.kill("SIGTERM")
       }
       signal.addEventListener("abort", onAbort, { once: true })
 
+      child.stdout.on("data", (chunk: Buffer) => {
+        stdoutChunks.push(chunk)
+      })
+
       child.stderr.on("data", (chunk: Buffer) => {
+        stderrChunks.push(chunk)
         if (signal.aborted) return
         const percent = parseBadblocksPercent(chunk.toString())
         if (percent !== null) onProgress(percent)
@@ -157,14 +169,21 @@ export class RealDeviceApi implements DeviceApi {
         if (settled) return
         settled = true
         signal.removeEventListener("abort", onAbort)
-        let log: string
+        let badBlocksLog: string
         try {
-          log = await readFile(logfile, "utf8")
+          badBlocksLog = await readFile(logfile, "utf8")
         } catch {
           // Logfile may legitimately be absent (killed before badblocks wrote it).
-          log = ""
+          badBlocksLog = ""
         }
-        const badBlocks = countBadBlocks(log)
+        const badBlocks = countBadBlocks(badBlocksLog)
+        onLog?.(
+          formatSurfaceLog({
+            stdout: Buffer.concat(stdoutChunks).toString("utf8"),
+            stderr: Buffer.concat(stderrChunks).toString("utf8"),
+            badBlocksLog,
+          }),
+        )
         resolve({ mode: surfaceMode, badBlocks, completed: code === 0 })
         try {
           await rm(logfile, { force: true })

@@ -170,6 +170,10 @@ export interface StageUpdate {
   status: string
   progress: number
   logPath: string
+  /** Captured raw tool output for this stage (badblocks stdout/stderr +
+   * bad-block logfile for SURFACE, the self-test poll trail for
+   * SELFTEST_LONG). Left unset for stage kinds that don't capture one. */
+  log: string
   metrics: unknown
   startedAt: Date
   finishedAt: Date

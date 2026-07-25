@@ -1,0 +1,1 @@
+ALTER TABLE `stage_results` ADD `log` text;

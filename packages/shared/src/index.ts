@@ -184,6 +184,11 @@ export interface StageView {
   status: string
   progress: number
   logPath: string | null
+  /** Captured raw tool output for this stage (e.g. badblocks' stdout/stderr
+   * and bad-block logfile for SURFACE, the self-test poll trail for
+   * SELFTEST_LONG). `null` for a stage that has no captured log — either
+   * one wasn't recorded for that stage kind, or it hasn't finished yet. */
+  log: string | null
   metrics: unknown
   startedAt: string | null
   finishedAt: string | null

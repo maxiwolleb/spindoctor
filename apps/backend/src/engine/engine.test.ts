@@ -544,6 +544,92 @@ describe("TestEngine run-state persistence (#12 timestamps, #16 progress)", () =
   })
 })
 
+describe("TestEngine per-stage captured log (#13)", () => {
+  it("persists the SURFACE stage's captured device-api log alongside its metrics", async () => {
+    const d = drive()
+    const api = new FakeDeviceApi({
+      drives: [d],
+      smartByPath: { [d.devicePath]: smartRaw() },
+      selfTestByPath: { [d.devicePath]: PASSED_SELFTEST },
+      surface: {
+        plan: [100],
+        result: { mode: "write", badBlocks: 1, completed: true },
+        log: "=== badblocks stdout ===\n(empty)\n\n=== bad-block logfile ===\n12345",
+      },
+    })
+    const engine = new TestEngine({
+      db,
+      deviceApi: api,
+      sleep: async () => {},
+      selfTestPollIntervalMs: 0,
+    })
+
+    const runId = await engine.startRun({ serial: d.serial, mode: "destructive" })
+    await waitForSettled(engine, runId)
+
+    const stages = db.select().from(stageResults).where(eq(stageResults.runId, runId)).all()
+    const surfaceStage = stages.find((s) => s.stage === "SURFACE")
+    expect(surfaceStage?.log).toContain("=== badblocks stdout ===")
+    expect(surfaceStage?.log).toContain("12345")
+    // The captured log is additional to (not a replacement of) the existing
+    // forensic metrics field.
+    expect(surfaceStage?.metrics).toEqual({ mode: "write", badBlocks: 1, completed: true })
+  })
+
+  it("leaves a stage's log column null when the device api never calls onLog", async () => {
+    const d = drive()
+    const api = new FakeDeviceApi({
+      drives: [d],
+      smartByPath: { [d.devicePath]: smartRaw() },
+      selfTestByPath: { [d.devicePath]: PASSED_SELFTEST },
+      surface: { plan: [100], result: { mode: "write", badBlocks: 0, completed: true } },
+    })
+    const engine = new TestEngine({
+      db,
+      deviceApi: api,
+      sleep: async () => {},
+      selfTestPollIntervalMs: 0,
+    })
+
+    const runId = await engine.startRun({ serial: d.serial, mode: "destructive" })
+    await waitForSettled(engine, runId)
+
+    const stages = db.select().from(stageResults).where(eq(stageResults.runId, runId)).all()
+    const surfaceStage = stages.find((s) => s.stage === "SURFACE")
+    expect(surfaceStage?.log).toBeNull()
+  })
+
+  it("persists a SELFTEST_LONG poll-trail log built from the poll sequence", async () => {
+    const d = drive()
+    const api = new SequencedSelfTestApi(
+      {
+        drives: [d],
+        smartByPath: { [d.devicePath]: smartRaw() },
+        surface: { plan: [100], result: { mode: "write", badBlocks: 0, completed: true } },
+      },
+      [
+        { running: true, percentRemaining: 60, result: null },
+        { running: false, percentRemaining: 0, result: { status: "PASSED" } },
+      ],
+    )
+    const engine = new TestEngine({
+      db,
+      deviceApi: api,
+      sleep: async () => {},
+      selfTestPollIntervalMs: 0,
+    })
+
+    const runId = await engine.startRun({ serial: d.serial, mode: "destructive" })
+    await waitForSettled(engine, runId)
+
+    const stages = db.select().from(stageResults).where(eq(stageResults.runId, runId)).all()
+    const selfTestStage = stages.find((s) => s.stage === "SELFTEST_LONG")
+    expect(selfTestStage?.log).toContain("smartctl -t long")
+    expect(selfTestStage?.log).toContain("percentRemaining=60")
+    expect(selfTestStage?.log).toContain("self-test finished: PASSED")
+  })
+})
+
 describe("TestEngine SURFACE stage safety re-check (TOCTOU guard)", () => {
   it("denies the destructive write when the drive becomes mounted between startRun and the SURFACE stage", async () => {
     const clean = drive()

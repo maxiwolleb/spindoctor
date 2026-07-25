@@ -28,7 +28,7 @@ import {
   updateStage,
   upsertDrive,
 } from "../db/repositories"
-import type { RunRow, StageRow } from "../db/repositories"
+import type { RunRow, StageRow, StageUpdate } from "../db/repositories"
 import { Semaphore } from "./semaphore"
 import { regimeStages } from "./regime"
 
@@ -643,7 +643,7 @@ export class TestEngine extends EventEmitter {
         return fresh
       }
       case "SELFTEST_LONG": {
-        const result = await this.#runSelfTestStage(
+        const { result, log } = await this.#runSelfTestStage(
           runId,
           stageId,
           drive.serial,
@@ -654,8 +654,10 @@ export class TestEngine extends EventEmitter {
         state.selfTest = result
         // Persisted so a later reconcile() (e.g. a run interrupted again at
         // SMART_AFTER/VERDICT) can reconstruct this result from the DONE
-        // row's metrics without re-running the self-test.
-        updateStage(this.db, stageId, { metrics: result })
+        // row's metrics without re-running the self-test. `log` is the
+        // poll trail this process observed — a resumed run only covers
+        // polling from the resume point forward, not any pre-restart history.
+        updateStage(this.db, stageId, { metrics: result, log })
         return drive
       }
       case "SURFACE": {
@@ -695,30 +697,42 @@ export class TestEngine extends EventEmitter {
     devicePath: string,
     controller: AbortController,
     skipStart = false,
-  ): Promise<SelfTestResult> {
+  ): Promise<{ result: SelfTestResult; log: string }> {
     // On a reconcile()-resumed run, the firmware self-test itself kept
     // running across the process restart — only this process's tracking of
     // it was interrupted — so starting it again would restart the timer
     // for no reason. Skip straight to polling in that case.
+    const logLines: string[] = []
     if (!skipStart) {
+      logLines.push(`[${new Date().toISOString()}] smartctl -t long ${devicePath}`)
       await this.deviceApi.startLongSelfTest(devicePath)
+    } else {
+      logLines.push(`[${new Date().toISOString()}] resuming poll for an already-running self-test`)
     }
     let result: SelfTestResult = { status: "UNKNOWN" }
 
     while (!controller.signal.aborted) {
       const progress = await this.deviceApi.pollSelfTest(devicePath)
       const percent = progress.percentRemaining == null ? 0 : 100 - progress.percentRemaining
+      logLines.push(
+        `[${new Date().toISOString()}] poll: running=${progress.running} ` +
+          `percentRemaining=${progress.percentRemaining ?? "unknown"} (${percent}% done)`,
+      )
       this.#emitStageProgress(stageId, { runId, driveSerial, stage: "SELFTEST_LONG", percent })
 
       if (!progress.running) {
         result = progress.result ?? { status: "UNKNOWN" }
+        logLines.push(
+          `[${new Date().toISOString()}] self-test finished: ${result.status}` +
+            (result.message ? ` — ${result.message}` : ""),
+        )
         break
       }
       if (controller.signal.aborted) break
       await this.sleep(this.selfTestPollIntervalMs)
     }
 
-    return result
+    return { result, log: logLines.join("\n") }
   }
 
   async #runSurfaceStage(
@@ -755,6 +769,7 @@ export class TestEngine extends EventEmitter {
       currentDrive = recheck.drive
     }
 
+    let capturedLog: string | undefined
     const surfaceResult = await this.deviceApi.runSurfaceTest(
       devicePath,
       mode,
@@ -766,18 +781,27 @@ export class TestEngine extends EventEmitter {
           percent,
         }),
       controller.signal,
+      (log) => {
+        capturedLog = log
+      },
     )
 
     // Persist the bad-block count + completed flag for forensics/reconcile
     // regardless of outcome. #run's post-stage abort check is the single
     // source of truth for the final DONE-vs-ABORTED call and harmlessly
     // re-writes `status` afterwards, so it's fine to set it here too.
-    updateStage(this.db, stageId, {
+    const stagePatch: Partial<StageUpdate> = {
       status: surfaceResult.completed ? "DONE" : "ABORTED",
       progress: 100,
       metrics: surfaceResult,
       finishedAt: new Date(),
-    })
+    }
+    // Only set when the device API actually captured one — omitted (rather
+    // than passed as `undefined`) so a DeviceApi that never calls `onLog`
+    // (e.g. a bare `FakeDeviceApi` in an unrelated test) doesn't blow away
+    // an unrelated column with an explicit undefined `.set()` value.
+    if (capturedLog !== undefined) stagePatch.log = capturedLog
+    updateStage(this.db, stageId, stagePatch)
 
     return { surface: surfaceResult, drive: currentDrive }
   }

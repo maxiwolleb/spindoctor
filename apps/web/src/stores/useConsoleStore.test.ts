@@ -66,6 +66,7 @@ function fakeApi() {
     createRun: vi.fn().mockResolvedValue({ runId: 42 }),
     listRuns: vi.fn(),
     getRun: vi.fn(),
+    getRunLogUrl: vi.fn(),
     abortRun: vi.fn().mockResolvedValue({ ok: true }),
     getSettings: vi.fn().mockResolvedValue(settings),
     putSettings: vi.fn(),
