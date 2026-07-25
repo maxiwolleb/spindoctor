@@ -8,6 +8,13 @@
       "when": 1784906945168,
       "tag": "0000_eminent_stone_men",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1785007579697,
+      "tag": "0001_rich_warhawk",
+      "breakpoints": true
     }
   ]
 }

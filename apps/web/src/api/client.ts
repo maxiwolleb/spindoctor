@@ -90,6 +90,11 @@ export function createApiClient(baseUrl = "") {
 
     getRun: (id: number): Promise<RunDetail> => request(`${baseUrl}/api/runs/${id}`),
 
+    /** URL for the plain-text, per-stage log download (`GET
+     * /api/runs/:id/log`) — a direct link/`<a download>` target, not a
+     * fetch-and-parse call like the rest of this client. */
+    getRunLogUrl: (id: number): string => `${baseUrl}/api/runs/${id}/log`,
+
     abortRun: (id: number): Promise<{ ok: boolean }> =>
       request(`${baseUrl}/api/runs/${id}/abort`, { method: "POST" }),
 

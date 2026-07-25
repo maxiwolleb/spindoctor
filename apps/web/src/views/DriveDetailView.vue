@@ -105,7 +105,18 @@ onMounted(load)
           class="mb-6"
         />
 
-        <h2 class="text-subtitle-1 mb-2">Stage timeline</h2>
+        <div class="d-flex align-center justify-space-between mb-2">
+          <h2 class="text-subtitle-1 ma-0">Stage timeline</h2>
+          <v-btn
+            :href="api.getRunLogUrl(latestRunDetail.run.id)"
+            download
+            variant="tonal"
+            size="small"
+            color="primary"
+          >
+            Download log
+          </v-btn>
+        </div>
         <StageTimeline :stages="latestRunDetail.stages" class="mb-6" />
       </template>
       <v-alert

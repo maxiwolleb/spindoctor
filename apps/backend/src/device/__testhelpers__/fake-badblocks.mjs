@@ -3,15 +3,20 @@
 // `badblocks` binary:
 //   - prints "% done" progress to stderr in the same shape badblocks does
 //   - optionally writes N fake bad-block LBAs to the `--log` file
+//   - optionally prints a fixed line to stdout (badblocks itself rarely
+//     writes to stdout, but the runner captures it regardless)
 //   - optionally never finishes, so tests can exercise abort/kill
 //
-// Usage: node fake-badblocks.mjs --log <path> [--bad <n>] [--hang]
+// Usage: node fake-badblocks.mjs --log <path> [--bad <n>] [--stdout <text>] [--hang]
 import { writeFileSync } from "node:fs"
 
 const args = process.argv.slice(2)
 const logPath = args[args.indexOf("--log") + 1]
 const bad = args.includes("--bad") ? Number(args[args.indexOf("--bad") + 1]) : 0
+const stdoutText = args.includes("--stdout") ? args[args.indexOf("--stdout") + 1] : undefined
 const hang = args.includes("--hang")
+
+if (stdoutText) process.stdout.write(`${stdoutText}\n`)
 
 let pct = 0
 const tick = () => {

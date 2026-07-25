@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ref } from "vue"
 import type { StageView } from "@spindoctor/shared"
 import { runStatusColor, stageLabel, stageStatusLabel } from "../lib/format"
 
@@ -8,6 +9,18 @@ import { runStatusColor, stageLabel, stageStatusLabel } from "../lib/format"
 defineProps<{
   stages: StageView[]
 }>()
+
+/** Stage ids whose captured-log panel is currently expanded. Collapsed by
+ * default — most stages don't have a log at all, and the ones that do can be
+ * long (badblocks output), so it shouldn't dominate the timeline unasked. */
+const expandedLogs = ref(new Set<number>())
+
+function toggleLog(stageId: number): void {
+  const next = new Set(expandedLogs.value)
+  if (next.has(stageId)) next.delete(stageId)
+  else next.add(stageId)
+  expandedLogs.value = next
+}
 </script>
 
 <template>
@@ -32,6 +45,19 @@ defineProps<{
           class="mb-1"
         />
         <span class="mono text-caption text-medium-emphasis">{{ stage.progress }}%</span>
+
+        <div v-if="stage.log" class="mt-1">
+          <button
+            type="button"
+            class="stage-timeline__log-toggle mono"
+            @click="toggleLog(stage.id)"
+          >
+            {{ expandedLogs.has(stage.id) ? "Hide log" : "Show log" }}
+          </button>
+          <pre v-if="expandedLogs.has(stage.id)" class="mono stage-timeline__log">{{
+            stage.log
+          }}</pre>
+        </div>
       </div>
     </li>
   </ol>
@@ -111,5 +137,32 @@ defineProps<{
 
 .stage-timeline__label {
   font-weight: 500;
+}
+
+.stage-timeline__log-toggle {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--phosphor);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.stage-timeline__log-toggle:hover {
+  text-decoration: underline;
+}
+
+.stage-timeline__log {
+  margin: 8px 0 0;
+  padding: 12px;
+  background: rgb(var(--v-theme-background));
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  max-height: 320px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 12px;
+  line-height: 1.5;
 }
 </style>

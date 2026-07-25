@@ -58,6 +58,7 @@ function toStageView(row: StageRow): StageView {
     status: row.status,
     progress: row.progress,
     logPath: row.logPath,
+    log: row.log,
     metrics: row.metrics,
     startedAt: isoOrNull(row.startedAt),
     finishedAt: isoOrNull(row.finishedAt),
@@ -73,6 +74,19 @@ function listStageRows(db: Db, runId: number): StageView[] {
     .orderBy(stageResults.id)
     .all()
     .map(toStageView)
+}
+
+/** Concatenates every stage's captured log into one plain-text document for
+ * the `GET /api/runs/:id/log` download — oldest stage first, each under its
+ * own header, so a stage with no captured log (most SMART/VERDICT stages
+ * currently don't produce raw tool text) still shows up rather than being
+ * silently skipped. */
+function buildRunLogText(stages: StageView[]): string {
+  return stages
+    .map(
+      (s) => `===== ${s.stage} (${s.status}) =====\n${s.log ?? "(no log captured for this stage)"}`,
+    )
+    .join("\n\n")
 }
 
 export function runsRoutes(deps: RunsRouteDeps): FastifyPluginAsync {
@@ -142,6 +156,23 @@ export function runsRoutes(deps: RunsRouteDeps): FastifyPluginAsync {
         getSnapshots(db, id)
       return { run: toRunView(row), stages: listStageRows(db, id), snapshots }
     })
+
+    fastify.get(
+      "/runs/:id/log",
+      async (request: FastifyRequest<{ Params: { id: string } }>, reply) => {
+        const id = Number(request.params.id)
+        const row = Number.isFinite(id) ? getRun(db, id) : undefined
+        if (!row) {
+          reply.code(404)
+          return { error: `no run found with id "${request.params.id}"`, code: "RUN_NOT_FOUND" }
+        }
+        const text = buildRunLogText(listStageRows(db, id))
+        reply
+          .header("Content-Type", "text/plain; charset=utf-8")
+          .header("Content-Disposition", `attachment; filename="spindoctor-run-${id}-log.txt"`)
+        return text
+      },
+    )
 
     fastify.post(
       "/runs/:id/abort",

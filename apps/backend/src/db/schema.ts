@@ -38,6 +38,7 @@ export const stageResults = sqliteTable("stage_results", {
   status: text("status").notNull(),
   progress: integer("progress").notNull().default(0),
   logPath: text("log_path"),
+  log: text("log"),
   metrics: text("metrics", { mode: "json" }),
   startedAt: integer("started_at", { mode: "timestamp_ms" }),
   finishedAt: integer("finished_at", { mode: "timestamp_ms" }),

@@ -48,6 +48,7 @@ const stages: StageView[] = [
     status: "DONE",
     progress: 100,
     logPath: null,
+    log: null,
     metrics: null,
     startedAt: null,
     finishedAt: null,
@@ -59,6 +60,7 @@ const stages: StageView[] = [
     status: "DONE",
     progress: 100,
     logPath: null,
+    log: null,
     metrics: null,
     startedAt: null,
     finishedAt: null,
@@ -116,6 +118,21 @@ describe("DriveDetailView", () => {
     expect(text).toContain("+5")
     expect(text).toContain("SMART (before)")
     expect(text).toContain("Back to dashboard")
+  })
+
+  it("renders a download-log link pointing at the latest run's log endpoint (#13)", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ drive, runs: [run] }))
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({ run, stages, snapshots: { before: null, after: null } }),
+    )
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    const link = wrapper.find(`a[href="/api/runs/${run.id}/log"]`)
+    expect(link.exists()).toBe(true)
+    expect(link.text()).toContain("Download log")
+    expect(link.attributes("download")).toBeDefined()
   })
 
   it("shows a not-found message for an unknown serial instead of throwing", async () => {

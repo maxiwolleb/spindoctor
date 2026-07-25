@@ -10,7 +10,7 @@ export interface FakeDeviceApiState {
   drives?: DiscoveredDrive[]
   smartByPath?: Record<string, unknown>
   selfTestByPath?: Record<string, SelfTestProgress>
-  surface?: { plan?: number[]; result?: SurfaceResult }
+  surface?: { plan?: number[]; result?: SurfaceResult; log?: string }
 }
 
 /** `RegimeMode` names the user-facing regime; `SurfaceResult.mode` names the badblocks flag used. */
@@ -49,6 +49,7 @@ export class FakeDeviceApi implements DeviceApi {
     mode: RegimeMode,
     onProgress: (percent: number) => void,
     signal: AbortSignal,
+    onLog?: (log: string) => void,
   ): Promise<SurfaceResult> {
     this.surfaceCalls.push({ devicePath, mode })
     const plan = this.state.surface?.plan ?? [25, 50, 75, 100]
@@ -62,6 +63,10 @@ export class FakeDeviceApi implements DeviceApi {
       await new Promise((resolve) => setTimeout(resolve, 0))
       if (signal.aborted) return aborted
     }
+
+    // Only fires when a test fixture opts in — leaves every existing caller
+    // that doesn't set `state.surface.log` untouched.
+    if (this.state.surface?.log !== undefined) onLog?.(this.state.surface.log)
 
     return (
       this.state.surface?.result ?? { mode: toSurfaceMode(mode), badBlocks: 0, completed: true }

@@ -12,6 +12,7 @@ function stage(over: Partial<StageView>): StageView {
     status: "DONE",
     progress: 100,
     logPath: null,
+    log: null,
     metrics: null,
     startedAt: null,
     finishedAt: null,
@@ -76,5 +77,74 @@ describe("StageTimeline", () => {
     })
 
     expect(wrapper.text()).toContain("42%")
+  })
+
+  describe("captured stage log panel (#13)", () => {
+    it("shows no log toggle for a stage with no captured log", () => {
+      const wrapper = mount(StageTimeline, {
+        props: { stages: [stage({ stage: "SMART_BEFORE", log: null })] },
+        global: { plugins: [vuetify] },
+      })
+
+      expect(wrapper.find(".stage-timeline__log-toggle").exists()).toBe(false)
+      expect(wrapper.find(".stage-timeline__log").exists()).toBe(false)
+    })
+
+    it("renders a toggle for a stage with a captured log, collapsed by default", () => {
+      const wrapper = mount(StageTimeline, {
+        props: {
+          stages: [stage({ stage: "SURFACE", log: "=== badblocks stdout ===\n(empty)\n\n12345" })],
+        },
+        global: { plugins: [vuetify] },
+      })
+
+      const toggle = wrapper.find(".stage-timeline__log-toggle")
+      expect(toggle.exists()).toBe(true)
+      expect(toggle.text()).toBe("Show log")
+      expect(wrapper.find(".stage-timeline__log").exists()).toBe(false)
+    })
+
+    it("expands to show the raw log text on click, and collapses again on a second click", async () => {
+      const wrapper = mount(StageTimeline, {
+        props: {
+          stages: [stage({ stage: "SURFACE", log: "=== badblocks stdout ===\nsome output" })],
+        },
+        global: { plugins: [vuetify] },
+      })
+
+      const toggle = wrapper.find(".stage-timeline__log-toggle")
+      await toggle.trigger("click")
+
+      expect(wrapper.find(".stage-timeline__log-toggle").text()).toBe("Hide log")
+      const pre = wrapper.find(".stage-timeline__log")
+      expect(pre.exists()).toBe(true)
+      expect(pre.text()).toContain("=== badblocks stdout ===")
+      expect(pre.text()).toContain("some output")
+
+      await wrapper.find(".stage-timeline__log-toggle").trigger("click")
+      expect(wrapper.find(".stage-timeline__log-toggle").text()).toBe("Show log")
+      expect(wrapper.find(".stage-timeline__log").exists()).toBe(false)
+    })
+
+    it("keeps each stage's expanded state independent", async () => {
+      const wrapper = mount(StageTimeline, {
+        props: {
+          stages: [
+            stage({ id: 1, stage: "SELFTEST_LONG", log: "self-test log" }),
+            stage({ id: 2, stage: "SURFACE", log: "surface log" }),
+          ],
+        },
+        global: { plugins: [vuetify] },
+      })
+
+      const toggles = wrapper.findAll(".stage-timeline__log-toggle")
+      expect(toggles).toHaveLength(2)
+
+      await toggles[0]!.trigger("click")
+
+      const logs = wrapper.findAll(".stage-timeline__log")
+      expect(logs).toHaveLength(1)
+      expect(logs[0]!.text()).toContain("self-test log")
+    })
   })
 })

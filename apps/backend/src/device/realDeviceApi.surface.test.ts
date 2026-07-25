@@ -86,6 +86,88 @@ describe("RealDeviceApi.runSurfaceTest (against the badblocks emulator)", () => 
     expect(result).toEqual({ mode: "write", badBlocks: 0, completed: false })
   }, 8000)
 
+  it("captures the badblocks stdout+stderr and bad-block logfile into onLog", async () => {
+    const api = new RealDeviceApi(execFileRunner, {
+      logDir: dir,
+      surfaceCommand: process.execPath,
+      surfaceArgsPrefix: (logfile) => [
+        emulatorPath,
+        "--log",
+        logfile,
+        "--bad",
+        "2",
+        "--stdout",
+        "surface scan starting",
+      ],
+    })
+
+    let capturedLog: string | undefined
+    const result = await api.runSurfaceTest(
+      "/dev/fake",
+      "destructive",
+      () => {},
+      new AbortController().signal,
+      (log) => {
+        capturedLog = log
+      },
+    )
+
+    expect(result).toEqual({ mode: "write", badBlocks: 2, completed: true })
+    expect(capturedLog).toBeDefined()
+    expect(capturedLog).toContain("=== badblocks stdout ===")
+    expect(capturedLog).toContain("surface scan starting")
+    expect(capturedLog).toContain("=== badblocks stderr (progress) ===")
+    expect(capturedLog).toContain("% done")
+    expect(capturedLog).toContain("=== bad-block logfile ===")
+    expect(capturedLog).toContain("1000")
+    expect(capturedLog).toContain("1001")
+  }, 8000)
+
+  it("still calls onLog with whatever was captured before a kill on abort", async () => {
+    const api = new RealDeviceApi(execFileRunner, {
+      logDir: dir,
+      surfaceCommand: process.execPath,
+      surfaceArgsPrefix: (logfile) => [emulatorPath, "--log", logfile, "--hang"],
+    })
+    const controller = new AbortController()
+
+    let capturedLog: string | undefined
+    const result = await api.runSurfaceTest(
+      "/dev/fake",
+      "destructive",
+      () => controller.abort(),
+      controller.signal,
+      (log) => {
+        capturedLog = log
+      },
+    )
+
+    expect(result.completed).toBe(false)
+    expect(capturedLog).toBeDefined()
+    expect(capturedLog).toContain("=== badblocks stderr (progress) ===")
+    // The hanging emulator never writes the logfile — the log still has a
+    // labelled (empty) section for it rather than throwing/omitting it.
+    expect(capturedLog).toContain("=== bad-block logfile ===\n(empty)")
+  }, 8000)
+
+  it("does not call onLog when the caller omits it", async () => {
+    const api = new RealDeviceApi(execFileRunner, {
+      logDir: dir,
+      surfaceCommand: process.execPath,
+      surfaceArgsPrefix: (logfile) => [emulatorPath, "--log", logfile, "--bad", "0"],
+    })
+
+    // No 5th argument at all — must not throw from an unconditional call.
+    const result = await api.runSurfaceTest(
+      "/dev/fake",
+      "read-only",
+      () => {},
+      new AbortController().signal,
+    )
+
+    expect(result).toEqual({ mode: "read-only", badBlocks: 0, completed: true })
+  }, 8000)
+
   it("resolves once (not hanging or throwing) when the command fails to spawn", async () => {
     const api = new RealDeviceApi(execFileRunner, {
       logDir: dir,
