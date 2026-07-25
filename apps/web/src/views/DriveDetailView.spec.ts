@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { flushPromises, mount } from "@vue/test-utils"
 import { createMemoryHistory, createRouter } from "vue-router"
-import type { DriveView, RunView, StageView } from "@spindoctor/shared"
+import type { DriveView, RunView, SmartAttributeRow, StageView } from "@spindoctor/shared"
 import { vuetify } from "../plugins/vuetify"
 import DriveDetailView from "./DriveDetailView.vue"
 
@@ -67,6 +67,17 @@ const stages: StageView[] = [
   },
 ]
 
+const reallocatedAttribute: SmartAttributeRow = {
+  id: 5,
+  name: "Reallocated_Sector_Ct",
+  value: 100,
+  worst: 100,
+  thresh: 10,
+  rawValue: 5,
+  rawString: null,
+  health: "warn",
+}
+
 function mountView(serial = "SERA1234") {
   const router = createRouter({
     history: createMemoryHistory(),
@@ -100,6 +111,7 @@ describe("DriveDetailView", () => {
         run,
         stages,
         snapshots: { before: { reallocatedSectors: 0 }, after: { reallocatedSectors: 5 } },
+        attributes: { before: [], after: [] },
       }),
     )
 
@@ -123,7 +135,12 @@ describe("DriveDetailView", () => {
   it("renders a download-log link pointing at the latest run's log endpoint (#13)", async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse({ drive, runs: [run] }))
     fetchMock.mockResolvedValueOnce(
-      jsonResponse({ run, stages, snapshots: { before: null, after: null } }),
+      jsonResponse({
+        run,
+        stages,
+        snapshots: { before: null, after: null },
+        attributes: { before: [], after: [] },
+      }),
     )
 
     const wrapper = mountView()
@@ -133,6 +150,48 @@ describe("DriveDetailView", () => {
     expect(link.exists()).toBe(true)
     expect(link.text()).toContain("Download log")
     expect(link.attributes("download")).toBeDefined()
+  })
+
+  it("renders the full SMART attribute table (defaulting to the after snapshot) with a raw-SMART download link (#14)", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ drive, runs: [run] }))
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({
+        run,
+        stages,
+        snapshots: { before: { reallocatedSectors: 0 }, after: { reallocatedSectors: 5 } },
+        attributes: { before: [], after: [reallocatedAttribute] },
+      }),
+    )
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain("SMART attributes")
+    expect(wrapper.text()).toContain("retired after finding them bad")
+    expect(wrapper.find(".smart-attributes-table__row--warn").exists()).toBe(true)
+
+    const link = wrapper.find(`a[href="/api/runs/${run.id}/smart"]`)
+    expect(link.exists()).toBe(true)
+    expect(link.text()).toContain("Download raw SMART")
+    expect(link.attributes("download")).toBeDefined()
+  })
+
+  it("falls back to the before snapshot for the attribute table when after has none yet", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ drive, runs: [run] }))
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({
+        run,
+        stages,
+        snapshots: { before: { reallocatedSectors: 5 }, after: null },
+        attributes: { before: [reallocatedAttribute], after: [] },
+      }),
+    )
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain("Reallocated sectors")
+    expect(wrapper.find(".smart-attributes-table__row--warn").exists()).toBe(true)
   })
 
   it("shows a not-found message for an unknown serial instead of throwing", async () => {
@@ -151,7 +210,12 @@ describe("DriveDetailView", () => {
     const secondRun: RunView = { ...run, id: 8, verdict: "FAIL", mode: "read-only" }
     fetchMock.mockResolvedValueOnce(jsonResponse({ drive, runs: [run, secondRun] }))
     fetchMock.mockResolvedValueOnce(
-      jsonResponse({ run, stages, snapshots: { before: null, after: null } }),
+      jsonResponse({
+        run,
+        stages,
+        snapshots: { before: null, after: null },
+        attributes: { before: [], after: [] },
+      }),
     )
 
     const wrapper = mountView()

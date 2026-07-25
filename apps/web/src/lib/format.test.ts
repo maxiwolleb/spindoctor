@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest"
-import type { Verdict } from "@spindoctor/shared"
+import type { SmartAttributeHealth, Verdict } from "@spindoctor/shared"
 import {
+  attributeHealthColor,
+  attributeHealthLabel,
   humanBytes,
   modeLabel,
   runStatusColor,
@@ -116,5 +118,29 @@ describe("stageStatusLabel", () => {
 
   it.each(cases)("labels %s as %s", (status, label) => {
     expect(stageStatusLabel(status)).toBe(label)
+  })
+})
+
+describe("attributeHealthColor", () => {
+  const cases: Array<[SmartAttributeHealth, string]> = [
+    ["ok", "success"],
+    ["warn", "warning"],
+    ["fail", "error"],
+  ]
+
+  it.each(cases)("maps %s to %s", (health, color) => {
+    expect(attributeHealthColor(health)).toBe(color)
+  })
+})
+
+describe("attributeHealthLabel", () => {
+  const cases: Array<[SmartAttributeHealth, string]> = [
+    ["ok", "OK"],
+    ["warn", "Warn"],
+    ["fail", "Fail"],
+  ]
+
+  it.each(cases)("labels %s as %s", (health, label) => {
+    expect(attributeHealthLabel(health)).toBe(label)
   })
 })

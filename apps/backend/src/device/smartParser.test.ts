@@ -1,7 +1,14 @@
 import { describe, it, expect } from "vitest"
-import { parseDeviceType, parseSmartMetrics, parseSelfTest } from "./smartParser"
+import { DEFAULT_THRESHOLDS } from "@spindoctor/shared"
+import {
+  parseDeviceType,
+  parseSmartAttributes,
+  parseSmartMetrics,
+  parseSelfTest,
+} from "./smartParser"
 import ataHealthy from "./__fixtures__/ata-healthy.json"
 import ataFailing from "./__fixtures__/ata-failing.json"
+import ataWarning from "./__fixtures__/ata-warning.json"
 import nvmeHealthy from "./__fixtures__/nvme-healthy.json"
 
 describe("parseDeviceType", () => {
@@ -110,5 +117,110 @@ describe("parseSelfTest", () => {
       ata_smart_self_test_log: { standard: { table: [] } },
     }
     expect(parseSelfTest(raw).status).toBe("FAILED")
+  })
+})
+
+describe("parseSmartAttributes (ATA)", () => {
+  it("returns every row healthy for a clean drive", () => {
+    const rows = parseSmartAttributes(ataHealthy, DEFAULT_THRESHOLDS)
+    expect(rows).toHaveLength(6)
+    expect(rows.every((r) => r.health === "ok")).toBe(true)
+    const realloc = rows.find((r) => r.id === 5)
+    expect(realloc).toMatchObject({
+      name: "Reallocated_Sector_Ct",
+      rawValue: 0,
+      health: "ok",
+    })
+  })
+
+  it("flags reallocated/pending/uncorrectable as fail and CRC as warn on a failing drive", () => {
+    const rows = parseSmartAttributes(ataFailing, DEFAULT_THRESHOLDS)
+    const byId = (id: number) => rows.find((r) => r.id === id)
+
+    // reallocatedSectors=48 exceeds reallocatedWarnMax(10) -> fail
+    expect(byId(5)).toMatchObject({ rawValue: 48, health: "fail" })
+    expect(byId(197)).toMatchObject({ rawValue: 8, health: "fail" })
+    expect(byId(198)).toMatchObject({ rawValue: 8, health: "fail" })
+    expect(byId(187)).toMatchObject({ rawValue: 12, health: "fail" })
+    expect(byId(199)).toMatchObject({ rawValue: 2, health: "warn" })
+  })
+
+  it("warns (not fails) a stable reallocated count under the warn max", () => {
+    const rows = parseSmartAttributes(ataWarning, DEFAULT_THRESHOLDS)
+    expect(rows.find((r) => r.id === 5)).toMatchObject({ rawValue: 3, health: "warn" })
+    expect(rows.find((r) => r.id === 199)).toMatchObject({ rawValue: 1, health: "warn" })
+  })
+
+  it("falls back to fail for an attribute the drive itself marked failed (when_failed set)", () => {
+    const rows = parseSmartAttributes(ataWarning, DEFAULT_THRESHOLDS)
+    expect(rows.find((r) => r.id === 1)).toMatchObject({
+      name: "Raw_Read_Error_Rate",
+      health: "fail",
+    })
+  })
+
+  it("carries value/worst/thresh and a distinct raw string when smartctl provides one", () => {
+    const rows = parseSmartAttributes(ataWarning, DEFAULT_THRESHOLDS)
+    const powerOn = rows.find((r) => r.id === 9)
+    expect(powerOn).toMatchObject({
+      value: 88,
+      worst: 88,
+      thresh: 0,
+      rawValue: 12000,
+      rawString: "12000h+00m+00.000s",
+    })
+  })
+
+  it("returns [] when the raw JSON has no attribute table", () => {
+    expect(
+      parseSmartAttributes(
+        { device: { protocol: "ATA" }, rotation_rate: 7200 },
+        DEFAULT_THRESHOLDS,
+      ),
+    ).toEqual([])
+  })
+})
+
+describe("parseSmartAttributes (NVMe)", () => {
+  it("maps the NVMe health log fields it reported, all healthy", () => {
+    const rows = parseSmartAttributes(nvmeHealthy, DEFAULT_THRESHOLDS)
+    expect(rows.length).toBeGreaterThan(0)
+    expect(rows.every((r) => r.id === null && r.value === null)).toBe(true)
+    expect(rows.find((r) => r.name === "percentage_used")).toMatchObject({
+      rawValue: 4,
+      health: "ok",
+    })
+    expect(rows.find((r) => r.name === "media_errors")).toMatchObject({
+      rawValue: 0,
+      health: "ok",
+    })
+  })
+
+  it("flags high wear and media errors", () => {
+    const worn = {
+      ...nvmeHealthy,
+      nvme_smart_health_information_log: {
+        ...(nvmeHealthy as any).nvme_smart_health_information_log,
+        percentage_used: 100,
+        media_errors: 3,
+        critical_warning: 1,
+      },
+    }
+    const rows = parseSmartAttributes(worn, DEFAULT_THRESHOLDS)
+    expect(rows.find((r) => r.name === "percentage_used")).toMatchObject({ health: "fail" })
+    expect(rows.find((r) => r.name === "media_errors")).toMatchObject({ health: "fail" })
+    expect(rows.find((r) => r.name === "critical_warning")).toMatchObject({ health: "fail" })
+  })
+
+  it("warns (not fails) at the SSD wear warn floor", () => {
+    const worn = {
+      ...nvmeHealthy,
+      nvme_smart_health_information_log: {
+        ...(nvmeHealthy as any).nvme_smart_health_information_log,
+        percentage_used: 85,
+      },
+    }
+    const rows = parseSmartAttributes(worn, DEFAULT_THRESHOLDS)
+    expect(rows.find((r) => r.name === "percentage_used")).toMatchObject({ health: "warn" })
   })
 })

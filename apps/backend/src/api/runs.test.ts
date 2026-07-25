@@ -408,6 +408,41 @@ describe("GET /api/runs/:id", () => {
     expect(body.snapshots.after).toBeNull()
   })
 
+  it("includes the full before/after SMART attribute tables, [] for a phase not yet captured (#14)", async () => {
+    const { app } = build()
+    repo.upsertDrive(db, cleanDrive)
+    const runId = repo.createRun(db, {
+      driveSerial: cleanDrive.serial,
+      regime: { mode: "destructive" },
+    })
+    repo.saveSnapshot(db, {
+      runId,
+      phase: "before",
+      raw: {
+        device: { protocol: "ATA" },
+        rotation_rate: 7200,
+        ata_smart_attributes: {
+          table: [
+            { id: 5, name: "Reallocated_Sector_Ct", raw: { value: 3, string: "3" } },
+            { id: 197, name: "Current_Pending_Sector", raw: { value: 0, string: "0" } },
+          ],
+        },
+      },
+      keyMetrics: { reallocatedSectors: 3 } as any,
+    })
+
+    const res = await app.inject({ method: "GET", url: `/api/runs/${runId}` })
+    expect(res.statusCode).toBe(200)
+    const body = res.json<{ attributes: { before: any[]; after: any[] } }>()
+    expect(body.attributes.after).toEqual([])
+    expect(body.attributes.before).toHaveLength(2)
+    expect(body.attributes.before.find((r) => r.id === 5)).toMatchObject({
+      name: "Reallocated_Sector_Ct",
+      rawValue: 3,
+      health: "warn",
+    })
+  })
+
   it("includes each stage's captured log, null for a stage that has none (#13)", async () => {
     const { app } = build()
     repo.upsertDrive(db, cleanDrive)
@@ -471,6 +506,40 @@ describe("GET /api/runs/:id/log", () => {
   it("404s for an unknown run id with a RUN_NOT_FOUND code", async () => {
     const { app } = build()
     const res = await app.inject({ method: "GET", url: "/api/runs/999/log" })
+    expect(res.statusCode).toBe(404)
+    expect(res.json()).toMatchObject({ code: "RUN_NOT_FOUND" })
+  })
+})
+
+describe("GET /api/runs/:id/smart", () => {
+  it("returns the stored raw smartctl JSON per phase as a JSON attachment", async () => {
+    const { app } = build()
+    repo.upsertDrive(db, cleanDrive)
+    const runId = repo.createRun(db, {
+      driveSerial: cleanDrive.serial,
+      regime: { mode: "destructive" },
+    })
+    repo.saveSnapshot(db, {
+      runId,
+      phase: "before",
+      raw: { model_name: "WDC WD40EFRX", ata_smart_attributes: { table: [] } },
+      keyMetrics: { reallocatedSectors: 0 } as any,
+    })
+
+    const res = await app.inject({ method: "GET", url: `/api/runs/${runId}/smart` })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.headers["content-type"]).toContain("application/json")
+    expect(res.headers["content-disposition"]).toContain("attachment")
+    expect(res.headers["content-disposition"]).toContain(`spindoctor-run-${runId}-smart.json`)
+    const body = res.json<{ before: unknown; after: unknown }>()
+    expect(body.before).toMatchObject({ model_name: "WDC WD40EFRX" })
+    expect(body.after).toBeNull()
+  })
+
+  it("404s for an unknown run id with a RUN_NOT_FOUND code", async () => {
+    const { app } = build()
+    const res = await app.inject({ method: "GET", url: "/api/runs/999/smart" })
     expect(res.statusCode).toBe(404)
     expect(res.json()).toMatchObject({ code: "RUN_NOT_FOUND" })
   })

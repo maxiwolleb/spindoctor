@@ -1,4 +1,4 @@
-import type { Verdict } from "@spindoctor/shared"
+import type { SmartAttributeHealth, Verdict } from "@spindoctor/shared"
 
 const BYTE_UNITS = ["B", "KB", "MB", "GB", "TB"] as const
 
@@ -110,4 +110,30 @@ const STAGE_STATUS_LABELS: Record<string, string> = {
  * same policy as `stageLabel`. */
 export function stageStatusLabel(status: string): string {
   return STAGE_STATUS_LABELS[status] ?? status
+}
+
+/** `SmartAttributeHealth` → Vuetify color name, same palette as `verdictColor`
+ * ("ok" reads as the phosphor-mint success color, not the neutral default —
+ * a healthy attribute is a positive signal worth showing, not a non-event). */
+export function attributeHealthColor(
+  health: SmartAttributeHealth,
+): "success" | "warning" | "error" {
+  switch (health) {
+    case "warn":
+      return "warning"
+    case "fail":
+      return "error"
+    default:
+      return "success"
+  }
+}
+
+const ATTRIBUTE_HEALTH_LABELS: Record<SmartAttributeHealth, string> = {
+  ok: "OK",
+  warn: "Warn",
+  fail: "Fail",
+}
+
+export function attributeHealthLabel(health: SmartAttributeHealth): string {
+  return ATTRIBUTE_HEALTH_LABELS[health]
 }
