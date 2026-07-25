@@ -92,6 +92,22 @@ export function parseSelfTest(json: unknown): SelfTestResult {
     return classifySelfTest(String(res.string ?? ""), num(res.value) ?? undefined)
   }
 
+  // Prefer the execution-status field (ata_smart_data.self_test.status): it
+  // reflects the just-finished test the moment the test stops running, whereas
+  // ata_smart_self_test_log's newest row can lag by a moment — or read empty —
+  // right at completion. Reading the result from the log alone can therefore
+  // surface a cleanly-completed test as UNKNOWN, which the verdict treats as
+  // "incomplete" and downgrades a healthy drive to a spurious WARN.
+  const execStatus = asRecord(asRecord(asRecord(j.ata_smart_data).self_test).status)
+  const execResult = classifySelfTest(
+    String(execStatus.string ?? ""),
+    num(execStatus.value) ?? undefined,
+    typeof execStatus.passed === "boolean" ? execStatus.passed : undefined,
+  )
+  if (execResult.status !== "UNKNOWN") return execResult
+
+  // Fall back to the self-test log's newest row when the execution status
+  // isn't usable (e.g. a drive/version that doesn't populate that field).
   const row = asRecord(j.ata_smart_self_test_log).standard?.table?.[0]
   if (!row) return { status: "UNKNOWN" }
   const status = asRecord(asRecord(row).status)
