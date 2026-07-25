@@ -3,7 +3,12 @@ import { readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { randomUUID } from "node:crypto"
-import type { DiscoveredDrive, RegimeMode, SelfTestProgress, SurfaceResult } from "@spindoctor/shared"
+import type {
+  DiscoveredDrive,
+  RegimeMode,
+  SelfTestProgress,
+  SurfaceResult,
+} from "@spindoctor/shared"
 import type { CommandRunner } from "./runner"
 import type { DeviceApi } from "./deviceApi"
 import { parseLsblk } from "./lsblkParser"
@@ -99,7 +104,8 @@ export class RealDeviceApi implements DeviceApi {
     // string and/or a remaining_percent alongside it.
     const ataSelfTest = asRecord(asRecord(j.ata_smart_data).self_test)
     const ataStatus = asRecord(ataSelfTest.status)
-    const ataStatusString = typeof ataStatus.string === "string" ? ataStatus.string.toLowerCase() : ""
+    const ataStatusString =
+      typeof ataStatus.string === "string" ? ataStatus.string.toLowerCase() : ""
     const remainingPercent = num(ataStatus.remaining_percent)
     if (ataStatusString.includes("in progress") || remainingPercent !== null) {
       return { running: true, percentRemaining: remainingPercent, result: null }

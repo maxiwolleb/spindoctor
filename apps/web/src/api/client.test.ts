@@ -121,7 +121,11 @@ describe("createApiClient", () => {
   it("putSettings PUTs a JSON patch to /api/settings", async () => {
     fetchMock.mockResolvedValueOnce(
       jsonResponse({
-        thresholds: { reallocatedWarnMax: 10, ssdPercentageUsedWarn: 80, ssdPercentageUsedFail: 100 },
+        thresholds: {
+          reallocatedWarnMax: 10,
+          ssdPercentageUsedWarn: 80,
+          ssdPercentageUsedFail: 100,
+        },
         concurrency: 3,
         autoModeEnabled: false,
         protectList: [],
@@ -163,7 +167,9 @@ describe("createApiClient", () => {
   })
 
   it("throws ApiError with status/code/message parsed from a non-2xx body", async () => {
-    fetchMock.mockResolvedValueOnce(jsonResponse({ error: "confirmation required", code: "CONFIRM_REQUIRED" }, 400))
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({ error: "confirmation required", code: "CONFIRM_REQUIRED" }, 400),
+    )
 
     const client = createApiClient()
     const rejection = client.createRun({ serial: "SERA", mode: "destructive" })

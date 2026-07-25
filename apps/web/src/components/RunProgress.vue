@@ -36,8 +36,15 @@ const variant = computed<Variant | null>(() => {
     class="run-progress"
     :class="{ 'run-progress--signature': variant === 'signature' }"
   >
-    <v-progress-linear :model-value="live.percent" color="primary" height="6" class="run-progress__bar" />
-    <span class="run-progress__label text-caption text-medium-emphasis">{{ stageLabel(live.stage) }}</span>
+    <v-progress-linear
+      :model-value="live.percent"
+      color="primary"
+      height="6"
+      class="run-progress__bar"
+    />
+    <span class="run-progress__label text-caption text-medium-emphasis">{{
+      stageLabel(live.stage)
+    }}</span>
   </div>
 </template>
 

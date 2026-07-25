@@ -1,4 +1,9 @@
-import type { DiscoveredDrive, RegimeMode, SelfTestProgress, SurfaceResult } from "@spindoctor/shared"
+import type {
+  DiscoveredDrive,
+  RegimeMode,
+  SelfTestProgress,
+  SurfaceResult,
+} from "@spindoctor/shared"
 
 export interface DeviceApi {
   listDevices(): Promise<DiscoveredDrive[]>

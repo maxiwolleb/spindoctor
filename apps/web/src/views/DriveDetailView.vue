@@ -74,7 +74,9 @@ onMounted(load)
 
 <template>
   <div class="pa-6">
-    <router-link to="/" class="d-inline-block mb-4 text-decoration-none text-info">&larr; Back to dashboard</router-link>
+    <router-link to="/" class="d-inline-block mb-4 text-decoration-none text-info"
+      >&larr; Back to dashboard</router-link
+    >
 
     <div v-if="loading" class="text-medium-emphasis">Loading drive…</div>
 
@@ -106,7 +108,13 @@ onMounted(load)
         <h2 class="text-subtitle-1 mb-2">Stage timeline</h2>
         <StageTimeline :stages="latestRunDetail.stages" class="mb-6" />
       </template>
-      <v-alert v-else-if="runDetailError" type="error" variant="tonal" density="compact" class="mb-6">
+      <v-alert
+        v-else-if="runDetailError"
+        type="error"
+        variant="tonal"
+        density="compact"
+        class="mb-6"
+      >
         {{ runDetailError }}
       </v-alert>
       <p v-else class="text-medium-emphasis">No test runs yet for this drive.</p>

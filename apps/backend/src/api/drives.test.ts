@@ -175,7 +175,7 @@ describe("GET /api/drives/:serial", () => {
 })
 
 describe("uncaught route errors (Fix 2)", () => {
-  it("returns a uniform {error, code:\"INTERNAL\"} 500 instead of Fastify's default {statusCode,error,message} shape", async () => {
+  it('returns a uniform {error, code:"INTERNAL"} 500 instead of Fastify\'s default {statusCode,error,message} shape', async () => {
     class ThrowingDeviceApi extends FakeDeviceApi {
       override async listDevices(): Promise<DiscoveredDrive[]> {
         throw new Error("smartctl: command not found")

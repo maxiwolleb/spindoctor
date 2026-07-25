@@ -61,7 +61,10 @@ describe("buildApp static serving", () => {
 
 describe("createServer", () => {
   it("constructs without throwing and wires the API end-to-end", async () => {
-    const server = createServer({ dbPath: ":memory:", deviceApi: new FakeDeviceApi({ drives: [] }) })
+    const server = createServer({
+      dbPath: ":memory:",
+      deviceApi: new FakeDeviceApi({ drives: [] }),
+    })
 
     const res = await server.app.inject({ method: "GET", url: "/api/drives" })
     expect(res.statusCode).toBe(200)
@@ -70,7 +73,10 @@ describe("createServer", () => {
   })
 
   it("runs reconcile() on an empty db without throwing (boot sequence, no listen)", async () => {
-    const server = createServer({ dbPath: ":memory:", deviceApi: new FakeDeviceApi({ drives: [] }) })
+    const server = createServer({
+      dbPath: ":memory:",
+      deviceApi: new FakeDeviceApi({ drives: [] }),
+    })
 
     await expect(server.engine.reconcile()).resolves.toBeUndefined()
 

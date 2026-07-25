@@ -1,4 +1,9 @@
-import type { DiscoveredDrive, RegimeMode, SelfTestProgress, SurfaceResult } from "@spindoctor/shared"
+import type {
+  DiscoveredDrive,
+  RegimeMode,
+  SelfTestProgress,
+  SurfaceResult,
+} from "@spindoctor/shared"
 import type { DeviceApi } from "./deviceApi"
 
 export interface FakeDeviceApiState {
@@ -58,6 +63,8 @@ export class FakeDeviceApi implements DeviceApi {
       if (signal.aborted) return aborted
     }
 
-    return this.state.surface?.result ?? { mode: toSurfaceMode(mode), badBlocks: 0, completed: true }
+    return (
+      this.state.surface?.result ?? { mode: toSurfaceMode(mode), badBlocks: 0, completed: true }
+    )
   }
 }

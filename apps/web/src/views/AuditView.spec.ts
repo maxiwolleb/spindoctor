@@ -5,7 +5,10 @@ import type { AuditEntry } from "../api/client"
 import AuditView from "./AuditView.vue"
 
 function jsonResponse(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } })
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  })
 }
 
 function mountView() {
@@ -26,9 +29,27 @@ describe("AuditView", () => {
 
   it("renders audit entries newest-first regardless of the order the api returned them", async () => {
     const entries: AuditEntry[] = [
-      { id: 1, ts: "2026-01-01T00:00:00.000Z", action: "run.started", driveSerial: "OLDEST", detail: "read-only scan" },
-      { id: 3, ts: "2026-01-03T00:00:00.000Z", action: "settings.updated", driveSerial: null, detail: "concurrency: 2 -> 4" },
-      { id: 2, ts: "2026-01-02T00:00:00.000Z", action: "run.finished", driveSerial: "MIDDLE", detail: "verdict: PASS" },
+      {
+        id: 1,
+        ts: "2026-01-01T00:00:00.000Z",
+        action: "run.started",
+        driveSerial: "OLDEST",
+        detail: "read-only scan",
+      },
+      {
+        id: 3,
+        ts: "2026-01-03T00:00:00.000Z",
+        action: "settings.updated",
+        driveSerial: null,
+        detail: "concurrency: 2 -> 4",
+      },
+      {
+        id: 2,
+        ts: "2026-01-02T00:00:00.000Z",
+        action: "run.finished",
+        driveSerial: "MIDDLE",
+        detail: "verdict: PASS",
+      },
     ]
     fetchMock.mockResolvedValueOnce(jsonResponse(entries))
 

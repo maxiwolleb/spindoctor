@@ -44,7 +44,7 @@ thresholds. The rules, in order:
   - offline uncorrectable sectors
   - reported uncorrectable errors
 - **Growth during the test window** — reallocated sectors or current
-  pending sectors higher *after* than *before* → **FAIL**, even if the
+  pending sectors higher _after_ than _before_ → **FAIL**, even if the
   absolute after-value would otherwise only warrant a WARN.
 - **Reallocated sectors (absolute, after the test):**
   - `0` → no reason raised (contributes to PASS).

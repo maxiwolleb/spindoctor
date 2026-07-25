@@ -1,6 +1,13 @@
 import { eq, desc } from "drizzle-orm"
 import { DEFAULT_THRESHOLDS } from "@spindoctor/shared"
-import type { Thresholds, SmartKeyMetrics, Verdict, Reason, StageName, DiscoveredDrive } from "@spindoctor/shared"
+import type {
+  Thresholds,
+  SmartKeyMetrics,
+  Verdict,
+  Reason,
+  StageName,
+  DiscoveredDrive,
+} from "@spindoctor/shared"
 import type { Db } from "./client"
 import { config, drives, testRuns, stageResults, smartSnapshots, auditLog } from "./schema"
 
@@ -139,7 +146,10 @@ export function updateRun(db: Db, id: number, patch: Partial<RunUpdate>): void {
 
 // ---- stages ----
 
-export function addStage(db: Db, input: { runId: number; stage: StageName; status: string }): number {
+export function addStage(
+  db: Db,
+  input: { runId: number; stage: StageName; status: string },
+): number {
   const result = db
     .insert(stageResults)
     .values({
@@ -192,7 +202,10 @@ export function saveSnapshot(
  * SMART_AFTER and `saveSnapshot` is called again. Order newest-first (mirrors
  * `TestEngine#loadSnapshot`'s `.orderBy(desc(smartSnapshots.id))`) so `.find()`
  * picks the latest row per phase instead of a stale pre-crash one. */
-export function getSnapshots(db: Db, runId: number): { before: SmartKeyMetrics | null; after: SmartKeyMetrics | null } {
+export function getSnapshots(
+  db: Db,
+  runId: number,
+): { before: SmartKeyMetrics | null; after: SmartKeyMetrics | null } {
   const rows = db
     .select()
     .from(smartSnapshots)
@@ -209,7 +222,10 @@ export function getSnapshots(db: Db, runId: number): { before: SmartKeyMetrics |
 
 // ---- audit ----
 
-export function appendAudit(db: Db, input: { action: string; driveSerial?: string; detail?: string }): void {
+export function appendAudit(
+  db: Db,
+  input: { action: string; driveSerial?: string; detail?: string },
+): void {
   db.insert(auditLog)
     .values({
       ts: new Date(),

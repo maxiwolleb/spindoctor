@@ -29,7 +29,9 @@ function fakeApi(settings: SettingsViewDto = baseSettings) {
 }
 
 function clickButton(root: HTMLElement, text: string): void {
-  const button = Array.from(root.querySelectorAll("button")).find((b) => b.textContent?.trim().includes(text))
+  const button = Array.from(root.querySelectorAll("button")).find((b) =>
+    b.textContent?.trim().includes(text),
+  )
   if (!button) throw new Error(`button "${text}" not found`)
   button.dispatchEvent(new MouseEvent("click", { bubbles: true }))
 }
@@ -101,7 +103,9 @@ describe("SettingsView", () => {
     await flushPromises()
 
     expect(api.putSettings).toHaveBeenCalledTimes(1)
-    expect(api.putSettings).toHaveBeenCalledWith(expect.objectContaining({ autoModeEnabled: false }))
+    expect(api.putSettings).toHaveBeenCalledWith(
+      expect.objectContaining({ autoModeEnabled: false }),
+    )
     for (const call of api.putSettings.mock.calls) {
       expect(call[0]).not.toMatchObject({ autoModeEnabled: true })
     }
@@ -202,7 +206,9 @@ describe("SettingsView", () => {
 
     // Actually trigger removal: click the existing serial's chip close (×)
     // control and confirm it drops out of both the DOM and the saved patch.
-    const existingChip = wrapper.findAll(".v-chip").find((chip) => chip.text().includes("EXISTING1"))
+    const existingChip = wrapper
+      .findAll(".v-chip")
+      .find((chip) => chip.text().includes("EXISTING1"))
     if (!existingChip) throw new Error("chip for EXISTING1 not found")
     await existingChip.find(".v-chip__close").trigger("click")
     await flushPromises()

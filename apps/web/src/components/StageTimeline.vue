@@ -13,7 +13,10 @@ defineProps<{
 <template>
   <ol class="stage-timeline">
     <li v-for="(stage, index) in stages" :key="stage.id" class="stage-timeline__item">
-      <span class="stage-timeline__marker" :class="`stage-timeline__marker--${runStatusColor(stage.status)}`">
+      <span
+        class="stage-timeline__marker"
+        :class="`stage-timeline__marker--${runStatusColor(stage.status)}`"
+      >
         {{ index + 1 }}
       </span>
       <div class="stage-timeline__body">

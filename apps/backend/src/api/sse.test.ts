@@ -23,7 +23,12 @@ describe("subscribeEngine", () => {
     expect(engine.listenerCount("run:update")).toBe(runUpdateListenersBefore + 1)
     expect(engine.listenerCount("stage:progress")).toBe(stageProgressListenersBefore + 1)
 
-    engine.emit("run:update", { runId: 1, driveSerial: "SER1", status: "RUNNING", currentStage: "SMART_BEFORE" })
+    engine.emit("run:update", {
+      runId: 1,
+      driveSerial: "SER1",
+      status: "RUNNING",
+      currentStage: "SMART_BEFORE",
+    })
     engine.emit("stage:progress", { runId: 1, driveSerial: "SER1", stage: "SURFACE", percent: 42 })
 
     expect(frames).toEqual([

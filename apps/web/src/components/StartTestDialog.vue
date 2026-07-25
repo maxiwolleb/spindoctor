@@ -49,7 +49,9 @@ const canSubmit = computed<boolean>(() => {
   return true
 })
 
-const submitLabel = computed<string>(() => (mode.value === "destructive" ? "Wipe & test" : "Start scan"))
+const submitLabel = computed<string>(() =>
+  mode.value === "destructive" ? "Wipe & test" : "Start scan",
+)
 
 function onDialogUpdate(value: boolean): void {
   emit("update:modelValue", value)
@@ -71,7 +73,12 @@ function onSubmit(): void {
 </script>
 
 <template>
-  <v-dialog :model-value="modelValue" max-width="480" persistent @update:model-value="onDialogUpdate">
+  <v-dialog
+    :model-value="modelValue"
+    max-width="480"
+    persistent
+    @update:model-value="onDialogUpdate"
+  >
     <v-card>
       <v-card-title>Start test</v-card-title>
       <v-card-subtitle>

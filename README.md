@@ -34,8 +34,8 @@ any device through.
 
 ## Screenshots
 
-| Dashboard | Drive detail | Settings |
-| --- | --- | --- |
+| Dashboard                                                                               | Drive detail                                                                               | Settings                                                                                           |
+| --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------- |
 | ![Dashboard: drive inventory with health and verdict](assets/screenshots/dashboard.png) | ![Drive detail: SMART before/after diff and stage timeline](assets/screenshots/detail.png) | ![Settings: thresholds, concurrency, protected drives, auto-mode](assets/screenshots/settings.png) |
 
 - **Dashboard** — every discovered drive with its model, serial, size,
@@ -146,13 +146,13 @@ hold even if a client bypasses the UI.
 Environment variables (all optional — defaults shown are what the Docker
 image sets):
 
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `SPINDOCTOR_DB` | `/data/spindoctor.sqlite` (image) / `./data/spindoctor.sqlite` (dev) | Path to the SQLite database file. |
-| `PORT` | `8080` | HTTP port the backend listens on. |
-| `HOST` | `0.0.0.0` | Interface the backend binds to. |
-| `SPINDOCTOR_WEB_ROOT` | built-in `apps/web/dist` path | Directory of the built SPA served as static files. |
-| `SPINDOCTOR_MIGRATIONS_DIR` | resolved next to the backend source | Overrides where Drizzle looks for migration files — only needed if your deploy layout differs from the shipped image. |
+| Variable                    | Default                                                              | Purpose                                                                                                               |
+| --------------------------- | -------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `SPINDOCTOR_DB`             | `/data/spindoctor.sqlite` (image) / `./data/spindoctor.sqlite` (dev) | Path to the SQLite database file.                                                                                     |
+| `PORT`                      | `8080`                                                               | HTTP port the backend listens on.                                                                                     |
+| `HOST`                      | `0.0.0.0`                                                            | Interface the backend binds to.                                                                                       |
+| `SPINDOCTOR_WEB_ROOT`       | built-in `apps/web/dist` path                                        | Directory of the built SPA served as static files.                                                                    |
+| `SPINDOCTOR_MIGRATIONS_DIR` | resolved next to the backend source                                  | Overrides where Drizzle looks for migration files — only needed if your deploy layout differs from the shipped image. |
 
 Everything else is configured at runtime through the **Settings** page in
 the web UI: grading thresholds (reallocated-sector warn limit, SSD/NVMe

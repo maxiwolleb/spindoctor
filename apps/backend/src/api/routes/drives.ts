@@ -57,10 +57,16 @@ export function drivesRoutes(deps: DrivesRouteDeps): FastifyPluginAsync {
       const flagsBySerial = new Map<string, RuntimeFlags>()
       for (const d of discovered) {
         upsertDrive(db, d)
-        flagsBySerial.set(d.serial, { present: true, mounted: d.mounted, isSystemDisk: d.isSystemDisk })
+        flagsBySerial.set(d.serial, {
+          present: true,
+          mounted: d.mounted,
+          isSystemDisk: d.isSystemDisk,
+        })
       }
 
-      return listDrives(db).map((row) => toDriveView(db, row, flagsBySerial.get(row.serial) ?? ABSENT))
+      return listDrives(db).map((row) =>
+        toDriveView(db, row, flagsBySerial.get(row.serial) ?? ABSENT),
+      )
     })
 
     fastify.get(

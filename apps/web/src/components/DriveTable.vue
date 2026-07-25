@@ -85,10 +85,16 @@ function rowProps({ item }: { item: DriveView }): Record<string, unknown> {
 
     <template #item.health="{ item }">
       <div class="d-flex ga-1 flex-wrap">
-        <v-chip v-if="!item.present" size="x-small" color="secondary" variant="tonal">Absent</v-chip>
+        <v-chip v-if="!item.present" size="x-small" color="secondary" variant="tonal"
+          >Absent</v-chip
+        >
         <v-chip v-if="item.mounted" size="x-small" color="warning" variant="tonal">Mounted</v-chip>
-        <v-chip v-if="item.isSystemDisk" size="x-small" color="error" variant="tonal">System</v-chip>
-        <v-chip v-if="item.protected" size="x-small" color="secondary" variant="tonal">Protected</v-chip>
+        <v-chip v-if="item.isSystemDisk" size="x-small" color="error" variant="tonal"
+          >System</v-chip
+        >
+        <v-chip v-if="item.protected" size="x-small" color="secondary" variant="tonal"
+          >Protected</v-chip
+        >
       </div>
     </template>
 
@@ -107,7 +113,9 @@ function rowProps({ item }: { item: DriveView }): Record<string, unknown> {
     </template>
 
     <template #no-data>
-      <p class="text-medium-emphasis pa-4 ma-0">No drives detected. Attach a drive and it'll appear here.</p>
+      <p class="text-medium-emphasis pa-4 ma-0">
+        No drives detected. Attach a drive and it'll appear here.
+      </p>
     </template>
   </v-data-table>
 </template>

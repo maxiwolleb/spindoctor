@@ -33,7 +33,10 @@ function mountDashboard() {
   })
 
   return {
-    wrapper: mount(DashboardView, { global: { plugins: [vuetify, router] }, attachTo: document.body }),
+    wrapper: mount(DashboardView, {
+      global: { plugins: [vuetify, router] },
+      attachTo: document.body,
+    }),
     router,
   }
 }
@@ -122,7 +125,9 @@ describe("DashboardView", () => {
 
   it("shows an error toast surfacing the ApiError message when startTest rejects (e.g. a safety guard)", async () => {
     const store = stubStore()
-    vi.spyOn(store, "startTest").mockRejectedValue(new ApiError(403, "MOUNTED", "drive is mounted — refusing to wipe"))
+    vi.spyOn(store, "startTest").mockRejectedValue(
+      new ApiError(403, "MOUNTED", "drive is mounted — refusing to wipe"),
+    )
     store.drives = [drive]
 
     const { wrapper, router } = mountDashboard()

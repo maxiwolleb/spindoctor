@@ -33,8 +33,7 @@ function input(over: Partial<VerdictInput> = {}): VerdictInput {
     ...over,
   }
 }
-const codes = (r: ReturnType<typeof evaluateVerdict>) =>
-  r.reasons.map((x) => x.code)
+const codes = (r: ReturnType<typeof evaluateVerdict>) => r.reasons.map((x) => x.code)
 
 describe("evaluateVerdict", () => {
   it("PASS when everything is clean", () => {

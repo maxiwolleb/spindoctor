@@ -108,7 +108,9 @@ describe("StartTestDialog", () => {
     expect((startButton!.element as HTMLButtonElement).disabled).toBe(false)
     await startButton!.trigger("click")
 
-    expect(wrapper.emitted("submit")).toEqual([[{ serial: "SERA1234", mode: "read-only", confirm: undefined }]])
+    expect(wrapper.emitted("submit")).toEqual([
+      [{ serial: "SERA1234", mode: "read-only", confirm: undefined }],
+    ])
     expect(wrapper.emitted("update:modelValue")).toContainEqual([false])
   })
 
@@ -122,7 +124,9 @@ describe("StartTestDialog", () => {
     const wipeButton = findButton(body, "Wipe & test")
     await wipeButton!.trigger("click")
 
-    expect(wrapper.emitted("submit")).toEqual([[{ serial: "SERA1234", mode: "destructive", confirm: "SERA1234" }]])
+    expect(wrapper.emitted("submit")).toEqual([
+      [{ serial: "SERA1234", mode: "destructive", confirm: "SERA1234" }],
+    ])
   })
 
   it("cancel closes without emitting submit", async () => {

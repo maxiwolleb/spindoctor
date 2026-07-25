@@ -5,13 +5,13 @@
 All optional — the Docker image sets sensible defaults for a containerized
 deployment.
 
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `SPINDOCTOR_DB` | `/data/spindoctor.sqlite` (image) / `./data/spindoctor.sqlite` (dev) | Path to the SQLite database file. |
-| `PORT` | `8080` | HTTP port the backend listens on. |
-| `HOST` | `0.0.0.0` | Interface the backend binds to. |
-| `SPINDOCTOR_WEB_ROOT` | built-in `apps/web/dist` path, resolved relative to the backend module | Directory of the built SPA served as static files (and its SPA fallback). Static serving is skipped entirely if this directory doesn't exist. |
-| `SPINDOCTOR_MIGRATIONS_DIR` | resolved next to the backend source (`../../drizzle`) | Overrides where Drizzle looks for migration files — only needed if your deploy layout differs from the shipped image. |
+| Variable                    | Default                                                                | Purpose                                                                                                                                       |
+| --------------------------- | ---------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SPINDOCTOR_DB`             | `/data/spindoctor.sqlite` (image) / `./data/spindoctor.sqlite` (dev)   | Path to the SQLite database file.                                                                                                             |
+| `PORT`                      | `8080`                                                                 | HTTP port the backend listens on.                                                                                                             |
+| `HOST`                      | `0.0.0.0`                                                              | Interface the backend binds to.                                                                                                               |
+| `SPINDOCTOR_WEB_ROOT`       | built-in `apps/web/dist` path, resolved relative to the backend module | Directory of the built SPA served as static files (and its SPA fallback). Static serving is skipped entirely if this directory doesn't exist. |
+| `SPINDOCTOR_MIGRATIONS_DIR` | resolved next to the backend source (`../../drizzle`)                  | Overrides where Drizzle looks for migration files — only needed if your deploy layout differs from the shipped image.                         |
 
 These map directly onto `createServer()`'s overrides in
 `apps/backend/src/main.ts`; each is read once at startup.

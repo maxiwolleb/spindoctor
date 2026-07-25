@@ -75,7 +75,12 @@ describe("runs / stages / snapshots / audit", () => {
     expect(repo.getRun(db, runId)!.status).toBe("PENDING")
     const stageId = repo.addStage(db, { runId, stage: "SMART_BEFORE", status: "RUNNING" })
     repo.updateStage(db, stageId, { status: "DONE", progress: 100 })
-    repo.saveSnapshot(db, { runId, phase: "before", raw: { ok: true }, keyMetrics: { reallocatedSectors: 0 } as any })
+    repo.saveSnapshot(db, {
+      runId,
+      phase: "before",
+      raw: { ok: true },
+      keyMetrics: { reallocatedSectors: 0 } as any,
+    })
     repo.updateRun(db, runId, { status: "DONE", verdict: "PASS" })
     const run = repo.getRun(db, runId)!
     expect(run.status).toBe("DONE")
@@ -136,7 +141,11 @@ describe("runs / stages / snapshots / audit", () => {
     repo.appendAudit(db, { action: "DESTRUCTIVE_START", driveSerial: "SER123", detail: "manual" })
     const rows = repo.listAudit(db)
     expect(rows).toHaveLength(1)
-    expect(rows[0]).toMatchObject({ action: "DESTRUCTIVE_START", driveSerial: "SER123", detail: "manual" })
+    expect(rows[0]).toMatchObject({
+      action: "DESTRUCTIVE_START",
+      driveSerial: "SER123",
+      detail: "manual",
+    })
   })
 
   it("no-ops on empty patches for updateRun and updateStage instead of throwing", () => {

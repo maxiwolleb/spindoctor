@@ -1,12 +1,24 @@
 import { eq } from "drizzle-orm"
 import type { FastifyInstance, FastifyPluginAsync, FastifyRequest } from "fastify"
-import type { CreateRunRequest, RegimeMode, RunView, SmartKeyMetrics, StageName, StageView } from "@spindoctor/shared"
+import type {
+  CreateRunRequest,
+  RegimeMode,
+  RunView,
+  SmartKeyMetrics,
+  StageName,
+  StageView,
+} from "@spindoctor/shared"
 import type { Db } from "../../db/client"
 import { getRun, getSnapshots, listRuns } from "../../db/repositories"
 import type { RunRow, StageRow } from "../../db/repositories"
 import { stageResults } from "../../db/schema"
 import type { DeviceApi } from "../../device/deviceApi"
-import { DriveNotFoundError, RunInProgressError, SafetyError, type TestEngine } from "../../engine/engine"
+import {
+  DriveNotFoundError,
+  RunInProgressError,
+  SafetyError,
+  type TestEngine,
+} from "../../engine/engine"
 
 export interface RunsRouteDeps {
   db: Db
@@ -72,7 +84,11 @@ export function runsRoutes(deps: RunsRouteDeps): FastifyPluginAsync {
       async (request: FastifyRequest<{ Body: Partial<CreateRunRequest> }>, reply) => {
         const { serial, mode, confirm } = request.body ?? {}
 
-        if (typeof serial !== "string" || serial.length === 0 || (mode !== "destructive" && mode !== "read-only")) {
+        if (
+          typeof serial !== "string" ||
+          serial.length === 0 ||
+          (mode !== "destructive" && mode !== "read-only")
+        ) {
           reply.code(400)
           return {
             error: 'serial (non-empty string) and mode ("destructive"|"read-only") are required',
@@ -115,19 +131,17 @@ export function runsRoutes(deps: RunsRouteDeps): FastifyPluginAsync {
       },
     )
 
-    fastify.get(
-      "/runs/:id",
-      async (request: FastifyRequest<{ Params: { id: string } }>, reply) => {
-        const id = Number(request.params.id)
-        const row = Number.isFinite(id) ? getRun(db, id) : undefined
-        if (!row) {
-          reply.code(404)
-          return { error: `no run found with id "${request.params.id}"`, code: "RUN_NOT_FOUND" }
-        }
-        const snapshots: { before: SmartKeyMetrics | null; after: SmartKeyMetrics | null } = getSnapshots(db, id)
-        return { run: toRunView(row), stages: listStageRows(db, id), snapshots }
-      },
-    )
+    fastify.get("/runs/:id", async (request: FastifyRequest<{ Params: { id: string } }>, reply) => {
+      const id = Number(request.params.id)
+      const row = Number.isFinite(id) ? getRun(db, id) : undefined
+      if (!row) {
+        reply.code(404)
+        return { error: `no run found with id "${request.params.id}"`, code: "RUN_NOT_FOUND" }
+      }
+      const snapshots: { before: SmartKeyMetrics | null; after: SmartKeyMetrics | null } =
+        getSnapshots(db, id)
+      return { run: toRunView(row), stages: listStageRows(db, id), snapshots }
+    })
 
     fastify.post(
       "/runs/:id/abort",

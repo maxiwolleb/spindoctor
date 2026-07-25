@@ -58,7 +58,11 @@ describe("PUT /api/settings", () => {
 
   it("updates thresholds when given a full valid object", async () => {
     const app = build()
-    const newThresholds = { reallocatedWarnMax: 5, ssdPercentageUsedWarn: 70, ssdPercentageUsedFail: 90 }
+    const newThresholds = {
+      reallocatedWarnMax: 5,
+      ssdPercentageUsedWarn: 70,
+      ssdPercentageUsedFail: 90,
+    }
     const res = await app.inject({
       method: "PUT",
       url: "/api/settings",
@@ -70,7 +74,11 @@ describe("PUT /api/settings", () => {
 
   it("400s on concurrency:0, persisting nothing", async () => {
     const app = build()
-    const res = await app.inject({ method: "PUT", url: "/api/settings", payload: { concurrency: 0 } })
+    const res = await app.inject({
+      method: "PUT",
+      url: "/api/settings",
+      payload: { concurrency: 0 },
+    })
     expect(res.statusCode).toBe(400)
     expect(res.json()).toMatchObject({ code: "BAD_REQUEST" })
 

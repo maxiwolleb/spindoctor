@@ -13,7 +13,9 @@ const dialogSerial = ref<string | null>(null)
 const dialogOpen = ref(false)
 const startError = ref<string | null>(null)
 
-const dialogDrive = computed(() => (dialogSerial.value ? (store.driveBySerial(dialogSerial.value) ?? null) : null))
+const dialogDrive = computed(() =>
+  dialogSerial.value ? (store.driveBySerial(dialogSerial.value) ?? null) : null,
+)
 
 onMounted(() => {
   store.refreshDrives()
@@ -33,7 +35,11 @@ function onOpen(serial: string): void {
   router.push(`/drives/${serial}`)
 }
 
-async function onSubmitStart(payload: { serial: string; mode: RegimeMode; confirm?: string }): Promise<void> {
+async function onSubmitStart(payload: {
+  serial: string
+  mode: RegimeMode
+  confirm?: string
+}): Promise<void> {
   startError.value = null
   try {
     await store.startTest(payload.serial, payload.mode, payload.confirm)
@@ -62,7 +68,12 @@ async function onSubmitStart(payload: { serial: string; mode: RegimeMode; confir
       {{ startError }}
     </v-alert>
 
-    <DriveTable :drives="store.drives" :live-by-drive="store.liveByDrive" @start="onStart" @open="onOpen" />
+    <DriveTable
+      :drives="store.drives"
+      :live-by-drive="store.liveByDrive"
+      @start="onStart"
+      @open="onOpen"
+    />
 
     <StartTestDialog
       v-if="dialogDrive"

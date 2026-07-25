@@ -1,6 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { createPinia, setActivePinia } from "pinia"
-import type { DriveView, RunUpdateEvent, SettingsView, StageProgressEvent } from "@spindoctor/shared"
+import type {
+  DriveView,
+  RunUpdateEvent,
+  SettingsView,
+  StageProgressEvent,
+} from "@spindoctor/shared"
 import { setConsoleDeps, useConsoleStore } from "./useConsoleStore"
 import type { EventSourceLike } from "./useConsoleStore"
 
@@ -148,7 +153,12 @@ describe("useConsoleStore", () => {
     const store = useConsoleStore()
     store.connectEvents()
 
-    const frame: StageProgressEvent = { runId: 1, driveSerial: "SERA", stage: "SURFACE", percent: 42 }
+    const frame: StageProgressEvent = {
+      runId: 1,
+      driveSerial: "SERA",
+      stage: "SURFACE",
+      percent: 42,
+    }
     source.emit("stage:progress", frame)
 
     expect(store.liveByDrive.SERA).toMatchObject({ runId: 1, stage: "SURFACE", percent: 42 })
@@ -160,10 +170,19 @@ describe("useConsoleStore", () => {
     await store.refreshDrives()
     store.connectEvents()
 
-    const frame: RunUpdateEvent = { runId: 1, driveSerial: "SERA", status: "RUNNING", currentStage: "SELFTEST_LONG" }
+    const frame: RunUpdateEvent = {
+      runId: 1,
+      driveSerial: "SERA",
+      status: "RUNNING",
+      currentStage: "SELFTEST_LONG",
+    }
     source.emit("run:update", frame)
 
-    expect(store.liveByDrive.SERA).toMatchObject({ runId: 1, stage: "SELFTEST_LONG", status: "RUNNING" })
+    expect(store.liveByDrive.SERA).toMatchObject({
+      runId: 1,
+      stage: "SELFTEST_LONG",
+      status: "RUNNING",
+    })
     expect(store.driveBySerial("SERA")?.latestRun).toBeNull()
   })
 
@@ -172,7 +191,12 @@ describe("useConsoleStore", () => {
     await store.refreshDrives()
     store.connectEvents()
 
-    source.emit("stage:progress", { runId: 1, driveSerial: "SERA", stage: "SURFACE", percent: 90 } satisfies StageProgressEvent)
+    source.emit("stage:progress", {
+      runId: 1,
+      driveSerial: "SERA",
+      stage: "SURFACE",
+      percent: 90,
+    } satisfies StageProgressEvent)
     expect(store.liveByDrive.SERA).toBeDefined()
 
     const frame: RunUpdateEvent = {
@@ -198,7 +222,11 @@ describe("useConsoleStore", () => {
 
     await store.startTest("SERA", "read-only")
 
-    expect(api.createRun).toHaveBeenCalledWith({ serial: "SERA", mode: "read-only", confirm: undefined })
+    expect(api.createRun).toHaveBeenCalledWith({
+      serial: "SERA",
+      mode: "read-only",
+      confirm: undefined,
+    })
     expect(api.getDrives).toHaveBeenCalledTimes(1)
     expect(store.drives).toEqual([drive])
   })
@@ -208,7 +236,9 @@ describe("useConsoleStore", () => {
     const failure = new Error("confirmation required")
     api.createRun.mockRejectedValueOnce(failure)
 
-    await expect(store.startTest("SERA", "destructive", "WRONG")).rejects.toThrow("confirmation required")
+    await expect(store.startTest("SERA", "destructive", "WRONG")).rejects.toThrow(
+      "confirmation required",
+    )
 
     expect(api.getDrives).not.toHaveBeenCalled()
     expect(store.error).toBe("confirmation required")
@@ -239,7 +269,9 @@ describe("useConsoleStore", () => {
     const store = useConsoleStore()
     api.putSettings.mockRejectedValueOnce(new Error("concurrency must be an integer >= 1"))
 
-    await expect(store.saveSettings({ concurrency: 0 })).rejects.toThrow("concurrency must be an integer >= 1")
+    await expect(store.saveSettings({ concurrency: 0 })).rejects.toThrow(
+      "concurrency must be an integer >= 1",
+    )
     expect(store.error).toBe("concurrency must be an integer >= 1")
   })
 })

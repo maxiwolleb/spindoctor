@@ -7,7 +7,11 @@ export interface SettingsRouteDeps {
   db: Db
 }
 
-const THRESHOLD_KEYS = ["reallocatedWarnMax", "ssdPercentageUsedWarn", "ssdPercentageUsedFail"] as const
+const THRESHOLD_KEYS = [
+  "reallocatedWarnMax",
+  "ssdPercentageUsedWarn",
+  "ssdPercentageUsedFail",
+] as const
 
 function toSettingsView(row: ConfigRow): SettingsView {
   const protectList = row.protectList
@@ -40,7 +44,10 @@ function validatePatch(body: unknown): { patch: Partial<ConfigUpdate> } | { erro
 
   if ("thresholds" in input) {
     if (!isValidThresholds(input.thresholds)) {
-      return { error: "thresholds must be an object of finite numbers with keys: " + THRESHOLD_KEYS.join(", ") }
+      return {
+        error:
+          "thresholds must be an object of finite numbers with keys: " + THRESHOLD_KEYS.join(", "),
+      }
     }
     patch.thresholds = input.thresholds
   }
@@ -79,18 +86,15 @@ export function settingsRoutes(deps: SettingsRouteDeps): FastifyPluginAsync {
       return toSettingsView(getConfig(db))
     })
 
-    fastify.put(
-      "/settings",
-      async (request: FastifyRequest<{ Body: unknown }>, reply) => {
-        const result = validatePatch(request.body)
-        if ("error" in result) {
-          reply.code(400)
-          return { error: result.error, code: "BAD_REQUEST" }
-        }
+    fastify.put("/settings", async (request: FastifyRequest<{ Body: unknown }>, reply) => {
+      const result = validatePatch(request.body)
+      if ("error" in result) {
+        reply.code(400)
+        return { error: result.error, code: "BAD_REQUEST" }
+      }
 
-        const updated = updateConfig(db, result.patch)
-        return toSettingsView(updated)
-      },
-    )
+      const updated = updateConfig(db, result.patch)
+      return toSettingsView(updated)
+    })
   }
 }

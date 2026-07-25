@@ -14,7 +14,13 @@ import { buildApp } from "./api/app"
 /** Built frontend location once `apps/web` is built (Phase 5): resolved
  * relative to this module so it works regardless of the process's cwd. Only
  * ever used if the directory actually exists on disk (see `buildApp`). */
-const defaultWebRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "web", "dist")
+const defaultWebRoot = path.join(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "..",
+  "..",
+  "web",
+  "dist",
+)
 
 export interface CreateServerOverrides {
   dbPath?: string

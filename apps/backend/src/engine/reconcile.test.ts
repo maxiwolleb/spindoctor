@@ -1,6 +1,11 @@
 import { describe, it, expect, beforeEach } from "vitest"
 import { eq } from "drizzle-orm"
-import type { DiscoveredDrive, RunUpdateEvent, SelfTestProgress, SelfTestResult } from "@spindoctor/shared"
+import type {
+  DiscoveredDrive,
+  RunUpdateEvent,
+  SelfTestProgress,
+  SelfTestResult,
+} from "@spindoctor/shared"
 import { createDb, type Db } from "../db/client"
 import { stageResults } from "../db/schema"
 import * as repo from "../db/repositories"
@@ -66,7 +71,12 @@ function seedRunningRun(mode: "destructive" | "read-only", driveSerial: string):
 /** Seeds a DONE SMART_BEFORE stage + its snapshot. */
 function seedSmartBefore(runId: number): void {
   repo.addStage(db, { runId, stage: "SMART_BEFORE", status: "DONE" })
-  repo.saveSnapshot(db, { runId, phase: "before", raw: smartRaw(), keyMetrics: parseSmartMetrics(smartRaw()) })
+  repo.saveSnapshot(db, {
+    runId,
+    phase: "before",
+    raw: smartRaw(),
+    keyMetrics: parseSmartMetrics(smartRaw()),
+  })
 }
 
 /** Seeds a DONE SELFTEST_LONG stage row, with its result persisted to `metrics`. */
@@ -121,7 +131,12 @@ describe("TestEngine.reconcile", () => {
       smartByPath: { [d.devicePath]: smartRaw() },
       surface: { plan: [100], result: { mode: "write", badBlocks: 0, completed: true } },
     })
-    const engine = new TestEngine({ db, deviceApi: api, sleep: async () => {}, selfTestPollIntervalMs: 0 })
+    const engine = new TestEngine({
+      db,
+      deviceApi: api,
+      sleep: async () => {},
+      selfTestPollIntervalMs: 0,
+    })
 
     const settled = waitForSettled(engine, runId)
     await engine.reconcile()
@@ -153,10 +168,17 @@ describe("TestEngine.reconcile", () => {
     const api = new FakeDeviceApi({
       drives: [d],
       smartByPath: { [d.devicePath]: smartRaw() },
-      selfTestByPath: { [d.devicePath]: { running: false, percentRemaining: 0, result: PASSED_SELFTEST_RESULT } },
+      selfTestByPath: {
+        [d.devicePath]: { running: false, percentRemaining: 0, result: PASSED_SELFTEST_RESULT },
+      },
       surface: { plan: [100], result: { mode: "write", badBlocks: 0, completed: true } },
     })
-    const engine = new TestEngine({ db, deviceApi: api, sleep: async () => {}, selfTestPollIntervalMs: 0 })
+    const engine = new TestEngine({
+      db,
+      deviceApi: api,
+      sleep: async () => {},
+      selfTestPollIntervalMs: 0,
+    })
 
     expect(api.started).toEqual([])
 
@@ -188,7 +210,12 @@ describe("TestEngine.reconcile", () => {
     repo.updateRun(db, runId, { restartCount: 3 })
 
     const api = new FakeDeviceApi({ drives: [d] })
-    const engine = new TestEngine({ db, deviceApi: api, sleep: async () => {}, selfTestPollIntervalMs: 0 })
+    const engine = new TestEngine({
+      db,
+      deviceApi: api,
+      sleep: async () => {},
+      selfTestPollIntervalMs: 0,
+    })
 
     const settled = waitForSettled(engine, runId)
     await engine.reconcile()
@@ -212,7 +239,12 @@ describe("TestEngine.reconcile", () => {
     const runId = seedRunningRun("destructive", d.serial)
 
     const api = new FakeDeviceApi({ drives: [] })
-    const engine = new TestEngine({ db, deviceApi: api, sleep: async () => {}, selfTestPollIntervalMs: 0 })
+    const engine = new TestEngine({
+      db,
+      deviceApi: api,
+      sleep: async () => {},
+      selfTestPollIntervalMs: 0,
+    })
 
     const settled = waitForSettled(engine, runId)
     await engine.reconcile()
@@ -233,11 +265,21 @@ describe("TestEngine.reconcile", () => {
       driveSerial: d.serial,
       regime: { mode: "destructive", stages: regimeStages("destructive").map((s) => s.stage) },
     })
-    repo.updateRun(db, runId, { status: "DONE", verdict: "PASS", reasons: [], finishedAt: new Date() })
+    repo.updateRun(db, runId, {
+      status: "DONE",
+      verdict: "PASS",
+      reasons: [],
+      finishedAt: new Date(),
+    })
     const before = repo.getRun(db, runId)!
 
     const api = new FakeDeviceApi({ drives: [d] })
-    const engine = new TestEngine({ db, deviceApi: api, sleep: async () => {}, selfTestPollIntervalMs: 0 })
+    const engine = new TestEngine({
+      db,
+      deviceApi: api,
+      sleep: async () => {},
+      selfTestPollIntervalMs: 0,
+    })
 
     const events: RunUpdateEvent[] = []
     engine.on("run:update", (evt: RunUpdateEvent) => events.push(evt))
@@ -262,7 +304,12 @@ describe("TestEngine.reconcile", () => {
       drives: [d],
       smartByPath: { [d.devicePath]: smartRaw() },
     })
-    const engine = new TestEngine({ db, deviceApi: api, sleep: async () => {}, selfTestPollIntervalMs: 0 })
+    const engine = new TestEngine({
+      db,
+      deviceApi: api,
+      sleep: async () => {},
+      selfTestPollIntervalMs: 0,
+    })
 
     const runId = await engine.startRun({ serial: d.serial, mode: "destructive" })
 

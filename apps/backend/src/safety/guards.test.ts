@@ -3,8 +3,15 @@ import type { DiscoveredDrive } from "@spindoctor/shared"
 import { checkDestructiveAllowed } from "./guards"
 
 const base: DiscoveredDrive = {
-  devicePath: "/dev/sdb", serial: "OK1", wwn: null, model: "M", sizeBytes: 1,
-  type: "HDD", transport: "SATA", mounted: false, isSystemDisk: false,
+  devicePath: "/dev/sdb",
+  serial: "OK1",
+  wwn: null,
+  model: "M",
+  sizeBytes: 1,
+  type: "HDD",
+  transport: "SATA",
+  mounted: false,
+  isSystemDisk: false,
 }
 
 describe("checkDestructiveAllowed", () => {

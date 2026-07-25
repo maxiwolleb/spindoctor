@@ -39,7 +39,11 @@ describe("parseSmartMetrics (ATA)", () => {
     expect(m.crcErrors).toBe(2)
   })
   it("returns null for attributes absent from the table", () => {
-    const m = parseSmartMetrics({ device: { protocol: "ATA" }, rotation_rate: 7200, ata_smart_attributes: { table: [] } })
+    const m = parseSmartMetrics({
+      device: { protocol: "ATA" },
+      rotation_rate: 7200,
+      ata_smart_attributes: { table: [] },
+    })
     expect(m.reallocatedSectors).toBeNull()
     expect(m.currentPending).toBeNull()
   })
@@ -74,6 +78,8 @@ describe("parseSelfTest", () => {
     expect(parseSelfTest(nvmeHealthy)).toEqual({ status: "PASSED" })
   })
   it("returns UNKNOWN when no self-test log is present", () => {
-    expect(parseSelfTest({ device: { protocol: "ATA" }, rotation_rate: 7200 })).toEqual({ status: "UNKNOWN" })
+    expect(parseSelfTest({ device: { protocol: "ATA" }, rotation_rate: 7200 })).toEqual({
+      status: "UNKNOWN",
+    })
   })
 })

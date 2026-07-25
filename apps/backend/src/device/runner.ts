@@ -18,7 +18,7 @@ export const execFileRunner: CommandRunner = {
         (error, stdout, stderr) => {
           const code =
             error && typeof (error as { code?: unknown }).code === "number"
-              ? ((error as { code: number }).code)
+              ? (error as { code: number }).code
               : error
                 ? 1
                 : 0

@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest"
 import type { Verdict } from "@spindoctor/shared"
-import { humanBytes, modeLabel, runStatusColor, stageLabel, stageStatusLabel, verdictColor, verdictLabel } from "./format"
+import {
+  humanBytes,
+  modeLabel,
+  runStatusColor,
+  stageLabel,
+  stageStatusLabel,
+  verdictColor,
+  verdictLabel,
+} from "./format"
 
 describe("humanBytes", () => {
   const cases: Array<[number, string]> = [

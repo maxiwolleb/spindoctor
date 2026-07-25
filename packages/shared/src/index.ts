@@ -3,12 +3,7 @@ export type Transport = "SATA" | "SAS" | "USB" | "NVMe" | "UNKNOWN"
 export type Verdict = "PASS" | "WARN" | "FAIL"
 export type Severity = "info" | "warn" | "fail"
 
-export type StageName =
-  | "SMART_BEFORE"
-  | "SELFTEST_LONG"
-  | "SURFACE"
-  | "SMART_AFTER"
-  | "VERDICT"
+export type StageName = "SMART_BEFORE" | "SELFTEST_LONG" | "SURFACE" | "SMART_AFTER" | "VERDICT"
 
 export const STAGE_NAMES: readonly StageName[] = [
   "SMART_BEFORE",
@@ -138,7 +133,12 @@ export interface DriveView {
   mounted: boolean
   isSystemDisk: boolean
   protected: boolean
-  latestRun: { id: number; status: string; verdict: Verdict | null; currentStage: string | null } | null
+  latestRun: {
+    id: number
+    status: string
+    verdict: Verdict | null
+    currentStage: string | null
+  } | null
 }
 
 /** Body for `POST /api/runs`. `confirm` must equal `serial` for a destructive start. */

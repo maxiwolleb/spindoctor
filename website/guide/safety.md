@@ -55,8 +55,8 @@ API: a `POST /api/runs` for a destructive mode without a matching
 ## Auto-mode acknowledgment
 
 Auto-mode cannot be turned on silently. The toggle in Settings stays
-disabled until you check an explicit acknowledgment box — *"I understand
-auto-mode will destructively wipe any newly attached, eligible drive."*
+disabled until you check an explicit acknowledgment box — _"I understand
+auto-mode will destructively wipe any newly attached, eligible drive."_
 Unchecking the box always forces the toggle back off; it can never be
 saved on while unacknowledged.
 

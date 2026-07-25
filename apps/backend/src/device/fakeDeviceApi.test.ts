@@ -3,8 +3,15 @@ import type { DiscoveredDrive } from "@spindoctor/shared"
 import { FakeDeviceApi } from "./fakeDeviceApi"
 
 const d: DiscoveredDrive = {
-  devicePath: "/dev/sda", serial: "S1", wwn: null, model: "M", sizeBytes: 1,
-  type: "HDD", transport: "SATA", mounted: false, isSystemDisk: false,
+  devicePath: "/dev/sda",
+  serial: "S1",
+  wwn: null,
+  model: "M",
+  sizeBytes: 1,
+  type: "HDD",
+  transport: "SATA",
+  mounted: false,
+  isSystemDisk: false,
 }
 
 describe("FakeDeviceApi", () => {

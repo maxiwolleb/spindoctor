@@ -176,7 +176,11 @@ export class TestEngine extends EventEmitter {
       if (mode === "destructive") {
         const decision = checkDestructiveAllowed(drive, { protectList: this.#protectList() })
         if (!decision.allowed) {
-          appendAudit(this.db, { action: "DESTRUCTIVE_DENIED", driveSerial: serial, detail: decision.code })
+          appendAudit(this.db, {
+            action: "DESTRUCTIVE_DENIED",
+            driveSerial: serial,
+            detail: decision.code,
+          })
           throw new SafetyError(decision.code, decision.reason)
         }
       }
@@ -313,7 +317,11 @@ export class TestEngine extends EventEmitter {
 
       if (plan.tooManyRestarts) {
         this.terminalRuns.add(runId)
-        updateRun(this.db, runId, { status: "FAILED", error: "TOO_MANY_RESTARTS", finishedAt: new Date() })
+        updateRun(this.db, runId, {
+          status: "FAILED",
+          error: "TOO_MANY_RESTARTS",
+          finishedAt: new Date(),
+        })
         this.#emitRunUpdate({ runId, driveSerial: drive.serial, status: "FAILED" })
         return
       }
@@ -491,8 +499,17 @@ export class TestEngine extends EventEmitter {
 
       if (controller.signal.aborted) {
         this.terminalRuns.add(runId)
-        updateRun(this.db, runId, { status: "ABORTED", currentStage: stage, finishedAt: new Date() })
-        this.#emitRunUpdate({ runId, driveSerial: currentDrive.serial, status: "ABORTED", currentStage: stage })
+        updateRun(this.db, runId, {
+          status: "ABORTED",
+          currentStage: stage,
+          finishedAt: new Date(),
+        })
+        this.#emitRunUpdate({
+          runId,
+          driveSerial: currentDrive.serial,
+          status: "ABORTED",
+          currentStage: stage,
+        })
         return
       }
 
@@ -511,7 +528,12 @@ export class TestEngine extends EventEmitter {
       // listening for run:update events, can still see where a RUNNING run
       // currently is.
       updateRun(this.db, runId, { currentStage: stage })
-      this.#emitRunUpdate({ runId, driveSerial: currentDrive.serial, status: "RUNNING", currentStage: stage })
+      this.#emitRunUpdate({
+        runId,
+        driveSerial: currentDrive.serial,
+        status: "RUNNING",
+        currentStage: stage,
+      })
 
       try {
         currentDrive = await this.#runStage(
@@ -527,7 +549,12 @@ export class TestEngine extends EventEmitter {
       } catch (err) {
         updateStage(this.db, stageId, { status: "FAILED" })
         this.terminalRuns.add(runId)
-        updateRun(this.db, runId, { status: "FAILED", currentStage: stage, error: String(err), finishedAt: new Date() })
+        updateRun(this.db, runId, {
+          status: "FAILED",
+          currentStage: stage,
+          error: String(err),
+          finishedAt: new Date(),
+        })
         this.#emitRunUpdate({ runId, driveSerial: currentDrive.serial, status: "FAILED" })
         return
       }
@@ -549,8 +576,17 @@ export class TestEngine extends EventEmitter {
       if (controller.signal.aborted) {
         updateStage(this.db, stageId, { status: "ABORTED" })
         this.terminalRuns.add(runId)
-        updateRun(this.db, runId, { status: "ABORTED", currentStage: stage, finishedAt: new Date() })
-        this.#emitRunUpdate({ runId, driveSerial: currentDrive.serial, status: "ABORTED", currentStage: stage })
+        updateRun(this.db, runId, {
+          status: "ABORTED",
+          currentStage: stage,
+          finishedAt: new Date(),
+        })
+        this.#emitRunUpdate({
+          runId,
+          driveSerial: currentDrive.serial,
+          status: "ABORTED",
+          currentStage: stage,
+        })
         return
       }
 
@@ -593,7 +629,13 @@ export class TestEngine extends EventEmitter {
         return fresh
       }
       case "SELFTEST_LONG": {
-        const result = await this.#runSelfTestStage(runId, drive.serial, drive.devicePath, controller, skipSelfTestStart)
+        const result = await this.#runSelfTestStage(
+          runId,
+          drive.serial,
+          drive.devicePath,
+          controller,
+          skipSelfTestStart,
+        )
         state.selfTest = result
         // Persisted so a later reconcile() (e.g. a run interrupted again at
         // SMART_AFTER/VERDICT) can reconstruct this result from the DONE
@@ -700,7 +742,13 @@ export class TestEngine extends EventEmitter {
     const surfaceResult = await this.deviceApi.runSurfaceTest(
       devicePath,
       mode,
-      (percent) => this.#emitStageProgress({ runId, driveSerial: currentDrive.serial, stage: "SURFACE", percent }),
+      (percent) =>
+        this.#emitStageProgress({
+          runId,
+          driveSerial: currentDrive.serial,
+          stage: "SURFACE",
+          percent,
+        }),
       controller.signal,
     )
 

@@ -1,4 +1,11 @@
-import type { CreateRunRequest, DriveView, RunView, SettingsView, SmartKeyMetrics, StageView } from "@spindoctor/shared"
+import type {
+  CreateRunRequest,
+  DriveView,
+  RunView,
+  SettingsView,
+  SmartKeyMetrics,
+  StageView,
+} from "@spindoctor/shared"
 
 /** Wire shape of `GET /api/audit`. Not part of `@spindoctor/shared` because
  * it mirrors a DB row rather than an engine-crossing DTO; `ts` arrives as an
@@ -48,7 +55,11 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, init)
   if (!res.ok) {
     const body = (await res.json().catch(() => ({}))) as ErrorBody
-    throw new ApiError(res.status, body.code ?? "UNKNOWN", body.error ?? `request failed with status ${res.status}`)
+    throw new ApiError(
+      res.status,
+      body.code ?? "UNKNOWN",
+      body.error ?? `request failed with status ${res.status}`,
+    )
   }
   return (await res.json()) as T
 }
@@ -79,7 +90,8 @@ export function createApiClient(baseUrl = "") {
 
     getRun: (id: number): Promise<RunDetail> => request(`${baseUrl}/api/runs/${id}`),
 
-    abortRun: (id: number): Promise<{ ok: boolean }> => request(`${baseUrl}/api/runs/${id}/abort`, { method: "POST" }),
+    abortRun: (id: number): Promise<{ ok: boolean }> =>
+      request(`${baseUrl}/api/runs/${id}/abort`, { method: "POST" }),
 
     getSettings: (): Promise<SettingsView> => request(`${baseUrl}/api/settings`),
 

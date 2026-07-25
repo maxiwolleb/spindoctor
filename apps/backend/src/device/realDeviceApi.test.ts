@@ -21,7 +21,7 @@ describe("RealDeviceApi", () => {
   it("lists devices by combining lsblk and scan", async () => {
     const api = new RealDeviceApi(
       fakeRunner({
-        "lsblk": { stdout: JSON.stringify(lsblk) },
+        lsblk: { stdout: JSON.stringify(lsblk) },
         "smartctl --scan": { stdout: JSON.stringify(scan) },
       }),
     )
@@ -39,7 +39,12 @@ describe("RealDeviceApi", () => {
 
   it("starts a long self-test with the right args", async () => {
     const calls: string[] = []
-    const runner: CommandRunner = { async run(cmd, args) { calls.push([cmd, ...args].join(" ")); return { stdout: "", stderr: "", code: 0 } } }
+    const runner: CommandRunner = {
+      async run(cmd, args) {
+        calls.push([cmd, ...args].join(" "))
+        return { stdout: "", stderr: "", code: 0 }
+      },
+    }
     await new RealDeviceApi(runner).startLongSelfTest("/dev/sda")
     expect(calls[0]).toBe("smartctl -t long /dev/sda")
   })
@@ -57,6 +62,10 @@ describe("RealDeviceApi", () => {
       fakeRunner({ "smartctl -x": { stdout: JSON.stringify(ataHealthy) } }),
     )
     const progress = await api.pollSelfTest("/dev/sda")
-    expect(progress).toEqual({ running: false, percentRemaining: null, result: { status: "PASSED" } })
+    expect(progress).toEqual({
+      running: false,
+      percentRemaining: null,
+      result: { status: "PASSED" },
+    })
   })
 })

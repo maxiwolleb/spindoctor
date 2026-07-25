@@ -78,7 +78,9 @@ export function stageLabel(stage: string): string {
  * `verdictColor` (idle/pending → secondary, running → primary). Stage rows
  * carry the same status vocabulary plus `INTERRUPTED` (a reconciled-away
  * stale surface stage); that falls through to the neutral default here. */
-export function runStatusColor(status: string): "primary" | "secondary" | "success" | "warning" | "error" {
+export function runStatusColor(
+  status: string,
+): "primary" | "secondary" | "success" | "warning" | "error" {
   switch (status) {
     case "PENDING":
       return "secondary"

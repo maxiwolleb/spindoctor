@@ -10,16 +10,31 @@ describe("parseLsblk", () => {
     const disks = parseLsblk(lsblk)
     const byPath = Object.fromEntries(disks.map((d) => [d.devicePath, d]))
     expect(Object.keys(byPath).sort()).toEqual(["/dev/nvme0n1", "/dev/sda", "/dev/sdb", "/dev/sdc"]) // sr0 (rom) excluded
-    expect(byPath["/dev/sda"]).toMatchObject({ type: "HDD", transport: "SATA", mounted: true, isSystemDisk: false, sizeBytes: 4000787030016 })
+    expect(byPath["/dev/sda"]).toMatchObject({
+      type: "HDD",
+      transport: "SATA",
+      mounted: true,
+      isSystemDisk: false,
+      sizeBytes: 4000787030016,
+    })
     expect(byPath["/dev/sdb"]).toMatchObject({ mounted: false, isSystemDisk: false })
-    expect(byPath["/dev/nvme0n1"]).toMatchObject({ type: "NVMe", transport: "NVMe", mounted: true, isSystemDisk: true })
+    expect(byPath["/dev/nvme0n1"]).toMatchObject({
+      type: "NVMe",
+      transport: "NVMe",
+      mounted: true,
+      isSystemDisk: true,
+    })
     expect(byPath["/dev/sdc"]).toMatchObject({ type: "SSD", transport: "USB", serial: null })
   })
 })
 
 describe("parseSmartctlScan", () => {
   it("extracts device paths", () => {
-    expect(parseSmartctlScan(scan)).toEqual([{ devicePath: "/dev/sda" }, { devicePath: "/dev/sdb" }, { devicePath: "/dev/nvme0" }])
+    expect(parseSmartctlScan(scan)).toEqual([
+      { devicePath: "/dev/sda" },
+      { devicePath: "/dev/sdb" },
+      { devicePath: "/dev/nvme0" },
+    ])
   })
 })
 

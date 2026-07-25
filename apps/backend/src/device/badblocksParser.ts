@@ -38,8 +38,5 @@ export function parseBadblocksPercent(chunk: string): number | null {
  * @returns The number of non-empty lines (trimmed)
  */
 export function countBadBlocks(logContent: string): number {
-  return logContent
-    .split("\n")
-    .filter((line) => line.trim() !== "")
-    .length
+  return logContent.split("\n").filter((line) => line.trim() !== "").length
 }

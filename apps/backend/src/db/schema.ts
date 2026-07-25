@@ -14,7 +14,9 @@ export const drives = sqliteTable("drives", {
 
 export const testRuns = sqliteTable("test_runs", {
   id: integer("id").primaryKey({ autoIncrement: true }),
-  driveSerial: text("drive_serial").notNull().references(() => drives.serial),
+  driveSerial: text("drive_serial")
+    .notNull()
+    .references(() => drives.serial),
   regime: text("regime", { mode: "json" }).notNull(),
   status: text("status").notNull(),
   verdict: text("verdict"),
@@ -29,7 +31,9 @@ export const testRuns = sqliteTable("test_runs", {
 
 export const stageResults = sqliteTable("stage_results", {
   id: integer("id").primaryKey({ autoIncrement: true }),
-  runId: integer("run_id").notNull().references(() => testRuns.id),
+  runId: integer("run_id")
+    .notNull()
+    .references(() => testRuns.id),
   stage: text("stage").notNull(),
   status: text("status").notNull(),
   progress: integer("progress").notNull().default(0),
@@ -41,7 +45,9 @@ export const stageResults = sqliteTable("stage_results", {
 
 export const smartSnapshots = sqliteTable("smart_snapshots", {
   id: integer("id").primaryKey({ autoIncrement: true }),
-  runId: integer("run_id").notNull().references(() => testRuns.id),
+  runId: integer("run_id")
+    .notNull()
+    .references(() => testRuns.id),
   phase: text("phase").notNull(),
   raw: text("raw", { mode: "json" }).notNull(),
   keyMetrics: text("key_metrics", { mode: "json" }).notNull(),

@@ -14,18 +14,21 @@ describe("VerdictBadge", () => {
     ["FAIL", "v-chip--variant-tonal", "text-error", "Fail"],
   ]
 
-  it.each(cases)("renders %s as a %s chip labeled %s", (verdict, variantClass, colorClass, label) => {
-    const wrapper = mount(VerdictBadge, {
-      props: { verdict },
-      global: { plugins: [vuetify] },
-    })
+  it.each(cases)(
+    "renders %s as a %s chip labeled %s",
+    (verdict, variantClass, colorClass, label) => {
+      const wrapper = mount(VerdictBadge, {
+        props: { verdict },
+        global: { plugins: [vuetify] },
+      })
 
-    const chip = wrapper.find(".v-chip")
-    expect(chip.exists()).toBe(true)
-    expect(chip.classes()).toContain(variantClass)
-    expect(chip.classes()).toContain(colorClass)
-    expect(wrapper.text()).toBe(label)
-  })
+      const chip = wrapper.find(".v-chip")
+      expect(chip.exists()).toBe(true)
+      expect(chip.classes()).toContain(variantClass)
+      expect(chip.classes()).toContain(colorClass)
+      expect(wrapper.text()).toBe(label)
+    },
+  )
 
   it("forces dark text on the solid PASS pill so it reads on the phosphor fill", () => {
     const wrapper = mount(VerdictBadge, {

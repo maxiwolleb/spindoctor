@@ -1,6 +1,11 @@
 import { describe, it, expect, beforeEach, vi } from "vitest"
 import { eq } from "drizzle-orm"
-import type { DiscoveredDrive, RunUpdateEvent, SelfTestProgress, StageProgressEvent } from "@spindoctor/shared"
+import type {
+  DiscoveredDrive,
+  RunUpdateEvent,
+  SelfTestProgress,
+  StageProgressEvent,
+} from "@spindoctor/shared"
 import { createDb, type Db } from "../db/client"
 import { stageResults, smartSnapshots } from "../db/schema"
 import * as repo from "../db/repositories"
@@ -27,7 +32,11 @@ const smartRaw = (over: Record<string, unknown> = {}): unknown => ({
   ...over,
 })
 
-const PASSED_SELFTEST: SelfTestProgress = { running: false, percentRemaining: 0, result: { status: "PASSED" } }
+const PASSED_SELFTEST: SelfTestProgress = {
+  running: false,
+  percentRemaining: 0,
+  result: { status: "PASSED" },
+}
 
 function isTerminal(status: string): boolean {
   return status === "DONE" || status === "FAILED" || status === "ABORTED"
@@ -129,7 +138,9 @@ beforeEach(() => {
 describe("TestEngine.startRun", () => {
   it("throws DriveNotFoundError when the serial matches no discovered drive", async () => {
     const engine = new TestEngine({ db, deviceApi: new FakeDeviceApi({ drives: [] }) })
-    await expect(engine.startRun({ serial: "NOPE", mode: "read-only" })).rejects.toThrow(DriveNotFoundError)
+    await expect(engine.startRun({ serial: "NOPE", mode: "read-only" })).rejects.toThrow(
+      DriveNotFoundError,
+    )
   })
 
   it("denies a destructive start on a mounted drive, creating no run but an audit row", async () => {
@@ -148,7 +159,11 @@ describe("TestEngine.startRun", () => {
     expect(repo.listRuns(db)).toHaveLength(0)
     const audit = repo.listAudit(db)
     expect(audit).toHaveLength(1)
-    expect(audit[0]).toMatchObject({ action: "DESTRUCTIVE_DENIED", driveSerial: d.serial, detail: "MOUNTED" })
+    expect(audit[0]).toMatchObject({
+      action: "DESTRUCTIVE_DENIED",
+      driveSerial: d.serial,
+      detail: "MOUNTED",
+    })
   })
 
   it("rejects exactly one of two near-simultaneous startRun calls for the same brand-new serial (entry-reservation race guard)", async () => {
@@ -159,7 +174,12 @@ describe("TestEngine.startRun", () => {
       selfTestByPath: { [d.devicePath]: PASSED_SELFTEST },
       surface: { plan: [100], result: { mode: "write", badBlocks: 0, completed: true } },
     })
-    const engine = new TestEngine({ db, deviceApi: api, sleep: async () => {}, selfTestPollIntervalMs: 0 })
+    const engine = new TestEngine({
+      db,
+      deviceApi: api,
+      sleep: async () => {},
+      selfTestPollIntervalMs: 0,
+    })
 
     // Never-seen serial, fired back-to-back with no await between them —
     // both calls hit startRun's synchronous top-of-method reservation check
@@ -189,9 +209,16 @@ describe("TestEngine.startRun", () => {
     // same reference on every call.
     const state: FakeDeviceApiState = { drives: [] }
     const api = new FakeDeviceApi(state)
-    const engine = new TestEngine({ db, deviceApi: api, sleep: async () => {}, selfTestPollIntervalMs: 0 })
+    const engine = new TestEngine({
+      db,
+      deviceApi: api,
+      sleep: async () => {},
+      selfTestPollIntervalMs: 0,
+    })
 
-    await expect(engine.startRun({ serial: "GHOST", mode: "read-only" })).rejects.toThrow(DriveNotFoundError)
+    await expect(engine.startRun({ serial: "GHOST", mode: "read-only" })).rejects.toThrow(
+      DriveNotFoundError,
+    )
     expect(engine.isDriveActive("GHOST")).toBe(false)
 
     // The drive shows up for real afterward; startRun for the same serial
@@ -211,9 +238,16 @@ describe("TestEngine.startRun", () => {
     const d = drive({ mounted: true })
     const state: FakeDeviceApiState = { drives: [d] }
     const api = new FakeDeviceApi(state)
-    const engine = new TestEngine({ db, deviceApi: api, sleep: async () => {}, selfTestPollIntervalMs: 0 })
+    const engine = new TestEngine({
+      db,
+      deviceApi: api,
+      sleep: async () => {},
+      selfTestPollIntervalMs: 0,
+    })
 
-    await expect(engine.startRun({ serial: d.serial, mode: "destructive" })).rejects.toThrow(SafetyError)
+    await expect(engine.startRun({ serial: d.serial, mode: "destructive" })).rejects.toThrow(
+      SafetyError,
+    )
     expect(engine.isDriveActive(d.serial)).toBe(false)
 
     // Drive becomes eligible (unmounted); a subsequent startRun for the same
@@ -239,7 +273,12 @@ describe("TestEngine full-run behavior", () => {
       selfTestByPath: { [d.devicePath]: PASSED_SELFTEST },
       surface: { plan: [100], result: { mode: "write", badBlocks: 0, completed: true } },
     })
-    const engine = new TestEngine({ db, deviceApi: api, sleep: async () => {}, selfTestPollIntervalMs: 0 })
+    const engine = new TestEngine({
+      db,
+      deviceApi: api,
+      sleep: async () => {},
+      selfTestPollIntervalMs: 0,
+    })
 
     const events: RunUpdateEvent[] = []
     engine.on("run:update", (evt: RunUpdateEvent) => events.push(evt))
@@ -276,7 +315,12 @@ describe("TestEngine full-run behavior", () => {
       selfTestByPath: { [d.devicePath]: PASSED_SELFTEST },
       surface: { plan: [100], result: { mode: "write", badBlocks: 2, completed: true } },
     })
-    const engine = new TestEngine({ db, deviceApi: api, sleep: async () => {}, selfTestPollIntervalMs: 0 })
+    const engine = new TestEngine({
+      db,
+      deviceApi: api,
+      sleep: async () => {},
+      selfTestPollIntervalMs: 0,
+    })
 
     const runId = await engine.startRun({ serial: d.serial, mode: "destructive" })
     const terminal = await waitForSettled(engine, runId)
@@ -285,7 +329,9 @@ describe("TestEngine full-run behavior", () => {
     expect(terminal.verdict).toBe("FAIL")
 
     const run = repo.getRun(db, runId)!
-    expect(run.reasons).toEqual(expect.arrayContaining([expect.objectContaining({ code: "BADBLOCKS" })]))
+    expect(run.reasons).toEqual(
+      expect.arrayContaining([expect.objectContaining({ code: "BADBLOCKS" })]),
+    )
   })
 
   it("polls the self-test until finished, emitting stage:progress each time", async () => {
@@ -302,7 +348,12 @@ describe("TestEngine full-run behavior", () => {
         { running: false, percentRemaining: 0, result: { status: "PASSED" } },
       ],
     )
-    const engine = new TestEngine({ db, deviceApi: api, sleep: async () => {}, selfTestPollIntervalMs: 0 })
+    const engine = new TestEngine({
+      db,
+      deviceApi: api,
+      sleep: async () => {},
+      selfTestPollIntervalMs: 0,
+    })
 
     const selfTestPercents: number[] = []
     engine.on("stage:progress", (evt: { stage: string; percent: number }) => {
@@ -323,7 +374,12 @@ describe("TestEngine full-run behavior", () => {
       smartByPath: { [d.devicePath]: smartRaw() },
       selfTestByPath: { [d.devicePath]: PASSED_SELFTEST },
     })
-    const engine = new TestEngine({ db, deviceApi: api, sleep: async () => {}, selfTestPollIntervalMs: 0 })
+    const engine = new TestEngine({
+      db,
+      deviceApi: api,
+      sleep: async () => {},
+      selfTestPollIntervalMs: 0,
+    })
 
     const runId = await engine.startRun({ serial: d.serial, mode: "read-only" })
     await waitForSettled(engine, runId)
@@ -338,7 +394,12 @@ describe("TestEngine full-run behavior", () => {
       smartByPath: { [d.devicePath]: smartRaw() },
       selfTestByPath: { [d.devicePath]: PASSED_SELFTEST },
     })
-    const engine = new TestEngine({ db, deviceApi: api, sleep: async () => {}, selfTestPollIntervalMs: 0 })
+    const engine = new TestEngine({
+      db,
+      deviceApi: api,
+      sleep: async () => {},
+      selfTestPollIntervalMs: 0,
+    })
 
     const ctx: { runId?: number } = {}
     engine.on("stage:progress", (evt: { stage: string }) => {
@@ -370,7 +431,12 @@ describe("TestEngine full-run behavior", () => {
       selfTestByPath: { [d.devicePath]: PASSED_SELFTEST },
       surface: { plan: [100], result: { mode: "write", badBlocks: 0, completed: true } },
     })
-    const engine = new TestEngine({ db, deviceApi: api, sleep: async () => {}, selfTestPollIntervalMs: 0 })
+    const engine = new TestEngine({
+      db,
+      deviceApi: api,
+      sleep: async () => {},
+      selfTestPollIntervalMs: 0,
+    })
 
     const terminalEvents: RunUpdateEvent[] = []
     engine.on("run:update", (evt: RunUpdateEvent) => {
@@ -415,7 +481,12 @@ describe("TestEngine SURFACE stage safety re-check (TOCTOU guard)", () => {
       },
       [[clean], [mountedNow]],
     )
-    const engine = new TestEngine({ db, deviceApi: api, sleep: async () => {}, selfTestPollIntervalMs: 0 })
+    const engine = new TestEngine({
+      db,
+      deviceApi: api,
+      sleep: async () => {},
+      selfTestPollIntervalMs: 0,
+    })
 
     const runId = await engine.startRun({ serial: clean.serial, mode: "destructive" })
     const terminal = await waitForSettled(engine, runId)
@@ -434,7 +505,11 @@ describe("TestEngine SURFACE stage safety re-check (TOCTOU guard)", () => {
 
     const audit = repo.listAudit(db)
     expect(audit).toContainEqual(
-      expect.objectContaining({ action: "DESTRUCTIVE_RECHECK_DENIED", driveSerial: clean.serial, detail: "MOUNTED" }),
+      expect.objectContaining({
+        action: "DESTRUCTIVE_RECHECK_DENIED",
+        driveSerial: clean.serial,
+        detail: "MOUNTED",
+      }),
     )
   })
 
@@ -447,7 +522,12 @@ describe("TestEngine SURFACE stage safety re-check (TOCTOU guard)", () => {
       },
       [[clean], []],
     )
-    const engine = new TestEngine({ db, deviceApi: api, sleep: async () => {}, selfTestPollIntervalMs: 0 })
+    const engine = new TestEngine({
+      db,
+      deviceApi: api,
+      sleep: async () => {},
+      selfTestPollIntervalMs: 0,
+    })
 
     const runId = await engine.startRun({ serial: clean.serial, mode: "destructive" })
     const terminal = await waitForSettled(engine, runId)
@@ -457,7 +537,11 @@ describe("TestEngine SURFACE stage safety re-check (TOCTOU guard)", () => {
 
     const audit = repo.listAudit(db)
     expect(audit).toContainEqual(
-      expect.objectContaining({ action: "DESTRUCTIVE_RECHECK_DENIED", driveSerial: clean.serial, detail: "DRIVE_GONE" }),
+      expect.objectContaining({
+        action: "DESTRUCTIVE_RECHECK_DENIED",
+        driveSerial: clean.serial,
+        detail: "DRIVE_GONE",
+      }),
     )
   })
 
@@ -472,7 +556,12 @@ describe("TestEngine SURFACE stage safety re-check (TOCTOU guard)", () => {
       },
       [[clean], [mountedNow]],
     )
-    const engine = new TestEngine({ db, deviceApi: api, sleep: async () => {}, selfTestPollIntervalMs: 0 })
+    const engine = new TestEngine({
+      db,
+      deviceApi: api,
+      sleep: async () => {},
+      selfTestPollIntervalMs: 0,
+    })
 
     const runId = await engine.startRun({ serial: clean.serial, mode: "read-only" })
     const terminal = await waitForSettled(engine, runId)
@@ -508,7 +597,12 @@ describe("TestEngine SMART_AFTER/VERDICT fresh device path (Fix B)", () => {
       // re-resolve — this is where the device node has been reassigned.
       [[original], [original], [relocated]],
     )
-    const engine = new TestEngine({ db, deviceApi: api, sleep: async () => {}, selfTestPollIntervalMs: 0 })
+    const engine = new TestEngine({
+      db,
+      deviceApi: api,
+      sleep: async () => {},
+      selfTestPollIntervalMs: 0,
+    })
     const readSmartSpy = vi.spyOn(api, "readSmartRaw")
 
     const runId = await engine.startRun({ serial: original.serial, mode: "destructive" })
@@ -540,7 +634,12 @@ describe("TestEngine SMART_AFTER/VERDICT fresh device path (Fix B)", () => {
       // the drive is gone.
       [[clean], [clean], []],
     )
-    const engine = new TestEngine({ db, deviceApi: api, sleep: async () => {}, selfTestPollIntervalMs: 0 })
+    const engine = new TestEngine({
+      db,
+      deviceApi: api,
+      sleep: async () => {},
+      selfTestPollIntervalMs: 0,
+    })
     const readSmartSpy = vi.spyOn(api, "readSmartRaw")
 
     const runId = await engine.startRun({ serial: clean.serial, mode: "destructive" })
@@ -586,7 +685,12 @@ describe("TestEngine SMART_AFTER/VERDICT fresh device path (Fix B)", () => {
       // re-check call for read-only regimes).
       [[original], [relocated]],
     )
-    const engine = new TestEngine({ db, deviceApi: api, sleep: async () => {}, selfTestPollIntervalMs: 0 })
+    const engine = new TestEngine({
+      db,
+      deviceApi: api,
+      sleep: async () => {},
+      selfTestPollIntervalMs: 0,
+    })
     const readSmartSpy = vi.spyOn(api, "readSmartRaw")
 
     const runId = await engine.startRun({ serial: original.serial, mode: "read-only" })
@@ -604,7 +708,12 @@ describe("TestEngine per-drive active-run guard (Fix 1)", () => {
       drives: [d],
       smartByPath: { [d.devicePath]: smartRaw() },
     })
-    const engine = new TestEngine({ db, deviceApi: api, sleep: async () => {}, selfTestPollIntervalMs: 0 })
+    const engine = new TestEngine({
+      db,
+      deviceApi: api,
+      sleep: async () => {},
+      selfTestPollIntervalMs: 0,
+    })
 
     const runId = await engine.startRun({ serial: d.serial, mode: "destructive" })
     // Let SMART_BEFORE finish and SELFTEST_LONG's poll loop park on its
@@ -656,7 +765,12 @@ describe("TestEngine per-drive active-run guard (Fix 1)", () => {
       drives: [d],
       smartByPath: { [d.devicePath]: smartRaw() },
     })
-    const engine = new TestEngine({ db, deviceApi: api, sleep: async () => {}, selfTestPollIntervalMs: 0 })
+    const engine = new TestEngine({
+      db,
+      deviceApi: api,
+      sleep: async () => {},
+      selfTestPollIntervalMs: 0,
+    })
 
     await engine.reconcile()
     // Let #reconcileRun resume SELFTEST_LONG by polling and park on its
@@ -665,7 +779,9 @@ describe("TestEngine per-drive active-run guard (Fix 1)", () => {
 
     expect(engine.isDriveActive(d.serial)).toBe(true)
 
-    await expect(engine.startRun({ serial: d.serial, mode: "destructive" })).rejects.toThrow(RunInProgressError)
+    await expect(engine.startRun({ serial: d.serial, mode: "destructive" })).rejects.toThrow(
+      RunInProgressError,
+    )
     // Only the reconcile()-resumed run row exists — startRun must not have
     // created a second one.
     expect(repo.listRuns(db)).toHaveLength(1)
@@ -683,7 +799,12 @@ describe("TestEngine per-drive active-run guard (Fix 1)", () => {
       drives: [d],
       smartByPath: { [d.devicePath]: smartRaw() },
     })
-    const engine = new TestEngine({ db, deviceApi: api, sleep: async () => {}, selfTestPollIntervalMs: 0 })
+    const engine = new TestEngine({
+      db,
+      deviceApi: api,
+      sleep: async () => {},
+      selfTestPollIntervalMs: 0,
+    })
 
     // startRun dispatches (and parks) a run for this drive's serial.
     const activeRunId = await engine.startRun({ serial: d.serial, mode: "destructive" })
@@ -712,7 +833,11 @@ describe("TestEngine per-drive active-run guard (Fix 1)", () => {
     // no status change, no stage rows inserted for it.
     expect(eventsForStaleRun).toHaveLength(0)
     expect(repo.getRun(db, staleRunId)!.status).toBe("RUNNING")
-    const staleStages = db.select().from(stageResults).where(eq(stageResults.runId, staleRunId)).all()
+    const staleStages = db
+      .select()
+      .from(stageResults)
+      .where(eq(stageResults.runId, staleRunId))
+      .all()
     expect(staleStages).toHaveLength(0)
 
     // Unwind the active run.
@@ -733,7 +858,12 @@ describe("TestEngine current_stage persistence (Fix 3)", () => {
       selfTestByPath: { [d.devicePath]: PASSED_SELFTEST },
       surface: { plan: [100], result: { mode: "write", badBlocks: 0, completed: true } },
     })
-    const engine = new TestEngine({ db, deviceApi: api, sleep: async () => {}, selfTestPollIntervalMs: 0 })
+    const engine = new TestEngine({
+      db,
+      deviceApi: api,
+      sleep: async () => {},
+      selfTestPollIntervalMs: 0,
+    })
 
     const ctx: { runId?: number } = {}
     let observedAtSelfTest: string | null | undefined
@@ -776,7 +906,12 @@ describe("TestEngine driveSerial in events (Fix 3)", () => {
         { running: false, percentRemaining: 0, result: { status: "PASSED" } },
       ],
     )
-    const engine = new TestEngine({ db, deviceApi: api, sleep: async () => {}, selfTestPollIntervalMs: 0 })
+    const engine = new TestEngine({
+      db,
+      deviceApi: api,
+      sleep: async () => {},
+      selfTestPollIntervalMs: 0,
+    })
 
     const runUpdates: RunUpdateEvent[] = []
     const stageProgress: StageProgressEvent[] = []

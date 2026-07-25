@@ -6,7 +6,10 @@ import { vuetify } from "../plugins/vuetify"
 import DriveDetailView from "./DriveDetailView.vue"
 
 function jsonResponse(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } })
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  })
 }
 
 const drive: DriveView = {
@@ -116,7 +119,9 @@ describe("DriveDetailView", () => {
   })
 
   it("shows a not-found message for an unknown serial instead of throwing", async () => {
-    fetchMock.mockResolvedValueOnce(jsonResponse({ error: 'no drive found with serial "GHOST"', code: "DRIVE_NOT_FOUND" }, 404))
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({ error: 'no drive found with serial "GHOST"', code: "DRIVE_NOT_FOUND" }, 404),
+    )
 
     const wrapper = mountView("GHOST")
     await flushPromises()
@@ -128,7 +133,9 @@ describe("DriveDetailView", () => {
   it("lists every run in the history with mode and verdict", async () => {
     const secondRun: RunView = { ...run, id: 8, verdict: "FAIL", mode: "read-only" }
     fetchMock.mockResolvedValueOnce(jsonResponse({ drive, runs: [run, secondRun] }))
-    fetchMock.mockResolvedValueOnce(jsonResponse({ run, stages, snapshots: { before: null, after: null } }))
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({ run, stages, snapshots: { before: null, after: null } }),
+    )
 
     const wrapper = mountView()
     await flushPromises()
@@ -140,7 +147,9 @@ describe("DriveDetailView", () => {
   })
 
   it("shows an empty state when the drive has no runs yet", async () => {
-    fetchMock.mockResolvedValueOnce(jsonResponse({ drive: { ...drive, latestRun: null }, runs: [] }))
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({ drive: { ...drive, latestRun: null }, runs: [] }),
+    )
 
     const wrapper = mountView()
     await flushPromises()

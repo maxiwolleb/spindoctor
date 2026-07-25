@@ -1,6 +1,11 @@
 import fs from "node:fs"
 import path from "node:path"
-import Fastify, { type FastifyError, type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify"
+import Fastify, {
+  type FastifyError,
+  type FastifyInstance,
+  type FastifyReply,
+  type FastifyRequest,
+} from "fastify"
 import fastifyStatic from "@fastify/static"
 import type { Db } from "../db/client"
 import type { DeviceApi } from "../device/deviceApi"

@@ -1,5 +1,10 @@
 import { describe, it, expect, beforeEach } from "vitest"
-import type { CreateRunRequest, DiscoveredDrive, RunView, SelfTestProgress } from "@spindoctor/shared"
+import type {
+  CreateRunRequest,
+  DiscoveredDrive,
+  RunView,
+  SelfTestProgress,
+} from "@spindoctor/shared"
 import { createDb, type Db } from "../db/client"
 import * as repo from "../db/repositories"
 import { FakeDeviceApi, type FakeDeviceApiState } from "../device/fakeDeviceApi"
@@ -31,7 +36,11 @@ const mountedDrive: DiscoveredDrive = {
 }
 
 const smartRaw = (): unknown => ({ ata_smart_attributes: { table: [] }, temperature: {} })
-const PASSED_SELFTEST: SelfTestProgress = { running: false, percentRemaining: 0, result: { status: "PASSED" } }
+const PASSED_SELFTEST: SelfTestProgress = {
+  running: false,
+  percentRemaining: 0,
+  result: { status: "PASSED" },
+}
 
 /**
  * FakeDeviceApi variant whose pollSelfTest never resolves on its own — hands
@@ -224,8 +233,16 @@ describe("GET /api/runs", () => {
   it("returns all runs as RunView[]", async () => {
     const { app } = build()
     repo.upsertDrive(db, cleanDrive)
-    const runId = repo.createRun(db, { driveSerial: cleanDrive.serial, regime: { mode: "read-only", stages: [] } })
-    repo.updateRun(db, runId, { status: "DONE", verdict: "PASS", reasons: [], currentStage: "VERDICT" })
+    const runId = repo.createRun(db, {
+      driveSerial: cleanDrive.serial,
+      regime: { mode: "read-only", stages: [] },
+    })
+    repo.updateRun(db, runId, {
+      status: "DONE",
+      verdict: "PASS",
+      reasons: [],
+      currentStage: "VERDICT",
+    })
 
     const res = await app.inject({ method: "GET", url: "/api/runs" })
     expect(res.statusCode).toBe(200)
@@ -258,9 +275,18 @@ describe("GET /api/runs", () => {
   it("returns runs newest-first (Fix 4)", async () => {
     const { app } = build()
     repo.upsertDrive(db, cleanDrive)
-    const first = repo.createRun(db, { driveSerial: cleanDrive.serial, regime: { mode: "read-only" } })
-    const second = repo.createRun(db, { driveSerial: cleanDrive.serial, regime: { mode: "read-only" } })
-    const third = repo.createRun(db, { driveSerial: cleanDrive.serial, regime: { mode: "read-only" } })
+    const first = repo.createRun(db, {
+      driveSerial: cleanDrive.serial,
+      regime: { mode: "read-only" },
+    })
+    const second = repo.createRun(db, {
+      driveSerial: cleanDrive.serial,
+      regime: { mode: "read-only" },
+    })
+    const third = repo.createRun(db, {
+      driveSerial: cleanDrive.serial,
+      regime: { mode: "read-only" },
+    })
 
     const res = await app.inject({ method: "GET", url: "/api/runs" })
     expect(res.statusCode).toBe(200)
@@ -271,8 +297,14 @@ describe("GET /api/runs", () => {
   it("serializes timestamps as ISO strings (or null), never raw Date objects (Fix 1)", async () => {
     const { app } = build()
     repo.upsertDrive(db, cleanDrive)
-    const runId = repo.createRun(db, { driveSerial: cleanDrive.serial, regime: { mode: "read-only" } })
-    repo.updateRun(db, runId, { status: "RUNNING", startedAt: new Date("2026-01-01T00:00:00.000Z") })
+    const runId = repo.createRun(db, {
+      driveSerial: cleanDrive.serial,
+      regime: { mode: "read-only" },
+    })
+    repo.updateRun(db, runId, {
+      status: "RUNNING",
+      startedAt: new Date("2026-01-01T00:00:00.000Z"),
+    })
 
     const res = await app.inject({ method: "GET", url: "/api/runs" })
     const body = res.json<RunView[]>()
@@ -293,7 +325,10 @@ describe("GET /api/runs/:id", () => {
   it("returns the run and its stage rows", async () => {
     const { app } = build()
     repo.upsertDrive(db, cleanDrive)
-    const runId = repo.createRun(db, { driveSerial: cleanDrive.serial, regime: { mode: "destructive" } })
+    const runId = repo.createRun(db, {
+      driveSerial: cleanDrive.serial,
+      regime: { mode: "destructive" },
+    })
     const stageId = repo.addStage(db, { runId, stage: "SMART_BEFORE", status: "DONE" })
 
     const res = await app.inject({ method: "GET", url: `/api/runs/${runId}` })
@@ -308,8 +343,14 @@ describe("GET /api/runs/:id", () => {
   it("serializes run and stage timestamps as ISO strings (or null) (Fix 1)", async () => {
     const { app } = build()
     repo.upsertDrive(db, cleanDrive)
-    const runId = repo.createRun(db, { driveSerial: cleanDrive.serial, regime: { mode: "destructive" } })
-    repo.updateRun(db, runId, { status: "RUNNING", startedAt: new Date("2026-02-02T00:00:00.000Z") })
+    const runId = repo.createRun(db, {
+      driveSerial: cleanDrive.serial,
+      regime: { mode: "destructive" },
+    })
+    repo.updateRun(db, runId, {
+      status: "RUNNING",
+      startedAt: new Date("2026-02-02T00:00:00.000Z"),
+    })
     const stageId = repo.addStage(db, { runId, stage: "SMART_BEFORE", status: "DONE" })
     repo.updateStage(db, stageId, {
       startedAt: new Date("2026-02-02T00:01:00.000Z"),
@@ -339,12 +380,25 @@ describe("GET /api/runs/:id", () => {
   it("includes the before/after SMART key-metrics snapshots, null for a phase not yet captured", async () => {
     const { app } = build()
     repo.upsertDrive(db, cleanDrive)
-    const runId = repo.createRun(db, { driveSerial: cleanDrive.serial, regime: { mode: "destructive" } })
+    const runId = repo.createRun(db, {
+      driveSerial: cleanDrive.serial,
+      regime: { mode: "destructive" },
+    })
     repo.saveSnapshot(db, {
       runId,
       phase: "before",
       raw: smartRaw(),
-      keyMetrics: { reallocatedSectors: 0, currentPending: 0, offlineUncorrectable: 0, reportedUncorrect: 0, crcErrors: 0, powerOnHours: 100, percentageUsed: null, mediaErrors: null, temperatureC: 30 },
+      keyMetrics: {
+        reallocatedSectors: 0,
+        currentPending: 0,
+        offlineUncorrectable: 0,
+        reportedUncorrect: 0,
+        crcErrors: 0,
+        powerOnHours: 100,
+        percentageUsed: null,
+        mediaErrors: null,
+        temperatureC: 30,
+      },
     })
 
     const res = await app.inject({ method: "GET", url: `/api/runs/${runId}` })
@@ -359,7 +413,10 @@ describe("POST /api/runs/:id/abort", () => {
   it("202s and aborts an existing run (idempotent even once terminal)", async () => {
     const { app } = build()
     repo.upsertDrive(db, cleanDrive)
-    const runId = repo.createRun(db, { driveSerial: cleanDrive.serial, regime: { mode: "destructive" } })
+    const runId = repo.createRun(db, {
+      driveSerial: cleanDrive.serial,
+      regime: { mode: "destructive" },
+    })
     repo.updateRun(db, runId, { status: "DONE", verdict: "PASS" })
 
     const res = await app.inject({ method: "POST", url: `/api/runs/${runId}/abort` })

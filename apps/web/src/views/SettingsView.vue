@@ -82,7 +82,12 @@ function validate(): string | null {
     }
   }
 
-  if (typeof form.concurrency !== "number" || !Number.isFinite(form.concurrency) || !Number.isInteger(form.concurrency) || form.concurrency < 1) {
+  if (
+    typeof form.concurrency !== "number" ||
+    !Number.isFinite(form.concurrency) ||
+    !Number.isInteger(form.concurrency) ||
+    form.concurrency < 1
+  ) {
     return "Concurrency must be a whole number of at least 1."
   }
 
@@ -199,7 +204,9 @@ async function onSave(): Promise<void> {
         >
           {{ serial }}
         </v-chip>
-        <span v-if="protectList.length === 0" class="text-medium-emphasis">No protected drives.</span>
+        <span v-if="protectList.length === 0" class="text-medium-emphasis"
+          >No protected drives.</span
+        >
       </div>
       <div class="d-flex ga-2 align-center mb-6" style="max-width: 360px">
         <v-text-field

@@ -67,11 +67,7 @@ export function parseSmartMetrics(json: unknown): SmartKeyMetrics {
   }
 }
 
-function classifySelfTest(
-  str: string,
-  value?: number,
-  passed?: boolean,
-): SelfTestResult {
+function classifySelfTest(str: string, value?: number, passed?: boolean): SelfTestResult {
   const t = str.toLowerCase()
   if (passed === true || value === 0 || t.includes("completed without error")) {
     return { status: "PASSED" }

@@ -13,10 +13,8 @@
 
   /* Self-hosted fonts (no CDN) — headings get the technical-grotesk display
      face, body stays on Inter, code/data stays tabular mono. */
-  --vp-font-family-base:
-    "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
-  --vp-font-family-mono:
-    "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --vp-font-family-base: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --vp-font-family-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 }
 
 .dark {
@@ -69,9 +67,7 @@
 .VPHero .name,
 .VPHero .text,
 .VPFeature .title {
-  font-family:
-    "Space Grotesk",
-    var(--vp-font-family-base);
+  font-family: "Space Grotesk", var(--vp-font-family-base);
 }
 
 /* Serials, device paths, thresholds, env vars — tabular mono, matching the
