@@ -1,0 +1,24 @@
+# Dependencies / build output (mirrors .gitignore)
+node_modules/
+dist/
+build/
+*.tsbuildinfo
+
+# Lockfile — pnpm owns formatting
+pnpm-lock.yaml
+
+# Generated / vendored
+apps/backend/drizzle/**
+website/.vitepress/cache/
+website/.vitepress/dist/
+
+# Fixtures — captured tool output, keep byte-for-byte
+**/__fixtures__/**
+
+# Minified / brand assets
+*.min.*
+assets/**
+**/public/*.svg
+
+# Coverage reports
+coverage/
