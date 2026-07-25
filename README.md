@@ -8,6 +8,13 @@ self-test → destructive surface scan (`badblocks -w`) → SMART again →
 [![License: MIT](https://img.shields.io/github/license/maxiwolleb/spindoctor)](LICENSE)
 [![Image](https://img.shields.io/badge/ghcr.io-maxiwolleb%2Fspindoctor-blue)](https://github.com/maxiwolleb/spindoctor/pkgs/container/spindoctor)
 
+> [!WARNING]
+> **In active development — not ready for use.** spindoctor is still a work
+> in progress: APIs, the database schema, and behavior can change without
+> notice, and it hasn't been validated across a wide range of real drives
+> yet. Treat it as an evaluation preview — run it in a lab, not on hardware
+> or data you care about.
+
 ## ⚠️ Safety warning
 
 **The destructive test IRRECOVERABLY WIPES the drive under test.** The
@@ -226,12 +233,11 @@ built for a trusted LAN — do not expose it directly to the internet.
 
 Full docs, including install/run, how-it-works, safety, configuration, and
 architecture guides, are at
-**[maxiwolleb.gitlab.io/spindoctor](https://maxiwolleb.gitlab.io/spindoctor/)**.
+**[maxiwolleb.github.io/spindoctor](https://maxiwolleb.github.io/spindoctor/)**.
 
-The docs site (`website/`, VitePress) deploys to GitLab Pages. This
-repository lives on GitHub and is mirrored to GitLab so that GitLab CI can
-run the `pages` job — see [CONTRIBUTING.md](CONTRIBUTING.md#documentation)
-for details.
+The docs site (`website/`, VitePress) builds and deploys to GitHub Pages
+from `main` via the [`Docs`](.github/workflows/docs.yml) workflow — see
+[CONTRIBUTING.md](CONTRIBUTING.md#documentation) for details.
 
 ## License
 

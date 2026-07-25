@@ -8,9 +8,9 @@ export default defineConfig({
   // Dark-only identity — no light theme, no toggle.
   appearance: "force-dark",
 
-  // Local dev/build serve from the root. The GitLab Pages deploy is a
-  // project site (https://maxiwolleb.gitlab.io/spindoctor/), so CI sets
-  // DOCS_BASE=/spindoctor/ for that build only.
+  // Local dev/build serve from the root. The GitHub Pages deploy is a
+  // project site (https://maxiwolleb.github.io/spindoctor/), so the Docs
+  // workflow sets DOCS_BASE=/spindoctor/ for that build only.
   base: process.env.DOCS_BASE ?? "/",
 
   head: [
