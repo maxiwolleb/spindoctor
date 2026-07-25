@@ -4,15 +4,18 @@ import type {
   CreateRunRequest,
   RegimeMode,
   RunView,
+  SmartAttributeRow,
   SmartKeyMetrics,
   StageName,
   StageView,
+  Thresholds,
 } from "@spindoctor/shared"
 import type { Db } from "../../db/client"
-import { getRun, getSnapshots, listRuns } from "../../db/repositories"
+import { getConfig, getRun, getSnapshotRaws, getSnapshots, listRuns } from "../../db/repositories"
 import type { RunRow, StageRow } from "../../db/repositories"
 import { stageResults } from "../../db/schema"
 import type { DeviceApi } from "../../device/deviceApi"
+import { parseSmartAttributes } from "../../device/smartParser"
 import {
   DriveNotFoundError,
   RunInProgressError,
@@ -89,6 +92,23 @@ function buildRunLogText(stages: StageView[]): string {
     .join("\n\n")
 }
 
+/** The full before/after SMART attribute tables for a run (issue #14) —
+ * parsed from the stored raw smartctl JSON against the currently-configured
+ * thresholds, so a row's flag agrees with the run's own verdict reasons.
+ * `[]` for a phase that hasn't been captured yet, same "not there" convention
+ * as `snapshots.before`/`snapshots.after`. */
+function buildAttributesView(
+  db: Db,
+  runId: number,
+  thresholds: Thresholds,
+): { before: SmartAttributeRow[]; after: SmartAttributeRow[] } {
+  const raws = getSnapshotRaws(db, runId)
+  return {
+    before: raws.before != null ? parseSmartAttributes(raws.before, thresholds) : [],
+    after: raws.after != null ? parseSmartAttributes(raws.after, thresholds) : [],
+  }
+}
+
 export function runsRoutes(deps: RunsRouteDeps): FastifyPluginAsync {
   const { db, engine } = deps
 
@@ -154,8 +174,26 @@ export function runsRoutes(deps: RunsRouteDeps): FastifyPluginAsync {
       }
       const snapshots: { before: SmartKeyMetrics | null; after: SmartKeyMetrics | null } =
         getSnapshots(db, id)
-      return { run: toRunView(row), stages: listStageRows(db, id), snapshots }
+      const attributes = buildAttributesView(db, id, getConfig(db).thresholds as Thresholds)
+      return { run: toRunView(row), stages: listStageRows(db, id), snapshots, attributes }
     })
+
+    fastify.get(
+      "/runs/:id/smart",
+      async (request: FastifyRequest<{ Params: { id: string } }>, reply) => {
+        const id = Number(request.params.id)
+        const row = Number.isFinite(id) ? getRun(db, id) : undefined
+        if (!row) {
+          reply.code(404)
+          return { error: `no run found with id "${request.params.id}"`, code: "RUN_NOT_FOUND" }
+        }
+        const raws = getSnapshotRaws(db, id)
+        reply
+          .header("Content-Type", "application/json; charset=utf-8")
+          .header("Content-Disposition", `attachment; filename="spindoctor-run-${id}-smart.json"`)
+        return raws
+      },
+    )
 
     fastify.get(
       "/runs/:id/log",

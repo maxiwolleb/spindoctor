@@ -201,6 +201,19 @@ export function saveSnapshot(
     .run()
 }
 
+/** All snapshot rows for a run, newest-first (mirrors
+ * `TestEngine#loadSnapshot`'s `.orderBy(desc(smartSnapshots.id))`) — shared by
+ * `getSnapshots` and `getSnapshotRaws` so both pick the same latest row per
+ * phase off a single query. */
+function snapshotRowsForRun(db: Db, runId: number): SnapshotRow[] {
+  return db
+    .select()
+    .from(smartSnapshots)
+    .where(eq(smartSnapshots.runId, runId))
+    .orderBy(desc(smartSnapshots.id))
+    .all()
+}
+
 /** The before/after key-metrics pair for a run, keyed by `phase` — `null` for
  * whichever phase hasn't been captured yet (e.g. a run still on
  * `SMART_BEFORE`, or a read-only regime that skips one side). Drive detail's
@@ -208,25 +221,34 @@ export function saveSnapshot(
  *
  * A run can accumulate more than one snapshot per phase (no unique(run_id,
  * phase) constraint) — e.g. a crash + `reconcile()` re-runs SMART_BEFORE/
- * SMART_AFTER and `saveSnapshot` is called again. Order newest-first (mirrors
- * `TestEngine#loadSnapshot`'s `.orderBy(desc(smartSnapshots.id))`) so `.find()`
- * picks the latest row per phase instead of a stale pre-crash one. */
+ * SMART_AFTER and `saveSnapshot` is called again. `.find()` on the
+ * newest-first rows picks the latest row per phase instead of a stale
+ * pre-crash one. */
 export function getSnapshots(
   db: Db,
   runId: number,
 ): { before: SmartKeyMetrics | null; after: SmartKeyMetrics | null } {
-  const rows = db
-    .select()
-    .from(smartSnapshots)
-    .where(eq(smartSnapshots.runId, runId))
-    .orderBy(desc(smartSnapshots.id))
-    .all()
+  const rows = snapshotRowsForRun(db, runId)
   const before = rows.find((r) => r.phase === "before")
   const after = rows.find((r) => r.phase === "after")
   return {
     before: (before?.keyMetrics as SmartKeyMetrics | undefined) ?? null,
     after: (after?.keyMetrics as SmartKeyMetrics | undefined) ?? null,
   }
+}
+
+/** The before/after *raw* smartctl JSON for a run, keyed by `phase` — same
+ * latest-row-per-phase selection as `getSnapshots`, but for consumers that
+ * need the unparsed payload: the full-attribute-table view and the raw-SMART
+ * download route (issue #14). */
+export function getSnapshotRaws(
+  db: Db,
+  runId: number,
+): { before: unknown | null; after: unknown | null } {
+  const rows = snapshotRowsForRun(db, runId)
+  const before = rows.find((r) => r.phase === "before")
+  const after = rows.find((r) => r.phase === "after")
+  return { before: before?.raw ?? null, after: after?.raw ?? null }
 }
 
 // ---- audit ----

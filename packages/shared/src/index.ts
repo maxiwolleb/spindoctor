@@ -28,6 +28,37 @@ export interface SmartKeyMetrics {
   temperatureC: number | null
 }
 
+/** Per-attribute flag for the full SMART attribute table (issue #14) — `ok`
+ * unless the row itself already looks bad or borderline, independent of any
+ * before/after comparison. */
+export type SmartAttributeHealth = "ok" | "warn" | "fail"
+
+/** One row of the full SMART attribute set for a single snapshot — the
+ * complete table smartctl reported, not just the graded `SmartKeyMetrics`
+ * subset. ATA rows come from `ata_smart_attributes.table[]` and populate
+ * `id`/`value`/`worst`/`thresh`; NVMe has no such normalized-attribute
+ * concept, so an NVMe row only sets `rawValue` (from
+ * `nvme_smart_health_information_log`) and leaves the rest `null`. */
+export interface SmartAttributeRow {
+  /** ATA attribute id (1–255), or `null` for a field with no numeric id (NVMe). */
+  id: number | null
+  /** Attribute name as smartctl reports it (e.g. "Reallocated_Sector_Ct"), or
+   * the NVMe log field name (e.g. "media_errors"). */
+  name: string
+  /** Normalized current value, ATA only. */
+  value: number | null
+  /** Worst historical normalized value, ATA only. */
+  worst: number | null
+  /** Failure threshold for the normalized value, ATA only. */
+  thresh: number | null
+  /** The underlying raw counter/measurement — what most attributes are actually graded on. */
+  rawValue: number | null
+  /** smartctl's raw string rendering, when it carries more than the bare number
+   * (e.g. a duration like "21000h+02m+00.000s"). `null` when it adds nothing. */
+  rawString: string | null
+  health: SmartAttributeHealth
+}
+
 export type SelfTestStatus = "PASSED" | "FAILED" | "ABORTED" | "UNKNOWN"
 
 export interface SelfTestResult {

@@ -138,6 +138,40 @@ describe("runs / stages / snapshots / audit", () => {
     })
   })
 
+  it("getSnapshotRaws returns before/after raw JSON keyed by phase, null for a phase not yet captured", () => {
+    const runId = repo.createRun(db, { driveSerial: "SER123", regime: ["SMART_BEFORE", "VERDICT"] })
+    expect(repo.getSnapshotRaws(db, runId)).toEqual({ before: null, after: null })
+
+    repo.saveSnapshot(db, {
+      runId,
+      phase: "before",
+      raw: { ata_smart_attributes: { table: [] } },
+      keyMetrics: { reallocatedSectors: 0 } as any,
+    })
+    expect(repo.getSnapshotRaws(db, runId)).toEqual({
+      before: { ata_smart_attributes: { table: [] } },
+      after: null,
+    })
+  })
+
+  it("getSnapshotRaws returns the latest row per phase, mirroring getSnapshots", () => {
+    const runId = repo.createRun(db, { driveSerial: "SER123", regime: ["SMART_BEFORE", "VERDICT"] })
+    repo.saveSnapshot(db, {
+      runId,
+      phase: "before",
+      raw: { pass: 1 },
+      keyMetrics: { reallocatedSectors: 0 } as any,
+    })
+    repo.saveSnapshot(db, {
+      runId,
+      phase: "before",
+      raw: { pass: 2 },
+      keyMetrics: { reallocatedSectors: 3 } as any,
+    })
+
+    expect(repo.getSnapshotRaws(db, runId)).toEqual({ before: { pass: 2 }, after: null })
+  })
+
   it("appends and lists audit entries", () => {
     repo.appendAudit(db, { action: "DESTRUCTIVE_START", driveSerial: "SER123", detail: "manual" })
     const rows = repo.listAudit(db)

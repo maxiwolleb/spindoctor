@@ -19,6 +19,7 @@
     "nums",
     "nvme",
     "rawio",
+    "reservd",
     "scanline",
     "scanlines",
     "selftest",
@@ -36,6 +37,7 @@
     "upserts",
     "vitepress",
     "vuetify",
+    "wearout",
     "wordmark"
   ],
   "ignorePaths": [

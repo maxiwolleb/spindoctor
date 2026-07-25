@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue"
+import { computed, onMounted, ref } from "vue"
 import type { DriveView, RunView } from "@spindoctor/shared"
 import { ApiError, createApiClient } from "../api/client"
 import type { RunDetail } from "../api/client"
 import { humanBytes, modeLabel } from "../lib/format"
 import VerdictBadge from "../components/VerdictBadge.vue"
 import SmartDiffTable from "../components/SmartDiffTable.vue"
+import SmartAttributesTable from "../components/SmartAttributesTable.vue"
 import StageTimeline from "../components/StageTimeline.vue"
 
 const props = defineProps<{ serial: string }>()
@@ -19,6 +20,15 @@ const loading = ref(true)
 const notFound = ref(false)
 const error = ref<string | null>(null)
 const runDetailError = ref<string | null>(null)
+
+/** Which snapshot the full-attribute table shows. Defaults to "after" (the
+ * post-test state) once a run loads, unless only "before" was captured (e.g.
+ * a run still in progress) — see `load()`. */
+const attributePhase = ref<"before" | "after">("after")
+
+const attributesForPhase = computed(
+  () => latestRunDetail.value?.attributes?.[attributePhase.value] ?? [],
+)
 
 function messageOf(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
@@ -59,6 +69,10 @@ async function load(): Promise<void> {
   if (newest) {
     try {
       latestRunDetail.value = await api.getRun(newest.id)
+      // Prefer the post-test snapshot; fall back to "before" for a run
+      // that's still in progress (or skipped the after-side capture) so the
+      // table shows something instead of defaulting to an empty phase.
+      attributePhase.value = latestRunDetail.value.attributes?.after?.length ? "after" : "before"
     } catch (err) {
       // The drive header + run history already loaded fine; don't blank the
       // whole page over a run-detail hiccup, just note it inline.
@@ -104,6 +118,26 @@ onMounted(load)
           :after="latestRunDetail.snapshots.after"
           class="mb-6"
         />
+
+        <div class="d-flex align-center justify-space-between mb-2 flex-wrap ga-2">
+          <div class="d-flex align-center ga-4">
+            <h2 class="text-subtitle-1 ma-0">SMART attributes</h2>
+            <v-btn-toggle v-model="attributePhase" mandatory density="compact" color="primary">
+              <v-btn value="before" size="small">Before</v-btn>
+              <v-btn value="after" size="small">After</v-btn>
+            </v-btn-toggle>
+          </div>
+          <v-btn
+            :href="api.getRunSmartUrl(latestRunDetail.run.id)"
+            download
+            variant="tonal"
+            size="small"
+            color="primary"
+          >
+            Download raw SMART
+          </v-btn>
+        </div>
+        <SmartAttributesTable :attributes="attributesForPhase" class="mb-6" />
 
         <div class="d-flex align-center justify-space-between mb-2">
           <h2 class="text-subtitle-1 ma-0">Stage timeline</h2>

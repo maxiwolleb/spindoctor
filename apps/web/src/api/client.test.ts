@@ -105,6 +105,19 @@ describe("createApiClient", () => {
     expect(url).toBe("http://localhost:8080/api/runs/7/log")
   })
 
+  it("getRunSmartUrl builds the raw-SMART download URL without fetching", () => {
+    const url = createApiClient().getRunSmartUrl(7)
+
+    expect(url).toBe("/api/runs/7/smart")
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it("getRunSmartUrl honors baseUrl like every other endpoint", () => {
+    const url = createApiClient("http://localhost:8080").getRunSmartUrl(7)
+
+    expect(url).toBe("http://localhost:8080/api/runs/7/smart")
+  })
+
   it("abortRun POSTs /api/runs/:id/abort", async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse({ ok: true }, 202))
 

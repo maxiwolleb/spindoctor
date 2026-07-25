@@ -3,6 +3,7 @@ import type {
   DriveView,
   RunView,
   SettingsView,
+  SmartAttributeRow,
   SmartKeyMetrics,
   StageView,
 } from "@spindoctor/shared"
@@ -30,6 +31,9 @@ export interface RunDetail {
   /** Before/after SMART key metrics for the run, `null` for a phase not yet
    * captured (still running, or a regime that skips one side). */
   snapshots: { before: SmartKeyMetrics | null; after: SmartKeyMetrics | null }
+  /** The full before/after SMART attribute tables (issue #14) — `[]` for a
+   * phase not yet captured, same convention as `snapshots`. */
+  attributes: { before: SmartAttributeRow[]; after: SmartAttributeRow[] }
 }
 
 interface ErrorBody {
@@ -94,6 +98,11 @@ export function createApiClient(baseUrl = "") {
      * /api/runs/:id/log`) — a direct link/`<a download>` target, not a
      * fetch-and-parse call like the rest of this client. */
     getRunLogUrl: (id: number): string => `${baseUrl}/api/runs/${id}/log`,
+
+    /** URL for the raw before/after smartctl JSON download (`GET
+     * /api/runs/:id/smart`, issue #14) — same direct-link pattern as
+     * `getRunLogUrl`. */
+    getRunSmartUrl: (id: number): string => `${baseUrl}/api/runs/${id}/smart`,
 
     abortRun: (id: number): Promise<{ ok: boolean }> =>
       request(`${baseUrl}/api/runs/${id}/abort`, { method: "POST" }),

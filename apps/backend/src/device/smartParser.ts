@@ -1,4 +1,11 @@
-import type { DriveType, SelfTestResult, SmartKeyMetrics } from "@spindoctor/shared"
+import type {
+  DriveType,
+  SelfTestResult,
+  SmartAttributeHealth,
+  SmartAttributeRow,
+  SmartKeyMetrics,
+  Thresholds,
+} from "@spindoctor/shared"
 
 function num(v: unknown): number | null {
   return typeof v === "number" && Number.isFinite(v) ? v : null
@@ -65,6 +72,136 @@ export function parseSmartMetrics(json: unknown): SmartKeyMetrics {
     mediaErrors: null,
     temperatureC,
   }
+}
+
+/**
+ * Per-row health for an ATA attribute (issue #14). The named checks mirror
+ * `verdict/evaluate.ts`'s rules so a row's flag never disagrees with the
+ * run's own verdict reasons; everything else falls back to the drive's own
+ * pass/fail call on the attribute (normalized value at or below its own
+ * threshold, or smartctl's `when_failed` marker) so vendor-specific
+ * attributes the named checks don't know about still get flagged.
+ */
+function ataAttributeHealth(
+  id: number | null,
+  rawValue: number | null,
+  value: number | null,
+  thresh: number | null,
+  whenFailed: string | null,
+  thresholds: Thresholds,
+): SmartAttributeHealth {
+  if (id === ATA_ATTR_IDS.reallocatedSectors && rawValue != null && rawValue > 0) {
+    return rawValue > thresholds.reallocatedWarnMax ? "fail" : "warn"
+  }
+  if (id === ATA_ATTR_IDS.currentPending && rawValue != null && rawValue > 0) return "fail"
+  if (id === ATA_ATTR_IDS.offlineUncorrectable && rawValue != null && rawValue > 0) return "fail"
+  if (id === ATA_ATTR_IDS.reportedUncorrect && rawValue != null && rawValue > 0) return "fail"
+  if (id === ATA_ATTR_IDS.crcErrors && rawValue != null && rawValue > 0) return "warn"
+
+  if (whenFailed) return "fail"
+  if (thresh != null && thresh > 0 && value != null && value <= thresh) return "fail"
+
+  return "ok"
+}
+
+function parseAtaAttributes(table: any[], thresholds: Thresholds): SmartAttributeRow[] {
+  return table.map((r) => {
+    const row = asRecord(r)
+    const raw = asRecord(row.raw)
+    const id = num(row.id)
+    const rawValue = num(raw.value)
+    const value = num(row.value)
+    const thresh = num(row.thresh)
+    const whenFailed =
+      typeof row.when_failed === "string" && row.when_failed.length > 0 ? row.when_failed : null
+    const rawString =
+      typeof raw.string === "string" && raw.string !== String(rawValue) ? raw.string : null
+
+    return {
+      id,
+      name: typeof row.name === "string" ? row.name : `unknown_attribute_${id ?? "?"}`,
+      value,
+      worst: num(row.worst),
+      thresh,
+      rawValue,
+      rawString,
+      health: ataAttributeHealth(id, rawValue, value, thresh, whenFailed, thresholds),
+    }
+  })
+}
+
+/** NVMe health-log fields worth surfacing as attribute rows — not every field
+ * in the log, just the ones with a meaningful health story. */
+const NVME_FIELDS: readonly string[] = [
+  "critical_warning",
+  "percentage_used",
+  "available_spare",
+  "available_spare_threshold",
+  "media_errors",
+  "num_err_log_entries",
+  "power_on_hours",
+  "unsafe_shutdowns",
+  "controller_busy_time",
+]
+
+function nvmeAttributeHealth(
+  name: string,
+  v: number,
+  log: Record<string, any>,
+  thresholds: Thresholds,
+): SmartAttributeHealth {
+  switch (name) {
+    case "percentage_used":
+      if (v >= thresholds.ssdPercentageUsedFail) return "fail"
+      if (v >= thresholds.ssdPercentageUsedWarn) return "warn"
+      return "ok"
+    case "media_errors":
+      return v > 0 ? "fail" : "ok"
+    case "critical_warning":
+      return v !== 0 ? "fail" : "ok"
+    case "available_spare": {
+      const spareThreshold = num(log.available_spare_threshold)
+      return spareThreshold != null && v <= spareThreshold ? "fail" : "ok"
+    }
+    default:
+      return "ok"
+  }
+}
+
+function parseNvmeAttributes(json: unknown, thresholds: Thresholds): SmartAttributeRow[] {
+  const log = asRecord(asRecord(json).nvme_smart_health_information_log)
+  const rows: SmartAttributeRow[] = []
+  for (const name of NVME_FIELDS) {
+    const v = num(log[name])
+    if (v == null) continue // field not reported by this drive
+    rows.push({
+      id: null,
+      name,
+      value: null,
+      worst: null,
+      thresh: null,
+      rawValue: v,
+      rawString: null,
+      health: nvmeAttributeHealth(name, v, log, thresholds),
+    })
+  }
+  return rows
+}
+
+/**
+ * The full SMART attribute table for a snapshot (issue #14) — every row
+ * smartctl reported, each with a per-row health flag, for the "show me
+ * everything and explain it" viewer. Returns `[]` when the raw JSON has no
+ * attribute table at all rather than throwing, so a snapshot captured from a
+ * device/tool version that doesn't populate one still renders an empty table
+ * instead of crashing the route.
+ */
+export function parseSmartAttributes(json: unknown, thresholds: Thresholds): SmartAttributeRow[] {
+  const type = parseDeviceType(json)
+  if (type === "NVMe") return parseNvmeAttributes(json, thresholds)
+
+  const table = asRecord(asRecord(json).ata_smart_attributes).table
+  return Array.isArray(table) ? parseAtaAttributes(table, thresholds) : []
 }
 
 function classifySelfTest(str: string, value?: number, passed?: boolean): SelfTestResult {
