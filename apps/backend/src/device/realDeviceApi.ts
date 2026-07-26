@@ -15,7 +15,13 @@ import { parseLsblk } from "./lsblkParser"
 import { parseSmartctlScan } from "./scanParser"
 import { mergeDiscovery } from "./discovery"
 import { parseSelfTest } from "./smartParser"
-import { parseBadblocksPercent, countBadBlocks, formatSurfaceLog } from "./badblocksParser"
+import {
+  parseBadblocksPercent,
+  countBadBlocks,
+  formatSurfaceLog,
+  badblocksPhaseCount,
+  BadblocksProgressTracker,
+} from "./badblocksParser"
 
 function asRecord(v: unknown): Record<string, any> {
   return v && typeof v === "object" ? (v as Record<string, any>) : {}
@@ -123,6 +129,9 @@ export class RealDeviceApi implements DeviceApi {
     onLog?: (log: string) => void,
   ): Promise<SurfaceResult> {
     const surfaceMode = toSurfaceMode(mode)
+    // badblocks reports its percentage per phase (a destructive `-w` run cycles
+    // 0→100 eight times); this turns that into one monotonic overall percent.
+    const progress = new BadblocksProgressTracker(badblocksPhaseCount(surfaceMode))
     if (signal.aborted) {
       return { mode: surfaceMode, badBlocks: 0, completed: false }
     }
@@ -158,7 +167,7 @@ export class RealDeviceApi implements DeviceApi {
         stderrChunks.push(chunk)
         if (signal.aborted) return
         const percent = parseBadblocksPercent(chunk.toString())
-        if (percent !== null) onProgress(percent)
+        if (percent !== null) onProgress(progress.update(percent))
       })
 
       // Both `close` and `error` fire on a spawn failure (confirmed on Node

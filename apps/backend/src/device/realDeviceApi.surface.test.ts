@@ -26,7 +26,18 @@ describe("RealDeviceApi.runSurfaceTest (against the badblocks emulator)", () => 
     const api = new RealDeviceApi(execFileRunner, {
       logDir: dir,
       surfaceCommand: process.execPath,
-      surfaceArgsPrefix: (logfile) => [emulatorPath, "--log", logfile, "--bad", "0"],
+      // --phases 8 emulates a real destructive `-w` run's eight phases, so the
+      // monotonic overall percent the tracker produces actually reaches 100
+      // (each phase's raw percent only climbs to 100 within that phase).
+      surfaceArgsPrefix: (logfile) => [
+        emulatorPath,
+        "--log",
+        logfile,
+        "--bad",
+        "0",
+        "--phases",
+        "8",
+      ],
     })
     const percents: number[] = []
 
