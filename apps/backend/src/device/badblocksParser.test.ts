@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest"
-import { parseBadblocksPercent, countBadBlocks, formatSurfaceLog } from "./badblocksParser"
+import {
+  parseBadblocksPercent,
+  countBadBlocks,
+  formatSurfaceLog,
+  badblocksPhaseCount,
+  BadblocksProgressTracker,
+} from "./badblocksParser"
 
 describe("parseBadblocksPercent", () => {
   it("extracts a percent from a typical progress line", () => {
@@ -54,5 +60,63 @@ describe("formatSurfaceLog", () => {
     expect(log).toContain("=== badblocks stdout ===\n(empty)")
     expect(log).toContain("=== badblocks stderr (progress) ===\n(empty)")
     expect(log).toContain("=== bad-block logfile ===\n(empty)")
+  })
+})
+
+describe("badblocksPhaseCount", () => {
+  it("is 8 for a destructive -w run (4 patterns, each written then verified)", () => {
+    expect(badblocksPhaseCount("write")).toBe(8)
+  })
+  it("is 1 for a non-destructive read-only run", () => {
+    expect(badblocksPhaseCount("read-only")).toBe(1)
+  })
+})
+
+describe("BadblocksProgressTracker", () => {
+  it("passes a single-phase (read-only) percent straight through", () => {
+    const t = new BadblocksProgressTracker(1)
+    expect(t.update(0)).toBe(0)
+    expect(t.update(37.5)).toBeCloseTo(37.5)
+    expect(t.update(100)).toBe(100)
+  })
+
+  it("maps an 8-phase destructive run onto a monotonic 0-100% — a per-phase reset advances one phase", () => {
+    const t = new BadblocksProgressTracker(8)
+    // phase 1: 0 -> 100 maps to 0 -> 12.5
+    expect(t.update(0)).toBeCloseTo(0)
+    expect(t.update(50)).toBeCloseTo(6.25)
+    expect(t.update(100)).toBeCloseTo(12.5)
+    // phase 2 starts: the percent resets to ~0, overall holds at 12.5 then climbs to 25
+    expect(t.update(0)).toBeCloseTo(12.5)
+    expect(t.update(100)).toBeCloseTo(25)
+    // phases 3..8: each reset advances another 12.5, finishing at 100
+    for (let phase = 3; phase <= 8; phase++) {
+      t.update(0)
+      expect(t.update(100)).toBeCloseTo(phase * 12.5)
+    }
+  })
+
+  it("never runs backwards across a full destructive run's percent stream", () => {
+    const t = new BadblocksProgressTracker(8)
+    let prev = -1
+    for (let phase = 0; phase < 8; phase++) {
+      for (const p of [0, 20, 40, 60, 80, 100]) {
+        const overall = t.update(p)
+        expect(overall).toBeGreaterThanOrEqual(prev)
+        expect(overall).toBeLessThanOrEqual(100)
+        prev = overall
+      }
+    }
+    expect(prev).toBeCloseTo(100)
+  })
+
+  it("caps the phase count so a stray reset past the last phase can't exceed 100%", () => {
+    const t = new BadblocksProgressTracker(8)
+    for (let phase = 0; phase < 8; phase++) {
+      t.update(0)
+      t.update(100)
+    }
+    expect(t.update(0)).toBeLessThanOrEqual(100)
+    expect(t.update(100)).toBe(100)
   })
 })
