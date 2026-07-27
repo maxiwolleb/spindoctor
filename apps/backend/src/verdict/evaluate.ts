@@ -34,6 +34,16 @@ export function evaluateVerdict(input: VerdictInput): VerdictResult {
       severity: "info",
       message: "Long self-test skipped — baseline SMART already condemned the drive",
     })
+  } else if (selfTest.status === "UNSUPPORTED") {
+    // Informational, not a warning: the drive never had the feature, which says
+    // nothing about its health. Warning here would mean no such drive could ever
+    // earn a PASS — and the destructive surface pass, which writes and verifies
+    // every sector, is stronger evidence than a firmware self-test anyway.
+    push({
+      code: "SELFTEST_UNSUPPORTED",
+      severity: "info",
+      message: "Drive does not support self-tests — stage skipped",
+    })
   } else if (selfTest.status === "ABORTED" || selfTest.status === "UNKNOWN") {
     push({
       code: "SELFTEST_INCOMPLETE",

@@ -7,6 +7,7 @@ import type {
   Reason,
   StageName,
   DiscoveredDrive,
+  DriveType,
 } from "@spindoctor/shared"
 import type { Db } from "./client"
 import { config, drives, testRuns, stageResults, smartSnapshots, auditLog } from "./schema"
@@ -91,6 +92,13 @@ export function getDrive(db: Db, serial: string): DriveRow | undefined {
 
 export function listDrives(db: Db): DriveRow[] {
   return db.select().from(drives).all()
+}
+
+/** Corrects a drive's recorded type once its SMART data has been read. Discovery
+ * infers HDD-vs-SSD from `lsblk`'s rotational flag, which a USB bridge need not
+ * pass through — so a bridged NVMe is first recorded as an HDD and fixed here. */
+export function setDriveType(db: Db, serial: string, type: DriveType): void {
+  db.update(drives).set({ type }).where(eq(drives.serial, serial)).run()
 }
 
 export function setProtected(db: Db, serial: string, value: boolean): void {

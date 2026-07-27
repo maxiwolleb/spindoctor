@@ -366,3 +366,21 @@ describe("evaluateVerdict spin retries and command timeouts (#54)", () => {
     expect(codes(r)).toEqual([])
   })
 })
+
+// #14: a drive that cannot run a self-test must not be treated like one whose
+// test failed to finish — otherwise no such drive can ever earn a PASS.
+describe("evaluateVerdict unsupported self-test", () => {
+  it("records it as a note, leaving the verdict alone", () => {
+    const r = evaluateVerdict(input({ selfTest: { status: "UNSUPPORTED" } }))
+    expect(r.verdict).toBe("PASS")
+    expect(codes(r)).toEqual(["SELFTEST_UNSUPPORTED"])
+    expect(r.reasons[0]?.severity).toBe("info")
+  })
+
+  it("is distinct from a test that should have run and didn't", () => {
+    expect(codes(evaluateVerdict(input({ selfTest: { status: "UNKNOWN" } })))).toContain(
+      "SELFTEST_INCOMPLETE",
+    )
+    expect(evaluateVerdict(input({ selfTest: { status: "UNKNOWN" } })).verdict).toBe("WARN")
+  })
+})
