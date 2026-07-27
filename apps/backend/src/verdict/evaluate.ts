@@ -154,6 +154,21 @@ export function evaluateVerdict(input: VerdictInput): VerdictResult {
     })
   }
 
+  // --- SAS link-layer errors ---
+  //
+  // Warn, never fail, and never on growth alone: the same audit found phys
+  // carrying 239 and 255 invalid DWORDs that did not budge under load — the test
+  // rig's cabling, not the drive. Same intent as the ATA CRC rule below.
+  if (after.linkErrors != null && after.linkErrors > 0) {
+    push({
+      code: "LINK_ERRORS",
+      severity: "warn",
+      message: `${after.linkErrors} SAS link error(s) — check cabling/backplane, usually not the drive`,
+      metric: "linkErrors",
+      after: after.linkErrors,
+    })
+  }
+
   // --- interface CRC errors ---
   if (after.crcErrors != null && after.crcErrors > 0) {
     push({

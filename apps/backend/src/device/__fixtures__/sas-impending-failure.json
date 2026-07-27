@@ -1,7 +1,21 @@
 {
-  "json_format_version": [1, 0],
-  "smartctl": { "version": [7, 5], "exit_status": 8 },
-  "device": { "name": "/dev/sda", "info_name": "/dev/sda", "type": "scsi", "protocol": "SCSI" },
+  "json_format_version": [
+    1,
+    0
+  ],
+  "smartctl": {
+    "version": [
+      7,
+      5
+    ],
+    "exit_status": 8
+  },
+  "device": {
+    "name": "/dev/sda",
+    "info_name": "/dev/sda",
+    "type": "scsi",
+    "protocol": "SCSI"
+  },
   "scsi_vendor": "SEAGATE",
   "scsi_product": "ST12000NM0027",
   "scsi_revision": "E004",
@@ -11,15 +25,34 @@
   "serial_number": "SASFIXTURE0001",
   "logical_unit_id": "0x5000c500000000a1",
   "rotation_rate": 7200,
-  "form_factor": { "scsi_value": 2, "name": "3.5 inches" },
-  "user_capacity": { "blocks": 23437770752, "bytes": 12000138625024 },
+  "form_factor": {
+    "scsi_value": 2,
+    "name": "3.5 inches"
+  },
+  "user_capacity": {
+    "blocks": 23437770752,
+    "bytes": 12000138625024
+  },
   "logical_block_size": 512,
   "physical_block_size": 4096,
-  "scsi_transport_protocol": { "value": 6, "name": "SAS (SPL-4)" },
-  "smart_support": { "available": true, "enabled": true },
-  "smart_status": { "passed": false },
-  "temperature": { "current": 40, "drive_trip": 60 },
-  "power_on_time": { "hours": 56724 },
+  "scsi_transport_protocol": {
+    "value": 6,
+    "name": "SAS (SPL-4)"
+  },
+  "smart_support": {
+    "available": true,
+    "enabled": true
+  },
+  "smart_status": {
+    "passed": false
+  },
+  "temperature": {
+    "current": 40,
+    "drive_trip": 60
+  },
+  "power_on_time": {
+    "hours": 56724
+  },
   "scsi_grown_defect_list": 636,
   "scsi_error_counter_log": {
     "read": {
@@ -48,6 +81,30 @@
       "correction_algorithm_invocations": 0,
       "gigabytes_processed": "0.000",
       "total_uncorrected_errors": 0
+    }
+  },
+  "scsi_self_test_0": {
+    "code": {
+      "value": 2,
+      "string": "Background long"
+    },
+    "result": {
+      "value": 0,
+      "string": "Completed"
+    },
+    "power_on_time": {
+      "hours": 56724
+    }
+  },
+  "scsi_sas_port_0": {
+    "relative_target_port_id": 1,
+    "generation_code": 0,
+    "number_of_phys": 1,
+    "phy_0": {
+      "invalid_dword_count": 255,
+      "running_disparity_error_count": 249,
+      "loss_of_dword_synchronization_count": 6,
+      "phy_reset_problem_count": 0
     }
   }
 }

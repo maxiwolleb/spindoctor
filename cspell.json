@@ -2,6 +2,7 @@
   "version": "0.2",
   "language": "en",
   "words": [
+    "backplane",
     "badblocks",
     "blockdevices",
     "buildx",
@@ -9,6 +10,7 @@
     "grotesk",
     "hgst",
     "idempotently",
+    "jref",
     "labelledby",
     "linecap",
     "linejoin",
@@ -23,6 +25,7 @@
     "reservd",
     "scanline",
     "scanlines",
+    "scsiprint",
     "selftest",
     "smartctl",
     "smartmontools",

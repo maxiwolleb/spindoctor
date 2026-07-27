@@ -14,7 +14,7 @@ import type { DeviceApi } from "./deviceApi"
 import { parseLsblk } from "./lsblkParser"
 import { parseSmartctlScan } from "./scanParser"
 import { mergeDiscovery } from "./discovery"
-import { parseSelfTest } from "./smartParser"
+import { parseSelfTest, scsiSelfTestInProgress } from "./smartParser"
 import {
   parseBadblocksPercent,
   countBadBlocks,
@@ -124,6 +124,14 @@ export class RealDeviceApi implements DeviceApi {
         percentRemaining: num(nvmeLog.current_self_test_completion_percent),
         result: null,
       }
+    }
+
+    // SAS/SCSI: the newest self-test log entry carries an explicit
+    // `self_test_in_progress` flag. There is no percentage to report — smartctl
+    // prints "N% of test remaining" for SCSI to the console only, never into the
+    // JSON — so a SAS self-test shows as running-without-progress until it ends.
+    if (scsiSelfTestInProgress(raw)) {
+      return { running: true, percentRemaining: null, result: null }
     }
 
     // ATA: in-progress self-tests report a "... in progress ..." status

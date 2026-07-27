@@ -19,6 +19,7 @@ const clean: SmartKeyMetrics = {
   mediaErrors: null,
   temperatureC: 33,
   grownDefects: null,
+  linkErrors: null,
   smartHealthPassed: null,
 }
 const selfTestOk: SelfTestResult = { status: "PASSED" }
@@ -155,6 +156,7 @@ describe("evaluateVerdict", () => {
       mediaErrors: null,
       temperatureC: null,
       grownDefects: null,
+      linkErrors: null,
       smartHealthPassed: null,
     }
     const r = evaluateVerdict(input({ before: after, after }))
@@ -275,5 +277,32 @@ describe("evaluateVerdict — SAS/SCSI", () => {
 
     expect(r.verdict).toBe("FAIL")
     expect(r.reasons.map((x) => x.code)).toContain("CURRENT_PENDING")
+  })
+})
+
+describe("evaluateVerdict — SAS link errors", () => {
+  it("warns about link errors without condemning the drive", () => {
+    // Real rig: 255 invalid DWORDs that did not move under load. A cabling
+    // problem must not read as a failing disk.
+    const after = {
+      ...clean,
+      reallocatedSectors: null,
+      currentPending: null,
+      offlineUncorrectable: null,
+      crcErrors: null,
+      grownDefects: 0,
+      linkErrors: 261,
+      smartHealthPassed: true,
+    }
+    const r = evaluateVerdict(input({ before: after, after }))
+
+    expect(r.verdict).toBe("WARN")
+    expect(r.reasons.map((x) => x.code)).toEqual(["LINK_ERRORS"])
+    expect(r.reasons[0]?.message).toContain("cabling")
+  })
+
+  it("stays silent on a clean link", () => {
+    const after = { ...clean, grownDefects: 0, linkErrors: 0, smartHealthPassed: true }
+    expect(evaluateVerdict(input({ before: after, after })).verdict).toBe("PASS")
   })
 })
