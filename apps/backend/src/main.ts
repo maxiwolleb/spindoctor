@@ -11,6 +11,7 @@ import { TestEngine } from "./engine/engine"
 import { AutoModePoller } from "./engine/autoMode"
 import { buildApp } from "./api/app"
 import { attachRealtime, type Realtime } from "./api/realtime"
+import { createLogger, type Logger } from "./logger"
 
 /** Built frontend location once `apps/web` is built (Phase 5): resolved
  * relative to this module so it works regardless of the process's cwd. Only
@@ -29,6 +30,8 @@ export interface CreateServerOverrides {
   host?: string
   webRoot?: string
   deviceApi?: DeviceApi
+  /** Overridden in tests to keep output quiet; production builds a real one. */
+  logger?: Logger
 }
 
 export interface Server {
@@ -64,19 +67,21 @@ export function createServer(overrides: CreateServerOverrides = {}): Server {
   const { db, sqlite } = createDb(dbPath)
   ensureConfig(db)
 
-  const deviceApi = overrides.deviceApi ?? new RealDeviceApi(execFileRunner)
-  const engine = new TestEngine({ db, deviceApi })
-  const app = buildApp({ db, deviceApi, engine, webRoot })
+  const logger = overrides.logger ?? createLogger()
+  const deviceApi = overrides.deviceApi ?? new RealDeviceApi(execFileRunner, { logger })
+  const engine = new TestEngine({ db, deviceApi, logger })
+  const app = buildApp({ db, deviceApi, engine, webRoot, logger })
   // Attached to Fastify's raw server: Socket.IO handles only its own path and
   // delegates every other request back, so the REST routes and the SPA
   // fallback are unaffected. Safe before `listen()` — it only adds listeners.
   const realtime = attachRealtime({ httpServer: app.server, db, engine })
-  const poller = new AutoModePoller({ db, deviceApi, engine })
+  const poller = new AutoModePoller({ db, deviceApi, engine, logger })
 
   async function start(): Promise<void> {
     await engine.reconcile()
     poller.start()
     await app.listen({ port, host })
+    logger.info({ port, host, dbPath, webRoot }, "spindoctor started")
   }
 
   async function stop(): Promise<void> {
@@ -107,14 +112,15 @@ if (isEntryModule()) {
   // logs instead of taking the whole daemon down. Installed only here, not
   // at module top-level, so importing this module in tests never touches
   // global process listeners.
+  const entryLogger = createLogger()
   process.on("unhandledRejection", (err: unknown) => {
-    console.error("[spindoctor] unhandled rejection:", err)
+    entryLogger.error({ err }, "unhandled rejection")
   })
 
-  const server = createServer()
+  const server = createServer({ logger: entryLogger })
 
   server.start().catch((err: unknown) => {
-    console.error(err)
+    entryLogger.fatal({ err }, "failed to start")
     process.exit(1)
   })
 
@@ -122,12 +128,12 @@ if (isEntryModule()) {
   const shutdown = (signal: NodeJS.Signals): void => {
     if (shuttingDown) return
     shuttingDown = true
-    console.log(`received ${signal}, shutting down...`)
+    entryLogger.info({ signal }, "shutting down")
     server
       .stop()
       .then(() => process.exit(0))
       .catch((err: unknown) => {
-        console.error(err)
+        entryLogger.error({ err }, "error during shutdown")
         process.exit(1)
       })
   }

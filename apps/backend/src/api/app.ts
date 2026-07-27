@@ -1,6 +1,7 @@
 import fs from "node:fs"
 import path from "node:path"
 import Fastify, {
+  type FastifyBaseLogger,
   type FastifyError,
   type FastifyInstance,
   type FastifyReply,
@@ -8,6 +9,7 @@ import Fastify, {
 } from "fastify"
 import fastifyStatic from "@fastify/static"
 import type { Db } from "../db/client"
+import { silentLogger, type Logger } from "../logger"
 import type { DeviceApi } from "../device/deviceApi"
 import type { TestEngine } from "../engine/engine"
 import { auditRoutes } from "./routes/audit"
@@ -26,11 +28,16 @@ export interface AppDeps {
    * boot the API cleanly with no static route at all.
    */
   webRoot?: string
+  /** Structured logger. Given to Fastify so request/response and its own
+   * lifecycle lines share one destination with the engine's. */
+  logger?: Logger
 }
 
 /** Builds the Fastify instance with all `/api` routes registered. Does not `.listen()`. */
 export function buildApp(deps: AppDeps): FastifyInstance {
-  const app = Fastify()
+  const app = Fastify({
+    loggerInstance: (deps.logger ?? silentLogger()) as FastifyBaseLogger,
+  })
   void app.register(drivesRoutes(deps), { prefix: "/api" })
   void app.register(runsRoutes(deps), { prefix: "/api" })
   void app.register(settingsRoutes(deps), { prefix: "/api" })

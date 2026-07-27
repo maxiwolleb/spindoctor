@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest"
+import pino from "pino"
 import type { CommandRunner } from "./runner"
 import { RealDeviceApi } from "./realDeviceApi"
 import lsblk from "./__fixtures__/lsblk.json"
@@ -33,29 +34,30 @@ describe("RealDeviceApi", () => {
   // listDevices runs on every auto-mode poll, so the warning has to be logged
   // once per device+reason and not on every cycle.
   it("warns once per ignored device, not on every poll", async () => {
-    const warnings: string[] = []
-    const warn = console.warn
-    console.warn = (msg: unknown) => void warnings.push(String(msg))
-    try {
-      const api = new RealDeviceApi(
-        fakeRunner({
-          lsblk: { stdout: JSON.stringify(lsblk) },
-          "smartctl --scan": { stdout: JSON.stringify(scan) },
-        }),
-      )
-      await api.listDevices()
-      await api.listDevices()
-      await api.listDevices()
-    } finally {
-      console.warn = warn
-    }
+    // A real pino writing into memory, so this exercises the logging path the
+    // container actually uses rather than a stubbed console.
+    const lines: string[] = []
+    const logger = pino({ level: "warn" }, { write: (line: string) => void lines.push(line) })
 
-    expect(warnings.filter((w) => w.includes("/dev/sdc"))).toHaveLength(1)
-    expect(warnings[0]).toMatch(/no serial/)
+    const api = new RealDeviceApi(
+      fakeRunner({
+        lsblk: { stdout: JSON.stringify(lsblk) },
+        "smartctl --scan": { stdout: JSON.stringify(scan) },
+      }),
+      { logger },
+    )
+    await api.listDevices()
+    await api.listDevices()
+    await api.listDevices()
+
+    expect(lines.filter((l) => l.includes("/dev/sdc"))).toHaveLength(1)
+    expect(lines[0]).toMatch(/no serial/)
     // No udev hint here: this fixture discovers three drives, so the mount is
     // evidently fine. Whether the hint is appended is covered both ways in
     // discovery.test.ts.
-    expect(warnings[0]).not.toMatch(/udev/)
+    expect(lines[0]).not.toMatch(/udev/)
+    // Structured, not a formatted string — the point of #17.
+    expect(JSON.parse(lines[0] ?? "{}")).toMatchObject({ devicePath: "/dev/sdc" })
   })
 
   it("parses SMART even when smartctl exits non-zero (bitmask)", async () => {
