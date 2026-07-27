@@ -63,13 +63,19 @@ services:
       - "8080:8080"
     volumes:
       - ./data:/data
+      # Uncomment together with the passthrough block below. lsblk reads drive
+      # serials from the host's udev database; without this mount every disk
+      # comes back with no serial and NOTHING is discovered — the dashboard
+      # just stays empty.
+      # - /run/udev:/run/udev:ro
     restart: unless-stopped
 
     # Device passthrough — REQUIRED for real SMART/badblocks/hdparm access,
     # OFF by default so a plain `docker compose up` never touches host disks.
     # ⚠️ DESTRUCTIVE: any drive passed through here can be WIPED. Uncomment
-    # one of the two blocks below, and list the exact drives via `devices:`
-    # (check with `lsblk` first) before enabling this.
+    # one of the two blocks below, list the exact drives via `devices:`
+    # (check with `lsblk` first), and add the /run/udev mount above before
+    # enabling this.
     #
     # privileged: true
     # # — or, narrower —
@@ -79,6 +85,10 @@ services:
     # devices:
     #   - "/dev/sdX:/dev/sdX"
 ```
+
+If the dashboard comes up empty with passthrough enabled, check the container
+log: every block device discovery ignores is logged with the reason. A missing
+`/run/udev` mount is the usual cause.
 
 ```
 docker compose up -d

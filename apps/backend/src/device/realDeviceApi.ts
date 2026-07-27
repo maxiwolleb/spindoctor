@@ -56,6 +56,13 @@ export interface RealDeviceApiOpts {
  * `CommandRunner`.
  */
 export class RealDeviceApi implements DeviceApi {
+  /**
+   * Skips already reported, as `devicePath\treason`. `listDevices` runs on
+   * every auto-mode poll cycle, so an unreported skip must be logged once
+   * rather than on every pass.
+   */
+  private reportedSkips = new Set<string>()
+
   constructor(
     private runner: CommandRunner,
     private opts: RealDeviceApiOpts = {},
@@ -68,7 +75,12 @@ export class RealDeviceApi implements DeviceApi {
     ])
     const lsblk = parseLsblk(JSON.parse(lsblkResult.stdout))
     const scan = parseSmartctlScan(JSON.parse(scanResult.stdout))
-    return mergeDiscovery(lsblk, scan)
+    return mergeDiscovery(lsblk, scan, ({ devicePath, reason }) => {
+      const key = `${devicePath}\t${reason}`
+      if (this.reportedSkips.has(key)) return
+      this.reportedSkips.add(key)
+      console.warn(`[discovery] ignoring ${devicePath}: ${reason}`)
+    })
   }
 
   async readSmartRaw(devicePath: string): Promise<unknown> {
