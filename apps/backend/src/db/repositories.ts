@@ -23,6 +23,7 @@ export interface ConfigUpdate {
   concurrency: number
   autoModeEnabled: boolean
   protectList: string[]
+  skipCondemnedDrives: boolean
 }
 
 // ---- config ----
@@ -37,6 +38,7 @@ export function ensureConfig(db: Db): void {
       concurrency: 4,
       autoModeEnabled: false,
       protectList: [],
+      skipCondemnedDrives: true,
     })
     .run()
 }
@@ -148,7 +150,15 @@ export function updateRun(db: Db, id: number, patch: Partial<RunUpdate>): void {
 
 export function addStage(
   db: Db,
-  input: { runId: number; stage: StageName; status: string },
+  input: {
+    runId: number
+    stage: StageName
+    status: string
+    /** Set only for a stage that is already over the moment its row is created
+     * — a stage the baseline gate skipped (issue #49). Everything else is
+     * finished later, via `updateStage`. */
+    finishedAt?: Date
+  },
 ): number {
   const result = db
     .insert(stageResults)
@@ -161,6 +171,7 @@ export function addStage(
       // existing row instead of calling addStage, so a resumed SELFTEST_LONG
       // keeps its original startedAt.
       startedAt: new Date(),
+      finishedAt: input.finishedAt ?? null,
     })
     .run()
   return Number(result.lastInsertRowid)

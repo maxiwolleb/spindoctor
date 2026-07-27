@@ -26,6 +26,46 @@ SMART_BEFORE → SELFTEST_LONG → SURFACE → SMART_AFTER → VERDICT
 
 ![Drive detail: SMART before/after diff and stage timeline](/screenshots/detail.png)
 
+## Already-failed drives stop early
+
+A drive whose very first SMART read already condemns it does not get the
+rest of the regime. Nothing a later stage could find would clear it — FAIL
+is FAIL — and the two stages in between are expensive: roughly 90 minutes
+of firmware self-test, then hours of writing every sector. On a 12 TB SAS
+disk that is most of a day spent confirming a verdict the first three
+seconds already gave you.
+
+So after `SMART_BEFORE`, the baseline snapshot is graded on its own. If it
+already yields a **fail**-severity reason — the drive reporting its own
+health as failing, pending or uncorrectable sectors, reallocated sectors
+past the limit, exhausted SSD wear, NVMe media errors — the run skips
+straight to `VERDICT`:
+
+```
+SMART_BEFORE → SELFTEST_LONG → SURFACE → SMART_AFTER → VERDICT
+                  skipped      skipped    skipped
+```
+
+The skipped stages are recorded as **Skipped** in the run timeline, not as
+passed, and the verdict carries the reasons that condemned the drive plus a
+note that the self-test was skipped.
+
+Warnings never trigger this. A drive with stable reallocated sectors, a
+high-but-stable SAS grown-defect count, link or CRC errors is exactly the
+drive that most needs the full regime, so it gets it.
+
+Two ways to run everything anyway:
+
+- **Settings → Already-failed drives** turns the early exit off globally
+  (it is on by default).
+- **Wipe even if SMART already condemns the drive**, in the start dialog,
+  overrides it for a single destructive run — because the destructive pass
+  is also a _wipe_, and wiping a dying drive before disposal is a perfectly
+  good reason to want every sector written.
+
+Neither affects the [safety guards](/guide/safety): a mounted, system, or
+protected drive is never writable, whatever these are set to.
+
 ## Verdict thresholds
 
 The verdict evaluator is a pure function of the before/after SMART
@@ -35,6 +75,10 @@ thresholds. The rules, in order:
 - **Long self-test:**
   - `FAILED` → **FAIL**.
   - `ABORTED` or `UNKNOWN` (didn't complete) → **WARN**.
+  - `SKIPPED` (never started, because the baseline already condemned the
+    drive — see above) → an informational note only; it cannot move the
+    verdict, since the reasons that condemned the drive are in the same
+    list.
 - **Surface scan:**
   - any bad block found (`badBlocks > 0`) → **FAIL**.
   - didn't complete → **WARN**.

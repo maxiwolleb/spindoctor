@@ -96,7 +96,14 @@ export interface SmartAttributeRow {
   health: SmartAttributeHealth
 }
 
-export type SelfTestStatus = "PASSED" | "FAILED" | "ABORTED" | "UNKNOWN"
+/**
+ * `SKIPPED` is not something a drive ever reports — it is the engine's record
+ * that it deliberately never started the routine, because the baseline SMART
+ * read had already condemned the drive (issue #49). Deliberately distinct from
+ * `UNKNOWN`/`ABORTED`, which mean a test that was meant to run didn't finish and
+ * therefore leave the drive's health less certain, not more.
+ */
+export type SelfTestStatus = "PASSED" | "FAILED" | "ABORTED" | "UNKNOWN" | "SKIPPED"
 
 export interface SelfTestResult {
   status: SelfTestStatus
@@ -220,6 +227,17 @@ export interface CreateRunRequest {
   serial: string
   mode: RegimeMode
   confirm?: string
+  /**
+   * Run every stage even if the baseline SMART read already condemns the drive,
+   * overriding the `skipCondemnedDrives` setting for this run only (issue #49).
+   * For the operator who wants the destructive pass as a *wipe* on a drive
+   * headed for disposal, not as a test.
+   *
+   * Named for exactly what it forces: it has no bearing on the safety guards
+   * (`NO_SERIAL`/`SYSTEM_DISK`/`MOUNTED`/`PROTECTED`), which nothing in the API
+   * can override.
+   */
+  forceFullRegime?: boolean
 }
 
 /** API-facing view of persisted settings (`GET`/`PUT /api/settings`). */
@@ -228,6 +246,9 @@ export interface SettingsView {
   concurrency: number
   autoModeEnabled: boolean
   protectList: string[]
+  /** Stop a run at the verdict when the baseline SMART read already condemns the
+   * drive, rather than spending hours to reach the same FAIL (issue #49). */
+  skipCondemnedDrives: boolean
 }
 
 /** API-facing view of a test run — mirrors the `test_runs` row shape the UI needs.

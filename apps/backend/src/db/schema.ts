@@ -61,6 +61,15 @@ export const config = sqliteTable("config", {
   concurrency: integer("concurrency").notNull().default(4),
   autoModeEnabled: integer("auto_mode_enabled", { mode: "boolean" }).notNull().default(false),
   protectList: text("protect_list", { mode: "json" }).notNull(),
+  /** Cut a run short at the verdict when the baseline SMART read already
+   * condemns the drive, instead of spending ~90 min of self-test and hours of
+   * destructive surface write to reach the same FAIL (issue #49). On by
+   * default: the alternative wastes most of a day per drive. A run started with
+   * `forceFullRegime` overrides this per run — the destructive pass is also a
+   * wipe, and wiping a dying drive before disposal is a real reason to want it. */
+  skipCondemnedDrives: integer("skip_condemned_drives", { mode: "boolean" })
+    .notNull()
+    .default(true),
 })
 
 export const auditLog = sqliteTable("audit_log", {

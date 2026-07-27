@@ -16,6 +16,7 @@ import { silentLogger, type Logger } from "../logger"
 import type { DeviceApi } from "../device/deviceApi"
 import { parseSmartMetrics } from "../device/smartParser"
 import { evaluateVerdict } from "../verdict/evaluate"
+import { condemnedByBaseline } from "../verdict/baselineGate"
 import { checkDestructiveAllowed } from "../safety/guards"
 import { smartSnapshots, stageResults } from "../db/schema"
 import {
@@ -32,6 +33,12 @@ import {
 import type { RunRow, StageRow, StageUpdate } from "../db/repositories"
 import { Semaphore } from "./semaphore"
 import { regimeStages } from "./regime"
+
+/** True for a stage a resumed run must not execute again: one that finished, or
+ * one the baseline gate ruled out (issue #49). */
+function isSettled(status: string | undefined): boolean {
+  return status === "DONE" || status === "SKIPPED"
+}
 
 export class DriveNotFoundError extends Error {
   constructor(serial: string) {
@@ -168,8 +175,14 @@ export class TestEngine extends EventEmitter {
     this.semaphore = new Semaphore(deps.concurrency ?? getConfig(deps.db).concurrency)
   }
 
-  async startRun(input: { serial: string; mode: RegimeMode }): Promise<number> {
-    const { serial, mode } = input
+  async startRun(input: {
+    serial: string
+    mode: RegimeMode
+    /** Run every stage even if the baseline SMART read already condemns the
+     * drive — see `CreateRunRequest.forceFullRegime` (issue #49). */
+    forceFullRegime?: boolean
+  }): Promise<number> {
+    const { serial, mode, forceFullRegime } = input
     // Reserved synchronously, before any `await`: this is the single guard
     // that prevents two near-simultaneous startRun calls for the same
     // brand-new serial from both passing the check during the
@@ -203,7 +216,14 @@ export class TestEngine extends EventEmitter {
       upsertDrive(this.db, drive)
       const runId = createRun(this.db, {
         driveSerial: serial,
-        regime: { mode, stages: regimeStages(mode).map((s) => s.stage) },
+        // `forceFullRegime` lives in the persisted regime, not just in memory,
+        // so a run interrupted by a container restart still honours the
+        // operator's "test it anyway" when reconcile() resumes it.
+        regime: {
+          mode,
+          stages: regimeStages(mode).map((s) => s.stage),
+          ...(forceFullRegime === true ? { forceFullRegime: true } : {}),
+        },
       })
       appendAudit(this.db, {
         action: mode === "destructive" ? "DESTRUCTIVE_START" : "READONLY_START",
@@ -219,7 +239,7 @@ export class TestEngine extends EventEmitter {
       // risk. #execute's finally clears #activeSerials for this serial, so
       // the reservation taken at the top of this method is released exactly
       // once, there.
-      void this.#execute(runId, drive, mode, controller)
+      void this.#execute(runId, drive, mode, controller, forceFullRegime === true)
 
       return runId
     } catch (err) {
@@ -297,10 +317,11 @@ export class TestEngine extends EventEmitter {
     drive: DiscoveredDrive,
     mode: RegimeMode,
     controller: AbortController,
+    forceFullRegime: boolean,
   ): Promise<void> {
     const release = await this.semaphore.acquire()
     try {
-      await this.#run(runId, drive, mode, controller)
+      await this.#run(runId, drive, mode, controller, undefined, forceFullRegime)
     } catch (err) {
       // Defense in depth: #run's own loop already turns stage failures into
       // a persisted FAILED run. This only guards run-level bookkeeping
@@ -326,7 +347,7 @@ export class TestEngine extends EventEmitter {
     const runId = run.id
     const release = await this.semaphore.acquire()
     try {
-      const regime = run.regime as { mode: RegimeMode }
+      const regime = run.regime as { mode: RegimeMode; forceFullRegime?: boolean }
       const drive = await this.#resolveDriveBySerial(run.driveSerial)
       if (!drive) {
         this.terminalRuns.add(runId)
@@ -363,12 +384,19 @@ export class TestEngine extends EventEmitter {
         updateRun(this.db, runId, { restartCount: run.restartCount + 1 })
       }
 
-      await this.#run(runId, drive, regime.mode, controller, {
-        fromIndex: plan.fromIndex,
-        state: plan.state,
-        reuseStageId: plan.reuseStageId,
-        skipSelfTestStart: plan.skipSelfTestStart,
-      })
+      await this.#run(
+        runId,
+        drive,
+        regime.mode,
+        controller,
+        {
+          fromIndex: plan.fromIndex,
+          state: plan.state,
+          reuseStageId: plan.reuseStageId,
+          skipSelfTestStart: plan.skipSelfTestStart,
+        },
+        regime.forceFullRegime === true,
+      )
     } catch (err) {
       // Defense in depth, mirroring #execute: the logic above already turns
       // expected failures (DRIVE_GONE, TOO_MANY_RESTARTS, stage errors via
@@ -428,7 +456,11 @@ export class TestEngine extends EventEmitter {
       latestByStage.set(row.stage as StageName, row)
     }
 
-    let resumeIndex = stages.findIndex((s) => latestByStage.get(s.stage)?.status !== "DONE")
+    // SKIPPED counts as settled alongside DONE: the baseline gate (issue #49)
+    // deliberately ruled those stages out, and treating them as unfinished
+    // would have a restart resurrect the ~90-minute self-test the gate had just
+    // saved — the exact cost the gate exists to avoid.
+    let resumeIndex = stages.findIndex((s) => !isSettled(latestByStage.get(s.stage)?.status))
     if (resumeIndex === -1) {
       // Defensive fallback: every persisted stage is DONE but the run
       // itself was never marked terminal. Shouldn't happen — VERDICT marks
@@ -443,18 +475,25 @@ export class TestEngine extends EventEmitter {
       if (!step) continue
       const row = latestByStage.get(step.stage)
       if (!row) continue
+      // A stage the gate skipped has no persisted outcome to load — it produced
+      // none — so its `state` contribution is reconstructed from the fact that
+      // it was skipped, mirroring what `#run` sets when it skips them live.
+      const skipped = row.status === "SKIPPED"
       switch (step.stage) {
         case "SMART_BEFORE":
           state.before = this.#loadSnapshot(run.id, "before")
           break
         case "SELFTEST_LONG":
-          if (row.metrics) state.selfTest = row.metrics as SelfTestResult
+          if (skipped) state.selfTest = { status: "SKIPPED" }
+          else if (row.metrics) state.selfTest = row.metrics as SelfTestResult
           break
         case "SURFACE":
           if (row.metrics) state.surface = row.metrics as SurfaceResult
           break
         case "SMART_AFTER":
-          state.after = this.#loadSnapshot(run.id, "after")
+          // No "after" snapshot row exists for a skipped read (see `#run`), so
+          // fall back to the baseline the verdict was always going to grade.
+          state.after = skipped ? state.before : this.#loadSnapshot(run.id, "after")
           break
         default:
           break
@@ -505,6 +544,7 @@ export class TestEngine extends EventEmitter {
     mode: RegimeMode,
     controller: AbortController,
     resume?: ResumeInfo,
+    forceFullRegime = false,
   ): Promise<void> {
     // Stamp the run's start time on its first (fresh) RUNNING transition. A
     // reconcile()-resumed run already started earlier, so it keeps its
@@ -523,11 +563,31 @@ export class TestEngine extends EventEmitter {
 
     const stages = regimeStages(mode)
     const startIndex = resume?.fromIndex ?? 0
+    /** Stages the baseline gate has ruled out for this run — empty until
+     * SMART_BEFORE has been graded, and empty forever on a drive the baseline
+     * doesn't already condemn (issue #49). */
+    let skipStages: ReadonlySet<StageName> = new Set()
 
     for (let i = startIndex; i < stages.length; i++) {
       const step = stages[i]
       if (!step) break // unreachable — i stays within [startIndex, stages.length)
       const { stage, surfaceMode } = step
+
+      if (skipStages.has(stage)) {
+        // Recorded as SKIPPED rather than DONE so the timeline tells the truth
+        // about what ran, and left at 0% so it can never read as a finished
+        // stage. The engine's own outcome for the stage goes into `state` here,
+        // since nothing will produce one later.
+        addStage(this.db, { runId, stage, status: "SKIPPED", finishedAt: new Date() })
+        if (stage === "SELFTEST_LONG") state.selfTest = { status: "SKIPPED" }
+        // No second SMART read happened, so VERDICT grades the baseline against
+        // itself. Deliberately no "after" snapshot row: the API and UI already
+        // model a missing one, and writing a duplicate would claim a read that
+        // never took place.
+        if (stage === "SMART_AFTER") state.after = state.before
+        this.log.info({ runId, driveSerial: currentDrive.serial, stage }, "stage skipped")
+        continue
+      }
 
       if (controller.signal.aborted) {
         this.terminalRuns.add(runId)
@@ -596,6 +656,14 @@ export class TestEngine extends EventEmitter {
         return
       }
 
+      // A drive whose baseline SMART read already condemns it cannot be
+      // exonerated by anything the remaining stages could find, so grade it
+      // here and drop the ~90-minute self-test plus the hours-long destructive
+      // write rather than spend most of a day confirming a FAIL (issue #49).
+      if (stage === "SMART_BEFORE") {
+        skipStages = this.#gateOnBaseline(runId, currentDrive, state, forceFullRegime)
+      }
+
       // VERDICT already persisted its own terminal DONE status and emitted
       // the terminal run:update *inside* #runVerdictStage — marking the run
       // terminal (see there) before it does, so abortRun() is already a
@@ -634,6 +702,53 @@ export class TestEngine extends EventEmitter {
       // completion path for every other non-VERDICT stage.
       updateStage(this.db, stageId, { status: "DONE", progress: 100, finishedAt: new Date() })
     }
+  }
+
+  /**
+   * Grades the just-captured baseline snapshot and returns the stages the run
+   * can skip because the drive is already condemned (issue #49) — or an empty
+   * set, which is every other case: the gate off, the run opted out of it, or a
+   * drive that isn't unambiguously bad.
+   *
+   * Skipping `SMART_AFTER` alongside the two expensive stages is what makes the
+   * "in seconds" claim true, and costs nothing: a second read taken three
+   * seconds after the first can only restate the first.
+   */
+  #gateOnBaseline(
+    runId: number,
+    drive: DiscoveredDrive,
+    state: RunState,
+    forceFullRegime: boolean,
+  ): ReadonlySet<StageName> {
+    const none: ReadonlySet<StageName> = new Set()
+    // The operator asked for the whole regime — most plausibly because the
+    // destructive pass is wanted as a *wipe* on a drive headed for disposal,
+    // where a condemning baseline is the reason to run it, not to stop.
+    if (forceFullRegime) return none
+    const cfg = getConfig(this.db)
+    if (!cfg.skipCondemnedDrives) return none
+    if (!state.before) return none // unreachable: SMART_BEFORE just populated it
+
+    const condemned = condemnedByBaseline({
+      before: state.before,
+      deviceType: drive.type,
+      thresholds: cfg.thresholds as Thresholds,
+    })
+    if (condemned.length === 0) return none
+
+    const codes = condemned.map((r) => r.code)
+    // The audit log is the operator-facing record of why a destructive run
+    // never wiped the drive it was pointed at.
+    appendAudit(this.db, {
+      action: "EARLY_EXIT_CONDEMNED",
+      driveSerial: drive.serial,
+      detail: codes.join(","),
+    })
+    this.log.info(
+      { runId, driveSerial: drive.serial, reasons: codes },
+      "baseline SMART already condemns the drive — skipping self-test and surface stages",
+    )
+    return new Set<StageName>(["SELFTEST_LONG", "SURFACE", "SMART_AFTER"])
   }
 
   /**

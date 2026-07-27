@@ -8,12 +8,18 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  submit: [payload: { serial: string; mode: RegimeMode; confirm?: string }]
+  submit: [
+    payload: { serial: string; mode: RegimeMode; confirm?: string; forceFullRegime?: boolean },
+  ]
   "update:modelValue": [boolean]
 }>()
 
 const mode = ref<RegimeMode>("read-only")
 const confirmInput = ref("")
+/** Opt out of the early exit on an already-condemned drive (issue #49) — for
+ * the operator who wants the destructive pass as a *wipe* before disposal, not
+ * as a test. Destructive-only: there is no wipe to want on a read-only scan. */
+const forceFullRegime = ref(false)
 
 // Reset to the safe default every time the dialog is (re)opened, rather than
 // carrying over whatever was left over from a previous drive/attempt.
@@ -23,6 +29,7 @@ watch(
     if (open) {
       mode.value = "read-only"
       confirmInput.value = ""
+      forceFullRegime.value = false
     }
   },
 )
@@ -67,6 +74,7 @@ function onSubmit(): void {
     serial: props.drive.serial,
     mode: mode.value,
     confirm: mode.value === "destructive" ? confirmInput.value : undefined,
+    forceFullRegime: mode.value === "destructive" ? forceFullRegime.value : undefined,
   })
   emit("update:modelValue", false)
 }
@@ -108,6 +116,25 @@ function onSubmit(): void {
           hint="Must match the serial above exactly to enable Wipe & test."
           persistent-hint
         />
+
+        <!-- A switch rather than a checkbox, to match the Settings toggle this
+             overrides — and because Vuetify's checkbox glyph needs an icon font
+             the app doesn't ship, so a checkbox here would have no visible box
+             (tracked separately). -->
+        <v-switch
+          v-if="mode === 'destructive'"
+          v-model="forceFullRegime"
+          color="error"
+          density="comfortable"
+          hide-details
+          class="mt-2"
+          data-test="force-full-regime"
+          label="Wipe even if SMART already condemns the drive"
+        />
+        <p v-if="mode === 'destructive'" class="text-caption text-medium-emphasis ma-0">
+          By default a drive its own SMART data already condemns goes straight to a FAIL verdict
+          instead of spending hours being written to. Turn this on to overwrite it anyway.
+        </p>
       </v-card-text>
 
       <v-card-actions>

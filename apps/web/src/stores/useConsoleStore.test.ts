@@ -63,6 +63,7 @@ const settings: SettingsView = {
   concurrency: 2,
   autoModeEnabled: false,
   protectList: [],
+  skipCondemnedDrives: true,
 }
 
 function fakeApi() {
@@ -265,13 +266,9 @@ describe("useConsoleStore", () => {
   it("startTest calls createRun with the right args and then refreshes drives", async () => {
     const store = useConsoleStore()
 
-    await store.startTest("SERA", "read-only")
+    await store.startTest({ serial: "SERA", mode: "read-only" })
 
-    expect(api.createRun).toHaveBeenCalledWith({
-      serial: "SERA",
-      mode: "read-only",
-      confirm: undefined,
-    })
+    expect(api.createRun).toHaveBeenCalledWith({ serial: "SERA", mode: "read-only" })
     expect(api.getDrives).toHaveBeenCalledTimes(1)
     expect(store.drives).toEqual([drive])
   })
@@ -281,9 +278,9 @@ describe("useConsoleStore", () => {
     const failure = new Error("confirmation required")
     api.createRun.mockRejectedValueOnce(failure)
 
-    await expect(store.startTest("SERA", "destructive", "WRONG")).rejects.toThrow(
-      "confirmation required",
-    )
+    await expect(
+      store.startTest({ serial: "SERA", mode: "destructive", confirm: "WRONG" }),
+    ).rejects.toThrow("confirmation required")
 
     expect(api.getDrives).not.toHaveBeenCalled()
     expect(store.error).toBe("confirmation required")

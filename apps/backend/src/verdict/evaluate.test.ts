@@ -95,6 +95,13 @@ describe("evaluateVerdict", () => {
     expect(codes(r)).toContain("SELFTEST_INCOMPLETE")
   })
 
+  it("records a skipped long self-test without moving the verdict", () => {
+    const r = evaluateVerdict(input({ selfTest: { status: "SKIPPED" }, surface: null }))
+    expect(r.verdict).toBe("PASS")
+    expect(codes(r)).toEqual(["SELFTEST_SKIPPED"])
+    expect(r.reasons[0]?.severity).toBe("info")
+  })
+
   it("FAIL when badblocks found errors", () => {
     const r = evaluateVerdict(input({ surface: { mode: "write", badBlocks: 2, completed: true } }))
     expect(r.verdict).toBe("FAIL")

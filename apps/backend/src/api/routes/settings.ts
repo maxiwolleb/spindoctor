@@ -20,6 +20,7 @@ function toSettingsView(row: ConfigRow): SettingsView {
     concurrency: row.concurrency,
     autoModeEnabled: row.autoModeEnabled,
     protectList: Array.isArray(protectList) ? (protectList as string[]) : [],
+    skipCondemnedDrives: row.skipCondemnedDrives,
   }
 }
 
@@ -65,6 +66,13 @@ function validatePatch(body: unknown): { patch: Partial<ConfigUpdate> } | { erro
       return { error: "autoModeEnabled must be a boolean" }
     }
     patch.autoModeEnabled = input.autoModeEnabled
+  }
+
+  if ("skipCondemnedDrives" in input) {
+    if (typeof input.skipCondemnedDrives !== "boolean") {
+      return { error: "skipCondemnedDrives must be a boolean" }
+    }
+    patch.skipCondemnedDrives = input.skipCondemnedDrives
   }
 
   if ("protectList" in input) {

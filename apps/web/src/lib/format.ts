@@ -1,4 +1,4 @@
-import type { SmartAttributeHealth, Verdict } from "@spindoctor/shared"
+import type { Severity, SmartAttributeHealth, Verdict } from "@spindoctor/shared"
 
 const BYTE_UNITS = ["B", "KB", "MB", "GB", "TB"] as const
 
@@ -77,7 +77,10 @@ export function stageLabel(stage: string): string {
 /** `RunStatus` → Vuetify color name, following the same palette as
  * `verdictColor` (idle/pending → secondary, running → primary). Stage rows
  * carry the same status vocabulary plus `INTERRUPTED` (a reconciled-away
- * stale surface stage); that falls through to the neutral default here. */
+ * stale surface stage) and `SKIPPED` (a stage the baseline gate ruled out,
+ * issue #49); both fall through to the neutral default here, deliberately —
+ * neither is an outcome, and giving `SKIPPED` the success color would make a
+ * stage that never ran read as one that passed. */
 export function runStatusColor(
   status: string,
 ): "primary" | "secondary" | "success" | "warning" | "error" {
@@ -104,12 +107,37 @@ const STAGE_STATUS_LABELS: Record<string, string> = {
   FAILED: "Failed",
   ABORTED: "Aborted",
   INTERRUPTED: "Interrupted",
+  SKIPPED: "Skipped",
 }
 
 /** Human label for a stage-result `status`. Falls back to the raw value,
  * same policy as `stageLabel`. */
 export function stageStatusLabel(status: string): string {
   return STAGE_STATUS_LABELS[status] ?? status
+}
+
+/** `Reason.severity` → Vuetify color name. `info` gets the steel secondary,
+ * not the phosphor mint: mint is reserved for healthy/live signal, and an
+ * informational note (e.g. "self-test skipped") is neither. */
+export function severityColor(severity: Severity): "secondary" | "warning" | "error" {
+  switch (severity) {
+    case "warn":
+      return "warning"
+    case "fail":
+      return "error"
+    default:
+      return "secondary"
+  }
+}
+
+const SEVERITY_LABELS: Record<Severity, string> = {
+  info: "Note",
+  warn: "Warning",
+  fail: "Failure",
+}
+
+export function severityLabel(severity: Severity): string {
+  return SEVERITY_LABELS[severity] ?? severity
 }
 
 /** `SmartAttributeHealth` → Vuetify color name, same palette as `verdictColor`

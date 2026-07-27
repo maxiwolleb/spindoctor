@@ -71,6 +71,33 @@ describe("StageTimeline", () => {
     expect(text).toContain("Interrupted")
   })
 
+  // #49: a stage the baseline gate ruled out must read as skipped, never as
+  // one that ran and passed.
+  it("labels a skipped stage as skipped, with no progress bar", () => {
+    const wrapper = mount(StageTimeline, {
+      props: {
+        stages: [
+          stage({ id: 1, stage: "SMART_BEFORE", status: "DONE", progress: 100 }),
+          stage({ id: 2, stage: "SELFTEST_LONG", status: "SKIPPED", progress: 0 }),
+          stage({ id: 3, stage: "SURFACE", status: "SKIPPED", progress: 0 }),
+        ],
+      },
+      global: { plugins: [vuetify] },
+    })
+
+    const items = wrapper.findAll(".stage-timeline__item")
+    expect(items[1]!.text()).toContain("Skipped")
+    expect(items[1]!.text()).not.toContain("Done")
+    expect(items[1]!.find(".v-progress-linear").exists()).toBe(false)
+    expect(items[1]!.find(".stage-timeline__eta").exists()).toBe(false)
+    expect(items[1]!.text()).not.toContain("0%")
+    // Its own muted marker — not the phosphor one a passed stage gets, and not
+    // the filled secondary one a pending stage gets either.
+    expect(items[1]!.find(".stage-timeline__marker--success").exists()).toBe(false)
+    expect(items[1]!.find(".stage-timeline__marker--secondary").exists()).toBe(false)
+    expect(items[1]!.find(".stage-timeline__marker--skipped").exists()).toBe(true)
+  })
+
   it("shows the progress percentage for a running stage", () => {
     const wrapper = mount(StageTimeline, {
       props: { stages: [stage({ stage: "SURFACE", status: "RUNNING", progress: 42 })] },

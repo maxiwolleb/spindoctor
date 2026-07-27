@@ -15,6 +15,13 @@
       "when": 1785007579697,
       "tag": "0001_rich_warhawk",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1785177648846,
+      "tag": "0002_nosy_northstar",
+      "breakpoints": true
     }
   ]
 }

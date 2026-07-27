@@ -33,6 +33,13 @@ persisted in the database (so it survives a restart):
 - **Protected drives** — a list of serial numbers that are never eligible
   for destructive testing, manual or auto-mode (see
   [Safety](/guide/safety)). Empty by default.
+- **Already-failed drives** — on by default: a drive whose baseline SMART
+  read already condemns it goes straight to a FAIL verdict instead of
+  spending ~90 minutes on a self-test and hours overwriting a disk that has
+  already failed (see
+  [How it works](/guide/how-it-works#already-failed-drives-stop-early)). A
+  single destructive run can opt out from the start dialog when the write is
+  wanted as a wipe.
 - **Auto-mode** — off by default; requires the acknowledgment checkbox
   before the toggle can be enabled (see
   [How it works](/guide/how-it-works#auto-mode)).

@@ -1220,3 +1220,165 @@ describe("TestEngine structured logging (#17)", () => {
     expect(JSON.stringify(failure?.err)).toContain("no SMART data")
   })
 })
+
+// Issue #49: a drive the baseline SMART read already condemns must not spend
+// ~90 min of self-test plus hours of destructive surface write to reach the
+// FAIL its first three-second read already established.
+describe("TestEngine early exit on a condemned baseline (#49)", () => {
+  /** SMART payload whose baseline alone is a fail: the drive reports its own
+   * health as failing, the way the SAS drives in the 18-drive audit did. */
+  const condemnedSmart = smartRaw({ smart_status: { passed: false } })
+
+  function condemnedApi(d: DiscoveredDrive): FakeDeviceApi {
+    return new FakeDeviceApi({
+      drives: [d],
+      smartByPath: { [d.devicePath]: condemnedSmart },
+      selfTestByPath: { [d.devicePath]: PASSED_SELFTEST },
+      surface: { plan: [100], result: { mode: "write", badBlocks: 0, completed: true } },
+    })
+  }
+
+  function engineFor(api: FakeDeviceApi): TestEngine {
+    return new TestEngine({ db, deviceApi: api, sleep: async () => {}, selfTestPollIntervalMs: 0 })
+  }
+
+  it("skips the self-test and surface stages and reaches FAIL without touching the drive", async () => {
+    const d = drive()
+    const api = condemnedApi(d)
+    const engine = engineFor(api)
+
+    const runId = await engine.startRun({ serial: d.serial, mode: "destructive" })
+    const terminal = await waitForSettled(engine, runId)
+
+    expect(terminal.status).toBe("DONE")
+    expect(terminal.verdict).toBe("FAIL")
+
+    // The whole point: the expensive stages never ran.
+    expect(api.started).toEqual([])
+    expect(api.surfaceCalls).toEqual([])
+
+    const stages = db.select().from(stageResults).where(eq(stageResults.runId, runId)).all()
+    expect(stages.map((s) => [s.stage, s.status])).toEqual([
+      ["SMART_BEFORE", "DONE"],
+      ["SELFTEST_LONG", "SKIPPED"],
+      ["SURFACE", "SKIPPED"],
+      ["SMART_AFTER", "SKIPPED"],
+      ["VERDICT", "DONE"],
+    ])
+    // A skipped stage is not a finished one — nothing may report 100%.
+    expect(stages.filter((s) => s.status === "SKIPPED").every((s) => s.progress === 0)).toBe(true)
+    expect(stages.filter((s) => s.status === "SKIPPED").every((s) => s.finishedAt !== null)).toBe(
+      true,
+    )
+
+    // No second SMART read happened, so no "after" snapshot may be invented.
+    const snapshots = db.select().from(smartSnapshots).where(eq(smartSnapshots.runId, runId)).all()
+    expect(snapshots.map((s) => s.phase)).toEqual(["before"])
+
+    const run = repo.getRun(db, runId)!
+    const reasons = run.reasons as { code: string; severity: string }[]
+    expect(reasons.map((r) => r.code)).toContain("SMART_HEALTH_FAILED")
+    expect(reasons.map((r) => r.code)).toContain("SELFTEST_SKIPPED")
+    expect(reasons.find((r) => r.code === "SELFTEST_SKIPPED")?.severity).toBe("info")
+  })
+
+  it("records why the destructive pass did not wipe, in the audit log", async () => {
+    const d = drive()
+    const engine = engineFor(condemnedApi(d))
+
+    const runId = await engine.startRun({ serial: d.serial, mode: "destructive" })
+    await waitForSettled(engine, runId)
+
+    const entry = repo.listAudit(db).find((a) => a.action === "EARLY_EXIT_CONDEMNED")
+    expect(entry).toMatchObject({ driveSerial: d.serial })
+    expect(entry?.detail).toContain("SMART_HEALTH_FAILED")
+  })
+
+  it("runs the full regime anyway when the run asks for it (the drive is being wiped for disposal)", async () => {
+    const d = drive()
+    const api = condemnedApi(d)
+    const engine = engineFor(api)
+
+    const runId = await engine.startRun({
+      serial: d.serial,
+      mode: "destructive",
+      forceFullRegime: true,
+    })
+    await waitForSettled(engine, runId)
+
+    expect(api.started).toEqual([d.devicePath])
+    expect(api.surfaceCalls).toEqual([{ devicePath: d.devicePath, mode: "destructive" }])
+    const stages = db.select().from(stageResults).where(eq(stageResults.runId, runId)).all()
+    expect(stages.every((s) => s.status === "DONE")).toBe(true)
+  })
+
+  it("runs the full regime when the setting is off", async () => {
+    repo.updateConfig(db, { skipCondemnedDrives: false })
+    const d = drive()
+    const api = condemnedApi(d)
+    const engine = engineFor(api)
+
+    const runId = await engine.startRun({ serial: d.serial, mode: "destructive" })
+    await waitForSettled(engine, runId)
+
+    expect(api.started).toEqual([d.devicePath])
+    expect(api.surfaceCalls).toHaveLength(1)
+  })
+
+  // The gate's load-bearing property: warnings are not condemnations. A drive
+  // with stable reallocated sectors is exactly the drive we most need to test.
+  it("does not fire on a drive that only has warnings", async () => {
+    const d = drive()
+    const api = new FakeDeviceApi({
+      drives: [d],
+      smartByPath: {
+        [d.devicePath]: smartRaw({
+          smart_status: { passed: true },
+          ata_smart_attributes: {
+            table: [
+              {
+                id: 5,
+                name: "Reallocated_Sector_Ct",
+                value: 100,
+                worst: 100,
+                thresh: 10,
+                raw: { value: 4 },
+              },
+              {
+                id: 199,
+                name: "UDMA_CRC_Error_Count",
+                value: 200,
+                worst: 200,
+                thresh: 0,
+                raw: { value: 12 },
+              },
+            ],
+          },
+        }),
+      },
+      selfTestByPath: { [d.devicePath]: PASSED_SELFTEST },
+      surface: { plan: [100], result: { mode: "write", badBlocks: 0, completed: true } },
+    })
+    const engine = engineFor(api)
+
+    const runId = await engine.startRun({ serial: d.serial, mode: "destructive" })
+    const terminal = await waitForSettled(engine, runId)
+
+    expect(terminal.verdict).toBe("WARN")
+    expect(api.started).toEqual([d.devicePath])
+    expect(api.surfaceCalls).toHaveLength(1)
+  })
+
+  it("applies to a read-only regime too", async () => {
+    const d = drive()
+    const api = condemnedApi(d)
+    const engine = engineFor(api)
+
+    const runId = await engine.startRun({ serial: d.serial, mode: "read-only" })
+    const terminal = await waitForSettled(engine, runId)
+
+    expect(terminal.verdict).toBe("FAIL")
+    expect(api.started).toEqual([])
+    expect(api.surfaceCalls).toEqual([])
+  })
+})
