@@ -103,6 +103,13 @@ export class RealDeviceApi implements DeviceApi {
     await this.runner.run("smartctl", ["-t", "long", devicePath])
   }
 
+  async abortSelfTest(devicePath: string): Promise<void> {
+    // Exit code is ignored for the same reason as everywhere else here:
+    // smartctl uses it as a condition bitmask, not a success flag. A drive
+    // that had no routine running simply reports nothing to abort.
+    await this.runner.run("smartctl", ["-X", devicePath])
+  }
+
   async pollSelfTest(devicePath: string): Promise<SelfTestProgress> {
     const raw = await this.readSmartRaw(devicePath)
     const j = asRecord(raw)

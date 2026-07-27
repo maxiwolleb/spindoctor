@@ -9,6 +9,10 @@ export interface DeviceApi {
   listDevices(): Promise<DiscoveredDrive[]>
   readSmartRaw(devicePath: string): Promise<unknown>
   startLongSelfTest(devicePath: string): Promise<void>
+  /** Tells the drive to stop the self-test routine it is running. Needed on
+   * abort: dropping out of the poll loop leaves the drive running the routine
+   * on its own for as long as it takes (~90 min on a 500 GB HDD). */
+  abortSelfTest(devicePath: string): Promise<void>
   pollSelfTest(devicePath: string): Promise<SelfTestProgress>
   runSurfaceTest(
     devicePath: string,

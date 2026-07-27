@@ -387,6 +387,57 @@ describe("TestEngine full-run behavior", () => {
     expect(api.surfaceCalls).toEqual([{ devicePath: d.devicePath, mode: "read-only" }])
   })
 
+  // Cancelling has to cancel the drive too: the engine breaking out of its poll
+  // loop leaves the ATA routine running for up to ~90 minutes otherwise.
+  it("tells the drive to stop when abortRun is called mid-self-test", async () => {
+    const d = drive()
+    const api = new FakeDeviceApi({
+      drives: [d],
+      smartByPath: { [d.devicePath]: smartRaw() },
+      // Never finishes on its own, so the only way out of the stage is the abort.
+      selfTestByPath: {
+        [d.devicePath]: { running: true, percentRemaining: 90, result: { status: "UNKNOWN" } },
+      },
+    })
+    const engine = new TestEngine({
+      db,
+      deviceApi: api,
+      sleep: async () => {},
+      selfTestPollIntervalMs: 0,
+    })
+
+    const ctx: { runId?: number } = {}
+    engine.on("stage:progress", (evt: { stage: string }) => {
+      if (evt.stage === "SELFTEST_LONG" && ctx.runId !== undefined) engine.abortRun(ctx.runId)
+    })
+
+    ctx.runId = await engine.startRun({ serial: d.serial, mode: "destructive" })
+    const terminal = await waitForSettled(engine, ctx.runId)
+
+    expect(terminal.status).toBe("ABORTED")
+    expect(api.selfTestAborts).toEqual([d.devicePath])
+  })
+
+  it("does not tell the drive to stop when the self-test finishes on its own", async () => {
+    const d = drive()
+    const api = new FakeDeviceApi({
+      drives: [d],
+      smartByPath: { [d.devicePath]: smartRaw() },
+      selfTestByPath: { [d.devicePath]: PASSED_SELFTEST },
+    })
+    const engine = new TestEngine({
+      db,
+      deviceApi: api,
+      sleep: async () => {},
+      selfTestPollIntervalMs: 0,
+    })
+
+    const runId = await engine.startRun({ serial: d.serial, mode: "read-only" })
+    await waitForSettled(engine, runId)
+
+    expect(api.selfTestAborts).toEqual([])
+  })
+
   it("aborts a run when abortRun is called mid-surface-test", async () => {
     const d = drive()
     const api = new FakeDeviceApi({
