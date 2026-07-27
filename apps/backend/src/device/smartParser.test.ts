@@ -17,6 +17,7 @@ import scsiMinimal from "./__fixtures__/scsi-minimal.json"
 import sasImpendingFailure from "./__fixtures__/sas-impending-failure.json"
 import sasUncorrectedErrors from "./__fixtures__/sas-uncorrected-errors.json"
 import sataSsdWorn from "./__fixtures__/sata-ssd-worn.json"
+import nvmeUsbBridgeReal from "./__fixtures__/nvme-usb-bridge-real.json"
 
 describe("parseDeviceType", () => {
   it("detects HDD from rotation rate", () => {
@@ -597,5 +598,73 @@ describe("parseSmartMetrics command-timeout packing (attribute 188)", () => {
   it("leaves an unpacked row's raw rendering untouched", () => {
     const rows = parseSmartAttributes(withCommandTimeout(6), DEFAULT_THRESHOLDS)
     expect(rows.find((r) => r.id === 188)).toMatchObject({ rawValue: 6, rawString: null })
+  })
+})
+
+// Real capture from a Realtek RTL9210 USB-NVMe enclosure — the first
+// non-hand-authored NVMe fixture in the repo. It exposed a false positive: a
+// controller that implements no spare reporting sends available_spare 0 AND
+// threshold 0, which "spare <= threshold" read as exhausted.
+describe("parseSmartAttributes NVMe available_spare on a real USB-bridged drive", () => {
+  const row = (name: string) =>
+    parseSmartAttributes(nvmeUsbBridgeReal, DEFAULT_THRESHOLDS).find((r) => r.name === name)
+
+  it("classifies a USB-bridged NVMe as NVMe, not as a SCSI disk", () => {
+    // smartctl auto-detects the bridge (type sntrealtek, protocol NVMe), so the
+    // NVMe path works over USB with no -d flag.
+    expect(parseDeviceType(nvmeUsbBridgeReal)).toBe("NVMe")
+  })
+
+  it("does not flag a drive that reports no spare data as spare-exhausted", () => {
+    const log = (nvmeUsbBridgeReal as { nvme_smart_health_information_log: Record<string, number> })
+      .nvme_smart_health_information_log
+    expect(log.available_spare).toBe(0)
+    expect(log.available_spare_threshold).toBe(0)
+
+    // Both zero means the feature is unimplemented, not that the drive is spent.
+    expect(row("available_spare")?.health).toBe("ok")
+  })
+
+  it("still flags genuine spare exhaustion, where the drive sets a threshold", () => {
+    const exhausted = {
+      device: { protocol: "NVMe" },
+      nvme_smart_health_information_log: {
+        available_spare: 3,
+        available_spare_threshold: 10,
+        percentage_used: 90,
+      },
+    }
+    const rows = parseSmartAttributes(exhausted, DEFAULT_THRESHOLDS)
+    expect(rows.find((r) => r.name === "available_spare")?.health).toBe("fail")
+  })
+
+  it("flags spare at zero when the drive does set a threshold", () => {
+    const exhausted = {
+      device: { protocol: "NVMe" },
+      nvme_smart_health_information_log: { available_spare: 0, available_spare_threshold: 10 },
+    }
+    expect(
+      parseSmartAttributes(exhausted, DEFAULT_THRESHOLDS).find((r) => r.name === "available_spare")
+        ?.health,
+    ).toBe("fail")
+  })
+
+  it("grades the whole real drive as healthy, with no failing row", () => {
+    const rows = parseSmartAttributes(nvmeUsbBridgeReal, DEFAULT_THRESHOLDS)
+    expect(rows.length).toBeGreaterThan(0)
+    expect(rows.filter((r) => r.health === "fail")).toEqual([])
+  })
+
+  it("reads its metrics without inventing values the controller never sent", () => {
+    const m = parseSmartMetrics(nvmeUsbBridgeReal)
+    expect(m.percentageUsed).toBe(0)
+    expect(m.mediaErrors).toBe(0)
+    expect(m.temperatureC).toBe(35)
+    expect(m.smartHealthPassed).toBe(true)
+    // ATA/SAS-only metrics stay null rather than defaulting to 0.
+    expect(m.reallocatedSectors).toBeNull()
+    expect(m.spinRetryCount).toBeNull()
+    expect(m.commandTimeouts).toBeNull()
+    expect(m.grownDefects).toBeNull()
   })
 })

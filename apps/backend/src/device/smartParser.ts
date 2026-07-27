@@ -339,8 +339,20 @@ function nvmeAttributeHealth(
     case "critical_warning":
       return v !== 0 ? "fail" : "ok"
     case "available_spare": {
+      // The threshold must be set for this comparison to mean anything. Plenty of
+      // controllers implement no spare tracking and report available_spare 0
+      // *and* threshold 0 — a real Realtek RTL9210 enclosure on the test rig does
+      // exactly that, alongside zeroed power-on hours and data-unit counters.
+      // Read naively, `0 <= 0` condemned a healthy drive, putting a failing row
+      // next to a PASS verdict.
+      //
+      // Genuine exhaustion is not missed: a drive that tracks spare capacity
+      // publishes the threshold it wants to be warned at (commonly 10), and a
+      // drive that has actually run out also raises the spare bit in
+      // `critical_warning`, which fails on its own above.
       const spareThreshold = num(log.available_spare_threshold)
-      return spareThreshold != null && v <= spareThreshold ? "fail" : "ok"
+      if (spareThreshold == null || spareThreshold <= 0) return "ok"
+      return v <= spareThreshold ? "fail" : "ok"
     }
     default:
       return "ok"
