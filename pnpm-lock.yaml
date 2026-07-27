@@ -99,6 +99,9 @@ importers:
       '@fontsource/space-grotesk':
         specifier: ^5.3.0
         version: 5.3.0
+      '@mdi/js':
+        specifier: ^7.4.47
+        version: 7.4.47
       '@spindoctor/shared':
         specifier: workspace:*
         version: link:../../packages/shared
@@ -1269,6 +1272,9 @@ packages:
   '@lukeed/ms@2.0.2':
     resolution: {integrity: sha512-9I2Zn6+NJLfaGoz9jN3lpwDgAYvfGeNYdbAIjJOqzs4Tpc+VU3Jqq4IofSUBKajiDS8k9fZIg18/z13mpk1bsA==}
     engines: {node: '>=8'}
+
+  '@mdi/js@7.4.47':
+    resolution: {integrity: sha512-KPnNOtm5i2pMabqZxpUz7iQf+mfrYZyKCZ8QNz85czgEt7cuHcGorWfdzUMWYA0SD+a6Hn4FmJ+YhzzzjkTZrQ==}
 
   '@one-ini/wasm@0.1.1':
     resolution: {integrity: sha512-XuySG1E38YScSJoMlqovLru4KTUNSjgVTIjyh7qMX6aNN5HY5Ct5LhRJdxO79JtTzKfzV/bnWpz+zquYrISsvw==}
@@ -4216,6 +4222,8 @@ snapshots:
       '@jridgewell/sourcemap-codec': 1.5.5
 
   '@lukeed/ms@2.0.2': {}
+
+  '@mdi/js@7.4.47': {}
 
   '@one-ini/wasm@0.1.1': {}
 
