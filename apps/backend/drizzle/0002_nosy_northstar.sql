@@ -1,0 +1,1 @@
+ALTER TABLE `config` ADD `skip_condemned_drives` integer DEFAULT true NOT NULL;

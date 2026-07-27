@@ -122,7 +122,12 @@ describe("DashboardView", () => {
       .vm.$emit("submit", { serial: "SERA1234", mode: "read-only", confirm: undefined })
     await flushPromises()
 
-    expect(startTest).toHaveBeenCalledWith("SERA1234", "read-only", undefined)
+    expect(startTest).toHaveBeenCalledWith({
+      serial: "SERA1234",
+      mode: "read-only",
+      confirm: undefined,
+      forceFullRegime: undefined,
+    })
   })
 
   it("shows an error toast surfacing the ApiError message when startTest rejects (e.g. a safety guard)", async () => {

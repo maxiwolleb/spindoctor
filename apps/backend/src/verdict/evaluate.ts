@@ -24,6 +24,16 @@ export function evaluateVerdict(input: VerdictInput): VerdictResult {
         ? `Long self-test failed: ${selfTest.message}`
         : "Long self-test failed",
     })
+  } else if (selfTest.status === "SKIPPED") {
+    // Informational on purpose: the engine skipped the routine because the
+    // baseline SMART read had already condemned the drive (issue #49), so the
+    // reasons that *did* condemn it are in this same list. Recording it as a
+    // warning would imply missing evidence; it isn't missing, it's redundant.
+    push({
+      code: "SELFTEST_SKIPPED",
+      severity: "info",
+      message: "Long self-test skipped — baseline SMART already condemned the drive",
+    })
   } else if (selfTest.status === "ABORTED" || selfTest.status === "UNKNOWN") {
     push({
       code: "SELFTEST_INCOMPLETE",

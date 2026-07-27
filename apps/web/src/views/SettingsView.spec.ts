@@ -12,6 +12,7 @@ const baseSettings: SettingsViewDto = {
   concurrency: 4,
   autoModeEnabled: false,
   protectList: ["EXISTING1"],
+  skipCondemnedDrives: true,
 }
 
 function fakeApi(settings: SettingsViewDto = baseSettings) {
@@ -159,6 +160,7 @@ describe("SettingsView", () => {
       thresholds: { reallocatedWarnMax: 10, ssdPercentageUsedWarn: 80, ssdPercentageUsedFail: 100 },
       concurrency: 6,
       autoModeEnabled: false,
+      skipCondemnedDrives: true,
       protectList: ["EXISTING1"],
     })
     // v-snackbar teleports its content to the shared overlay container under
@@ -180,6 +182,30 @@ describe("SettingsView", () => {
     await flushPromises()
 
     expect(document.body.textContent).toContain("concurrency must be an integer >= 1")
+
+    wrapper.unmount()
+  })
+
+  // #49: unlike auto-mode, this one needs no acknowledgment gate — turning it
+  // *off* is what costs hours, and turning it on can only save them.
+  it("loads the condemned-drive early exit from the server and saves it turned off", async () => {
+    const api = fakeApi()
+    setConsoleDeps({ api: api as unknown as ApiClient })
+
+    const wrapper = mount(SettingsView, { global: { plugins: [vuetify] }, attachTo: document.body })
+    await flushPromises()
+
+    const toggle = wrapper.find("#skip-condemned-toggle")
+    expect((toggle.element as HTMLInputElement).checked).toBe(true)
+    expect(toggle.attributes("disabled")).toBeUndefined()
+
+    await toggle.setValue(false)
+    clickButton(document.body, "Save settings")
+    await flushPromises()
+
+    expect(api.putSettings).toHaveBeenCalledWith(
+      expect.objectContaining({ skipCondemnedDrives: false }),
+    )
 
     wrapper.unmount()
   })

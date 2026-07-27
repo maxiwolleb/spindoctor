@@ -116,7 +116,7 @@ export function runsRoutes(deps: RunsRouteDeps): FastifyPluginAsync {
     fastify.post(
       "/runs",
       async (request: FastifyRequest<{ Body: Partial<CreateRunRequest> }>, reply) => {
-        const { serial, mode, confirm } = request.body ?? {}
+        const { serial, mode, confirm, forceFullRegime } = request.body ?? {}
 
         if (
           typeof serial !== "string" ||
@@ -136,7 +136,11 @@ export function runsRoutes(deps: RunsRouteDeps): FastifyPluginAsync {
         }
 
         try {
-          const runId = await engine.startRun({ serial, mode })
+          const runId = await engine.startRun({
+            serial,
+            mode,
+            forceFullRegime: forceFullRegime === true,
+          })
           reply.code(201)
           return { runId }
         } catch (err) {

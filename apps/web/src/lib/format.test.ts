@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import type { SmartAttributeHealth, Verdict } from "@spindoctor/shared"
+import type { Severity, SmartAttributeHealth, Verdict } from "@spindoctor/shared"
 import {
   attributeHealthColor,
   attributeHealthLabel,
@@ -7,6 +7,8 @@ import {
   modeLabel,
   runStatusColor,
   stageLabel,
+  severityColor,
+  severityLabel,
   stageStatusLabel,
   verdictColor,
   verdictLabel,
@@ -113,11 +115,38 @@ describe("stageStatusLabel", () => {
     ["FAILED", "Failed"],
     ["ABORTED", "Aborted"],
     ["INTERRUPTED", "Interrupted"],
+    ["SKIPPED", "Skipped"],
     ["SOME_UNKNOWN_STATUS", "SOME_UNKNOWN_STATUS"],
   ]
 
   it.each(cases)("labels %s as %s", (status, label) => {
     expect(stageStatusLabel(status)).toBe(label)
+  })
+})
+
+describe("severityColor", () => {
+  const cases: Array<[Severity, string]> = [
+    ["fail", "error"],
+    ["warn", "warning"],
+    // Never the phosphor success color: mint means healthy/live signal, and an
+    // informational note is neither (#49).
+    ["info", "secondary"],
+  ]
+
+  it.each(cases)("colors %s as %s", (severity, color) => {
+    expect(severityColor(severity)).toBe(color)
+  })
+})
+
+describe("severityLabel", () => {
+  const cases: Array<[Severity, string]> = [
+    ["fail", "Failure"],
+    ["warn", "Warning"],
+    ["info", "Note"],
+  ]
+
+  it.each(cases)("labels %s as %s", (severity, label) => {
+    expect(severityLabel(severity)).toBe(label)
   })
 })
 

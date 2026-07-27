@@ -23,6 +23,15 @@ function toggleLog(stageId: number): void {
   expandedLogs.value = next
 }
 
+/** Marker modifier for a stage row. A stage the baseline gate skipped
+ * (issue #49) gets its own hollow, muted marker rather than any status color:
+ * it is not an outcome, and a filled marker — even the neutral secondary one
+ * PENDING uses — reads as a stage that is doing or has done something. */
+function markerClass(status: string): string {
+  if (status === "SKIPPED") return "stage-timeline__marker--skipped"
+  return `stage-timeline__marker--${runStatusColor(status)}`
+}
+
 /** "~Xh Ym left (≈ HH:MM)" for a RUNNING stage, or "estimating…" once it's
  * running but `computeEta` doesn't have enough signal yet (issue #15) — a
  * stage that isn't RUNNING never reaches this (only called from behind
@@ -39,10 +48,7 @@ function stageEtaLine(stage: StageView): string {
 <template>
   <ol class="stage-timeline">
     <li v-for="(stage, index) in stages" :key="stage.id" class="stage-timeline__item">
-      <span
-        class="stage-timeline__marker"
-        :class="`stage-timeline__marker--${runStatusColor(stage.status)}`"
-      >
+      <span class="stage-timeline__marker" :class="markerClass(stage.status)">
         {{ index + 1 }}
       </span>
       <div class="stage-timeline__body">
@@ -57,7 +63,11 @@ function stageEtaLine(stage: StageView): string {
           height="4"
           class="mb-1"
         />
-        <span class="mono text-caption text-medium-emphasis">{{ stage.progress }}%</span>
+        <!-- A skipped stage has no progress to report; showing "0%" would imply
+             it started and got nowhere (issue #49). -->
+        <span v-if="stage.status !== 'SKIPPED'" class="mono text-caption text-medium-emphasis">
+          {{ stage.progress }}%
+        </span>
         <span
           v-if="stage.status === 'RUNNING'"
           class="stage-timeline__eta text-caption text-medium-emphasis"
@@ -141,6 +151,14 @@ function stageEtaLine(stage: StageView): string {
 .stage-timeline__marker--secondary {
   background: rgb(var(--v-theme-secondary));
   color: rgb(var(--v-theme-on-secondary));
+}
+
+/* Hollow and muted: a skipped stage is the one row in the timeline that
+   represents work deliberately not done (issue #49). */
+.stage-timeline__marker--skipped {
+  background: none;
+  border: 1px dashed var(--border);
+  color: var(--muted);
 }
 
 .stage-timeline__body {

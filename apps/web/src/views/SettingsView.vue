@@ -16,6 +16,7 @@ const form = reactive({
   ssdPercentageUsedFail: 0,
   concurrency: 1,
   autoModeEnabled: false,
+  skipCondemnedDrives: true,
 })
 
 const protectList = ref<string[]>([])
@@ -48,6 +49,7 @@ async function load(): Promise<void> {
     form.ssdPercentageUsedFail = settings.thresholds.ssdPercentageUsedFail
     form.concurrency = settings.concurrency
     form.autoModeEnabled = settings.autoModeEnabled
+    form.skipCondemnedDrives = settings.skipCondemnedDrives
     protectList.value = [...settings.protectList]
     autoModeAck.value = settings.autoModeEnabled
   }
@@ -119,6 +121,7 @@ async function onSave(): Promise<void> {
     },
     concurrency: form.concurrency,
     autoModeEnabled: form.autoModeEnabled,
+    skipCondemnedDrives: form.skipCondemnedDrives,
     protectList: [...protectList.value],
   }
 
@@ -220,6 +223,23 @@ async function onSave(): Promise<void> {
         />
         <v-btn variant="tonal" @click="addSerial">Add</v-btn>
       </div>
+
+      <h2 class="text-subtitle-1 mb-2">Already-failed drives</h2>
+      <p class="text-medium-emphasis mb-2">
+        When a drive's first SMART read already condemns it, no later stage can clear it — so the
+        run can stop there instead of spending ~90 minutes on a self-test and hours overwriting a
+        disk that has already failed. A single run can still opt out when the write is wanted as a
+        wipe.
+      </p>
+      <v-switch
+        id="skip-condemned-toggle"
+        v-model="form.skipCondemnedDrives"
+        color="primary"
+        density="comfortable"
+        hide-details
+        label="Skip testing drives SMART has already condemned"
+        class="mb-6"
+      />
 
       <h2 class="text-subtitle-1 mb-2">Auto-mode</h2>
       <v-checkbox

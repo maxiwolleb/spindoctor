@@ -135,6 +135,7 @@ describe("createApiClient", () => {
       concurrency: 2,
       autoModeEnabled: false,
       protectList: [],
+      skipCondemnedDrives: true,
     }
     fetchMock.mockResolvedValueOnce(jsonResponse(settings))
 
@@ -155,6 +156,7 @@ describe("createApiClient", () => {
         concurrency: 3,
         autoModeEnabled: false,
         protectList: [],
+        skipCondemnedDrives: true,
       }),
     )
 

@@ -125,8 +125,63 @@ describe("StartTestDialog", () => {
     await wipeButton!.trigger("click")
 
     expect(wrapper.emitted("submit")).toEqual([
-      [{ serial: "SERA1234", mode: "destructive", confirm: "SERA1234" }],
+      [
+        {
+          serial: "SERA1234",
+          mode: "destructive",
+          confirm: "SERA1234",
+          forceFullRegime: false,
+        },
+      ],
     ])
+  })
+
+  // #49: opting out of the early exit is a destructive-only choice — the point
+  // of it is wanting the write, and a read-only scan writes nothing.
+  describe("early-exit override (#49)", () => {
+    it("offers the override only for a destructive run", async () => {
+      const { body } = mountDialog()
+      expect(body.find('[data-test="force-full-regime"]').exists()).toBe(false)
+
+      await selectDestructive(body)
+      expect(body.find('[data-test="force-full-regime"]').exists()).toBe(true)
+    })
+
+    it("emits forceFullRegime: true once ticked", async () => {
+      const { wrapper, body } = mountDialog()
+      await selectDestructive(body)
+      await body.find('input[type="text"]').setValue("SERA1234")
+      await body.find('[data-test="force-full-regime"] input').setValue(true)
+
+      await findButton(body, "Wipe & test")!.trigger("click")
+
+      expect(wrapper.emitted("submit")).toEqual([
+        [
+          {
+            serial: "SERA1234",
+            mode: "destructive",
+            confirm: "SERA1234",
+            forceFullRegime: true,
+          },
+        ],
+      ])
+    })
+
+    it("does not carry a ticked override over into the next time the dialog opens", async () => {
+      const { wrapper, body } = mountDialog()
+      await selectDestructive(body)
+      await body.find('[data-test="force-full-regime"] input').setValue(true)
+
+      await wrapper.setProps({ modelValue: false })
+      await wrapper.setProps({ modelValue: true })
+
+      // Reopening resets the mode to read-only, which hides the checkbox; the
+      // underlying value must have gone back to false with it.
+      await selectDestructive(body)
+      const checkbox = body.find('[data-test="force-full-regime"] input')
+        .element as HTMLInputElement
+      expect(checkbox.checked).toBe(false)
+    })
   })
 
   it("cancel closes without emitting submit", async () => {

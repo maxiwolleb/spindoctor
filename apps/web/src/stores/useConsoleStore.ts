@@ -7,7 +7,7 @@ import type {
   SettingsView,
   StageProgressEvent,
   Verdict,
-  RegimeMode,
+  CreateRunRequest,
 } from "@spindoctor/shared"
 import { createApiClient } from "../api/client"
 import type { ApiClient } from "../api/client"
@@ -117,9 +117,9 @@ export const useConsoleStore = defineStore("console", () => {
    * up. Unlike the other actions, errors are rethrown (in addition to being
    * recorded in `error`) so a `StartTestDialog` can show the failure inline
    * instead of relying on the caller to poll store state. */
-  async function startTest(serial: string, mode: RegimeMode, confirm?: string): Promise<void> {
+  async function startTest(request: CreateRunRequest): Promise<void> {
     try {
-      await deps.api.createRun({ serial, mode, confirm })
+      await deps.api.createRun(request)
       error.value = null
     } catch (err) {
       error.value = messageOf(err)

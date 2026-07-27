@@ -31,6 +31,7 @@ describe("GET /api/settings", () => {
       concurrency: 4,
       autoModeEnabled: false,
       protectList: [],
+      skipCondemnedDrives: true,
     })
   })
 })
@@ -50,6 +51,7 @@ describe("PUT /api/settings", () => {
       concurrency: 2,
       autoModeEnabled: true,
       protectList: ["X"],
+      skipCondemnedDrives: true,
     })
 
     const follow = await app.inject({ method: "GET", url: "/api/settings" })
@@ -88,6 +90,7 @@ describe("PUT /api/settings", () => {
       concurrency: 4,
       autoModeEnabled: false,
       protectList: [],
+      skipCondemnedDrives: true,
     })
   })
 
@@ -131,6 +134,34 @@ describe("PUT /api/settings", () => {
 
     const follow = await app.inject({ method: "GET", url: "/api/settings" })
     expect(follow.json<SettingsView>().autoModeEnabled).toBe(false)
+  })
+
+  it("turns the condemned-drive early exit off (#49)", async () => {
+    const app = build()
+    const res = await app.inject({
+      method: "PUT",
+      url: "/api/settings",
+      payload: { skipCondemnedDrives: false },
+    })
+    expect(res.statusCode).toBe(200)
+    expect(res.json<SettingsView>().skipCondemnedDrives).toBe(false)
+
+    const follow = await app.inject({ method: "GET", url: "/api/settings" })
+    expect(follow.json<SettingsView>().skipCondemnedDrives).toBe(false)
+  })
+
+  it("400s on a non-boolean skipCondemnedDrives, persisting nothing", async () => {
+    const app = build()
+    const res = await app.inject({
+      method: "PUT",
+      url: "/api/settings",
+      payload: { skipCondemnedDrives: "no" },
+    })
+    expect(res.statusCode).toBe(400)
+    expect(res.json()).toMatchObject({ code: "BAD_REQUEST" })
+
+    const follow = await app.inject({ method: "GET", url: "/api/settings" })
+    expect(follow.json<SettingsView>().skipCondemnedDrives).toBe(true)
   })
 
   it("400s on a non-finite concurrency (e.g. Infinity via non-integer), persisting nothing", async () => {

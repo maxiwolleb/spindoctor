@@ -365,3 +365,56 @@ describe("TestEngine.reconcile", () => {
     expect(repo.getRun(db, runId)!.status).toBe("ABORTED")
   })
 })
+
+// Issue #49: the gate writes SKIPPED stage rows. #planResume looks for the
+// first stage that isn't DONE, so without treating SKIPPED as settled a
+// container restart in the seconds between those rows and VERDICT would
+// resurrect the ~90-minute self-test the gate deliberately skipped — the exact
+// cost the gate exists to avoid.
+describe("TestEngine.reconcile with skipped stages (#49)", () => {
+  it("resumes a gated run at VERDICT instead of re-running the skipped stages", async () => {
+    const d = drive()
+    repo.upsertDrive(db, d)
+    const condemned = smartRaw({ smart_status: { passed: false } })
+    const runId = repo.createRun(db, {
+      driveSerial: d.serial,
+      regime: { mode: "destructive", stages: regimeStages("destructive").map((s) => s.stage) },
+    })
+    repo.updateRun(db, runId, { status: "RUNNING" })
+    repo.addStage(db, { runId, stage: "SMART_BEFORE", status: "DONE" })
+    repo.saveSnapshot(db, {
+      runId,
+      phase: "before",
+      raw: condemned,
+      keyMetrics: parseSmartMetrics(condemned),
+    })
+    for (const stage of ["SELFTEST_LONG", "SURFACE", "SMART_AFTER"] as const) {
+      repo.addStage(db, { runId, stage, status: "SKIPPED" })
+    }
+
+    const api = new FakeDeviceApi({
+      drives: [d],
+      smartByPath: { [d.devicePath]: condemned },
+    })
+    const engine = new TestEngine({ db, deviceApi: api, sleep: async () => {} })
+
+    const settled = waitForSettled(engine, runId)
+    await engine.reconcile()
+    const terminal = await settled
+
+    expect(terminal.status).toBe("DONE")
+    expect(terminal.verdict).toBe("FAIL")
+    // Neither expensive stage was restarted, and no duplicate rows were added.
+    expect(api.started).toEqual([])
+    expect(api.surfaceCalls).toEqual([])
+    const stages = db.select().from(stageResults).where(eq(stageResults.runId, runId)).all()
+    expect(stages.map((s) => [s.stage, s.status])).toEqual([
+      ["SMART_BEFORE", "DONE"],
+      ["SELFTEST_LONG", "SKIPPED"],
+      ["SURFACE", "SKIPPED"],
+      ["SMART_AFTER", "SKIPPED"],
+      ["VERDICT", "DONE"],
+    ])
+    expect(repo.getRun(db, runId)?.restartCount).toBe(0)
+  })
+})

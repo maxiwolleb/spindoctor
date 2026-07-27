@@ -7,6 +7,7 @@ import { humanBytes, modeLabel } from "../lib/format"
 import { useConsoleStore } from "../stores/useConsoleStore"
 import VerdictBadge from "../components/VerdictBadge.vue"
 import SmartDiffTable from "../components/SmartDiffTable.vue"
+import VerdictReasons from "../components/VerdictReasons.vue"
 import SmartAttributesTable from "../components/SmartAttributesTable.vue"
 import StageTimeline from "../components/StageTimeline.vue"
 import RunProgress from "../components/RunProgress.vue"
@@ -173,6 +174,14 @@ onMounted(load)
       </div>
 
       <template v-if="latestRunDetail">
+        <!-- Why the verdict says what it says. Load-bearing for a run the
+             baseline gate cut short (issue #49): without it, a FAIL reached in
+             seconds with three skipped stages has no visible explanation. -->
+        <template v-if="latestRunDetail.run.verdict">
+          <h2 class="text-subtitle-1 mb-2">Why this verdict</h2>
+          <VerdictReasons :reasons="latestRunDetail.run.reasons" class="mb-6" />
+        </template>
+
         <h2 class="text-subtitle-1 mb-2">Latest run — SMART diff</h2>
         <SmartDiffTable
           :before="latestRunDetail.snapshots.before"

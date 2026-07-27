@@ -127,6 +127,40 @@ describe("POST /api/runs", () => {
     expect(repo.getRun(db, body.runId)).toBeDefined()
   })
 
+  // #49: the flag has to survive into the persisted regime, or a container
+  // restart mid-run would silently re-apply the gate the operator opted out of.
+  it("persists forceFullRegime into the run's regime", async () => {
+    const { app } = build()
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/runs",
+      payload: {
+        serial: cleanDrive.serial,
+        mode: "destructive",
+        confirm: cleanDrive.serial,
+        forceFullRegime: true,
+      } satisfies CreateRunRequest,
+    })
+    expect(res.statusCode).toBe(201)
+    const { runId } = res.json<{ runId: number }>()
+    expect(repo.getRun(db, runId)?.regime).toMatchObject({ forceFullRegime: true })
+  })
+
+  it("omits forceFullRegime from the regime when the request doesn't ask for it", async () => {
+    const { app } = build()
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/runs",
+      payload: {
+        serial: cleanDrive.serial,
+        mode: "read-only",
+      } satisfies CreateRunRequest,
+    })
+    expect(res.statusCode).toBe(201)
+    const { runId } = res.json<{ runId: number }>()
+    expect(repo.getRun(db, runId)?.regime).not.toHaveProperty("forceFullRegime")
+  })
+
   it("403s a destructive request on a mounted drive with the safety code, creating no run", async () => {
     const { app } = build()
     const res = await app.inject({

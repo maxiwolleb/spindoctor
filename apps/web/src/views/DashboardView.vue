@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue"
 import { useRouter } from "vue-router"
-import type { RegimeMode } from "@spindoctor/shared"
+import type { CreateRunRequest } from "@spindoctor/shared"
 import { useConsoleStore } from "../stores/useConsoleStore"
 import DriveTable from "../components/DriveTable.vue"
 import StartTestDialog from "../components/StartTestDialog.vue"
@@ -32,14 +32,10 @@ function onOpen(serial: string): void {
   router.push(`/drives/${serial}`)
 }
 
-async function onSubmitStart(payload: {
-  serial: string
-  mode: RegimeMode
-  confirm?: string
-}): Promise<void> {
+async function onSubmitStart(payload: CreateRunRequest): Promise<void> {
   startError.value = null
   try {
-    await store.startTest(payload.serial, payload.mode, payload.confirm)
+    await store.startTest(payload)
   } catch (err) {
     // store.startTest already rethrows the ApiError (or whatever the client
     // threw) after recording it — surface its message directly (covers a

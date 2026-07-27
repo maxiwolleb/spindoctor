@@ -153,6 +153,54 @@ describe("DriveDetailView", () => {
     expect(text).toContain("Back to dashboard")
   })
 
+  // #49: a run the baseline gate cut short is a FAIL with skipped stages, so
+  // the reasons are the only thing on the page that explains it.
+  it("renders the verdict's reasons, worst first, for a run cut short by the baseline gate", async () => {
+    const failed: Partial<RunView> = {
+      verdict: "FAIL",
+      reasons: [
+        {
+          code: "SELFTEST_SKIPPED",
+          severity: "info",
+          message: "Long self-test skipped — baseline SMART already condemned the drive",
+        },
+        { code: "SMART_HEALTH_FAILED", severity: "fail", message: "Drive reports failing health" },
+      ],
+    }
+    fetchMock.mockResolvedValueOnce(jsonResponse({ drive, runs: [{ ...run, ...failed }] }))
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({
+        run: { ...run, ...failed },
+        stages: [
+          stages[0]!,
+          { ...stages[0]!, id: 3, stage: "SELFTEST_LONG", status: "SKIPPED", progress: 0 },
+          stages[1]!,
+        ],
+        snapshots: { before: { reallocatedSectors: 0 }, after: null },
+        attributes: { before: [], after: [] },
+      }),
+    )
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain("Why this verdict")
+    expect(wrapper.text()).toContain("Drive reports failing health")
+    expect(wrapper.text()).toContain("Long self-test skipped")
+    expect(wrapper.text()).toContain("Skipped")
+    const items = wrapper.findAll(".verdict-reasons__item")
+    expect(items[0]!.text()).toContain("SMART_HEALTH_FAILED")
+  })
+
+  it("shows no reasons section for a run with no verdict yet", async () => {
+    mockLoad(fetchMock, { verdict: null, status: "RUNNING" })
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain("Why this verdict")
+  })
+
   it("renders a download-log link pointing at the latest run's log endpoint (#13)", async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse({ drive, runs: [run] }))
     fetchMock.mockResolvedValueOnce(
