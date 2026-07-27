@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest"
 import { DEFAULT_THRESHOLDS } from "@spindoctor/shared"
 import {
   isScsiDevice,
+  scsiSelfTestInProgress,
   parseDeviceType,
   parseSmartAttributes,
   parseSmartMetrics,
@@ -40,6 +41,7 @@ describe("parseSmartMetrics (ATA)", () => {
       mediaErrors: null,
       temperatureC: 33,
       grownDefects: null,
+      linkErrors: null,
       smartHealthPassed: true,
     })
   })
@@ -75,6 +77,7 @@ describe("parseSmartMetrics (NVMe)", () => {
       mediaErrors: 0,
       temperatureC: 41,
       grownDefects: null,
+      linkErrors: null,
       smartHealthPassed: true,
     })
   })
@@ -289,5 +292,61 @@ describe("parseSmartMetrics — SAS/SCSI", () => {
 
   it("still records the health verdict for ATA, where it is a weaker signal", () => {
     expect(parseSmartMetrics(ataHealthy).smartHealthPassed).toBe(true)
+  })
+})
+
+// SCSI self-test log + SAS link counters (#18). Structures verified against
+// smartmontools RELEASE_7_5 scsiprint.cpp: entries are flat numbered keys with
+// scsi_self_test_0 newest, phys are phy_N under scsi_sas_port_N. The log wording
+// below is what real SAS drives emit ("Completed", not ATA's "completed without
+// error"; "Aborted (device reset ?)").
+describe("parseSelfTest — SAS/SCSI", () => {
+  it("reads a completed SCSI self-test off the newest numbered entry", () => {
+    expect(parseSelfTest(sasImpendingFailure)).toEqual({ status: "PASSED" })
+  })
+
+  it("classifies a device-reset abort as ABORTED, not FAILED", () => {
+    const r = parseSelfTest(sasUncorrectedErrors)
+    expect(r.status).toBe("ABORTED")
+    expect(r.message).toContain("device reset")
+  })
+
+  it("does not call an in-progress SCSI test a result", () => {
+    const running = {
+      ...scsiMinimal,
+      scsi_self_test_0: { self_test_in_progress: true, code: { string: "Background long" } },
+    }
+    expect(parseSelfTest(running).status).toBe("UNKNOWN")
+    expect(scsiSelfTestInProgress(running)).toBe(true)
+    expect(scsiSelfTestInProgress(sasImpendingFailure)).toBe(false)
+  })
+
+  it("returns UNKNOWN for a SCSI device with no self-test log at all", () => {
+    expect(parseSelfTest(scsiMinimal)).toEqual({ status: "UNKNOWN" })
+  })
+})
+
+describe("parseSmartMetrics — SAS link counters", () => {
+  it("sums invalid DWORDs and loss-of-sync across phys", () => {
+    // 255 invalid + 6 loss-of-sync on the real drive this mirrors. Running
+    // disparity is deliberately not counted — it tracks the same cable fault and
+    // would double-report it.
+    expect(parseSmartMetrics(sasImpendingFailure).linkErrors).toBe(261)
+  })
+
+  it("reports zero for a clean link, distinct from no SAS link data at all", () => {
+    expect(parseSmartMetrics(sasUncorrectedErrors).linkErrors).toBe(0)
+    expect(parseSmartMetrics(scsiMinimal).linkErrors).toBeNull()
+  })
+
+  it("accepts the spaced key form smartctl writes in its own output", () => {
+    const spaced = {
+      ...scsiMinimal,
+      scsi_sas_port_0: {
+        phy_0: { "Invalid DWORD count": 10, "Loss of DWORD synchronization count": 2 },
+        phy_1: { "Invalid DWORD count": 1, "Loss of DWORD synchronization count": 0 },
+      },
+    }
+    expect(parseSmartMetrics(spaced).linkErrors).toBe(13)
   })
 })

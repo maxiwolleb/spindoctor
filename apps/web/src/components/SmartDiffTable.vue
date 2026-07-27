@@ -27,6 +27,7 @@ const METRICS: MetricDef[] = [
   // SAS/SCSI only — null (and so rendered "—") on ATA/NVMe, same as the NVMe
   // rows are on a spinning ATA disk.
   { key: "grownDefects", label: "Grown defects (SAS)", worseIsHigher: true },
+  { key: "linkErrors", label: "Link errors (SAS)", worseIsHigher: true },
   { key: "crcErrors", label: "CRC errors", worseIsHigher: true },
   { key: "powerOnHours", label: "Power-on hours", worseIsHigher: false },
   { key: "percentageUsed", label: "Percentage used", worseIsHigher: true },

@@ -1,7 +1,21 @@
 {
-  "json_format_version": [1, 0],
-  "smartctl": { "version": [7, 5], "exit_status": 0 },
-  "device": { "name": "/dev/sdd", "info_name": "/dev/sdd", "type": "scsi", "protocol": "SCSI" },
+  "json_format_version": [
+    1,
+    0
+  ],
+  "smartctl": {
+    "version": [
+      7,
+      5
+    ],
+    "exit_status": 0
+  },
+  "device": {
+    "name": "/dev/sdd",
+    "info_name": "/dev/sdd",
+    "type": "scsi",
+    "protocol": "SCSI"
+  },
   "scsi_vendor": "HGST",
   "scsi_product": "HUH721212AL5200",
   "scsi_revision": "A907",
@@ -11,13 +25,27 @@
   "serial_number": "SASFIXTURE0002",
   "logical_unit_id": "0x5000cca0000000b2",
   "rotation_rate": 7200,
-  "user_capacity": { "blocks": 23437770752, "bytes": 12000138625024 },
+  "user_capacity": {
+    "blocks": 23437770752,
+    "bytes": 12000138625024
+  },
   "logical_block_size": 512,
   "physical_block_size": 4096,
-  "scsi_transport_protocol": { "value": 6, "name": "SAS (SPL-4)" },
-  "smart_support": { "available": true, "enabled": true },
-  "smart_status": { "passed": true },
-  "temperature": { "current": 37, "drive_trip": 85 },
+  "scsi_transport_protocol": {
+    "value": 6,
+    "name": "SAS (SPL-4)"
+  },
+  "smart_support": {
+    "available": true,
+    "enabled": true
+  },
+  "smart_status": {
+    "passed": true
+  },
+  "temperature": {
+    "current": 37,
+    "drive_trip": 85
+  },
   "scsi_grown_defect_list": 2,
   "scsi_error_counter_log": {
     "read": {
@@ -46,6 +74,30 @@
       "correction_algorithm_invocations": 0,
       "gigabytes_processed": "0.000",
       "total_uncorrected_errors": 0
+    }
+  },
+  "scsi_self_test_0": {
+    "code": {
+      "value": 1,
+      "string": "Background short"
+    },
+    "result": {
+      "value": 2,
+      "string": "Aborted (device reset ?)"
+    },
+    "power_on_time": {
+      "hours": 59634
+    }
+  },
+  "scsi_sas_port_0": {
+    "relative_target_port_id": 1,
+    "generation_code": 0,
+    "number_of_phys": 1,
+    "phy_0": {
+      "invalid_dword_count": 0,
+      "running_disparity_error_count": 0,
+      "loss_of_dword_synchronization_count": 0,
+      "phy_reset_problem_count": 0
     }
   }
 }

@@ -35,6 +35,14 @@ export interface SmartKeyMetrics {
    */
   grownDefects: number | null
   /**
+   * SAS/SCSI link-layer errors — invalid DWORDs plus loss-of-sync, summed over
+   * every phy of every port. A cable/backplane signal rather than a media one:
+   * an audit of 18 SAS drives found counts in the hundreds that did not move
+   * under load, i.e. the test rig's wiring, not a failing disk. Graded as a
+   * warning only, never a failure. `null` on ATA/NVMe.
+   */
+  linkErrors: number | null
+  /**
    * The drive's own overall health verdict (`smart_status.passed`).
    *
    * On SAS this is the authoritative failure signal — it carries explicit

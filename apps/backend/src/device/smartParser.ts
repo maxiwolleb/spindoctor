@@ -75,6 +75,7 @@ function parseScsiMetrics(j: Record<string, any>, temperatureC: number | null): 
     mediaErrors: null,
     temperatureC,
     grownDefects: num(j.scsi_grown_defect_list),
+    linkErrors: parseSasLinkErrors(j),
     smartHealthPassed: healthPassed(j),
   }
 }
@@ -83,6 +84,38 @@ function parseScsiMetrics(j: Record<string, any>, temperatureC: number | null): 
 function healthPassed(j: Record<string, any>): boolean | null {
   const passed = asRecord(j.smart_status).passed
   return typeof passed === "boolean" ? passed : null
+}
+
+/**
+ * SAS link-layer error total: invalid DWORDs plus loss-of-sync across every phy
+ * of every port (`scsi_sas_port_0.phy_0`, …).
+ *
+ * smartctl writes these with human-readable keys containing spaces — literally
+ * `jref["Invalid DWORD count"]` — so both that form and a snake_case variant are
+ * accepted, since which one lands in the JSON is a detail of smartctl's own key
+ * handling rather than something this parser should depend on. Returns null when
+ * no port reported any phy counters, so "no SAS link data" stays distinct from
+ * "a clean link".
+ */
+function parseSasLinkErrors(j: Record<string, any>): number | null {
+  const COUNTER_KEYS = [
+    ["Invalid DWORD count", "invalid_dword_count"],
+    ["Loss of DWORD synchronization count", "loss_of_dword_synchronization_count"],
+  ] as const
+
+  let total: number | null = null
+  for (const [portKey, port] of Object.entries(j)) {
+    if (!portKey.startsWith("scsi_sas_port_")) continue
+    for (const [phyKey, phy] of Object.entries(asRecord(port))) {
+      if (!phyKey.startsWith("phy_")) continue
+      const record = asRecord(phy)
+      for (const names of COUNTER_KEYS) {
+        const value = names.map((n) => num(record[n])).find((v) => v != null)
+        if (value != null) total = (total ?? 0) + value
+      }
+    }
+  }
+  return total
 }
 
 export function parseSmartMetrics(json: unknown): SmartKeyMetrics {
@@ -105,6 +138,7 @@ export function parseSmartMetrics(json: unknown): SmartKeyMetrics {
       mediaErrors: num(log.media_errors),
       temperatureC,
       grownDefects: null,
+      linkErrors: null,
       smartHealthPassed: healthPassed(j),
     }
   }
@@ -128,6 +162,7 @@ export function parseSmartMetrics(json: unknown): SmartKeyMetrics {
     mediaErrors: null,
     temperatureC,
     grownDefects: null,
+    linkErrors: null,
     smartHealthPassed: healthPassed(j),
   }
 }
@@ -276,9 +311,41 @@ function classifySelfTest(str: string, value?: number, passed?: boolean): SelfTe
   return str ? { status: "UNKNOWN", message: str } : { status: "UNKNOWN" }
 }
 
+/**
+ * The newest SCSI self-test log entry. smartctl emits these as flat, numbered
+ * keys (`scsi_self_test_0` … `scsi_self_test_19`) rather than an array, with
+ * index 0 being the most recent run.
+ */
+export function scsiNewestSelfTest(json: unknown): Record<string, any> | null {
+  const entry = asRecord(asRecord(json).scsi_self_test_0)
+  return Object.keys(entry).length > 0 ? entry : null
+}
+
+/** True while the drive is running a SCSI self-test. The percentage remaining
+ * that `smartctl -x` prints for SCSI is console-only — it never reaches the
+ * JSON — so this is a boolean, not a progress figure. */
+export function scsiSelfTestInProgress(json: unknown): boolean {
+  return scsiNewestSelfTest(json)?.self_test_in_progress === true
+}
+
 export function parseSelfTest(json: unknown): SelfTestResult {
   const j = asRecord(json)
   const type = parseDeviceType(json)
+
+  // SAS/SCSI: a numbered log entry whose `result` carries both the code and the
+  // drive's own wording. Real SAS drives report "Completed" (not ATA's
+  // "completed without error") and "Aborted (device reset ?)", both of which
+  // classify correctly off the numeric result — 0 is a clean pass.
+  if (isScsiDevice(json)) {
+    const entry = scsiNewestSelfTest(json)
+    if (!entry) return { status: "UNKNOWN" }
+    if (entry.self_test_in_progress === true) {
+      return { status: "UNKNOWN", message: "Self-test still in progress" }
+    }
+    const result = asRecord(entry.result)
+    if (result.string == null && result.value == null) return { status: "UNKNOWN" }
+    return classifySelfTest(String(result.string ?? ""), num(result.value) ?? undefined)
+  }
 
   if (type === "NVMe") {
     const row = asRecord(asRecord(j.nvme_self_test_log).table?.[0])

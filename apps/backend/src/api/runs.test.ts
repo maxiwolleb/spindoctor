@@ -399,6 +399,7 @@ describe("GET /api/runs/:id", () => {
         mediaErrors: null,
         temperatureC: 30,
         grownDefects: null,
+        linkErrors: null,
         smartHealthPassed: null,
       },
     })
