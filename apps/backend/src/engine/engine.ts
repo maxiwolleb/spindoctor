@@ -2,6 +2,7 @@ import { EventEmitter } from "node:events"
 import { and, desc, eq } from "drizzle-orm"
 import { resolveThresholds } from "@spindoctor/shared"
 import type {
+  DriveType,
   DiscoveredDrive,
   RegimeMode,
   RunUpdateEvent,
@@ -15,7 +16,7 @@ import type {
 import type { Db } from "../db/client"
 import { silentLogger, type Logger } from "../logger"
 import type { DeviceApi } from "../device/deviceApi"
-import { parseSmartMetrics } from "../device/smartParser"
+import { parseDeviceType, parseSmartMetrics, selfTestSupported } from "../device/smartParser"
 import { evaluateVerdict } from "../verdict/evaluate"
 import { condemnedByBaseline } from "../verdict/baselineGate"
 import { checkDestructiveAllowed } from "../safety/guards"
@@ -29,9 +30,10 @@ import {
   saveSnapshot,
   updateRun,
   updateStage,
+  setDriveType,
   upsertDrive,
 } from "../db/repositories"
-import type { RunRow, StageRow, StageUpdate } from "../db/repositories"
+import type { RunRow, SnapshotRow, StageRow, StageUpdate } from "../db/repositories"
 import { Semaphore } from "./semaphore"
 import { regimeStages } from "./regime"
 
@@ -94,6 +96,20 @@ export interface TestEngineDeps {
 
 /** Mutable per-run accumulator threaded through stage execution. */
 interface RunState {
+  /**
+   * The drive type as the drive's own SMART data reports it, which is not always
+   * what discovery guessed. `lsblk` decides HDD-vs-SSD from its rotational flag,
+   * and a USB bridge doesn't necessarily pass that through — a real Realtek
+   * RTL9210 NVMe enclosure on the test rig reports `rota: true`, so discovery
+   * called an NVMe drive a spinning disk. Grading on that would skip the
+   * SSD/NVMe wear and media-error rules entirely for every bridged drive.
+   * `undefined` until SMART_BEFORE has run.
+   */
+  deviceType?: DriveType
+  /** False when the drive positively reports it cannot run a self-test, so the
+   * stage is recorded as unsupported rather than started and polled for a result
+   * that will never come. `undefined` until SMART_BEFORE has run. */
+  selfTestSupported?: boolean
   before?: SmartKeyMetrics
   after?: SmartKeyMetrics
   selfTest?: SelfTestResult
@@ -481,12 +497,26 @@ export class TestEngine extends EventEmitter {
       // it was skipped, mirroring what `#run` sets when it skips them live.
       const skipped = row.status === "SKIPPED"
       switch (step.stage) {
-        case "SMART_BEFORE":
-          state.before = this.#loadSnapshot(run.id, "before")
+        case "SMART_BEFORE": {
+          // Re-derived from the stored raw, not just the key metrics: the drive
+          // type and self-test capability are only knowable from the full
+          // payload, and without them a resumed run would fall back to
+          // discovery's guess — which is what the bridged-NVMe fix exists to
+          // correct — and would mislabel why the self-test was skipped.
+          const snapshot = this.#loadSnapshotRow(run.id, "before")
+          state.before = snapshot?.keyMetrics as SmartKeyMetrics | undefined
+          if (snapshot) {
+            state.deviceType = parseDeviceType(snapshot.raw)
+            state.selfTestSupported = selfTestSupported(snapshot.raw)
+          }
           break
+        }
         case "SELFTEST_LONG":
-          if (skipped) state.selfTest = { status: "SKIPPED" }
-          else if (row.metrics) state.selfTest = row.metrics as SelfTestResult
+          if (skipped) {
+            state.selfTest = {
+              status: state.selfTestSupported === false ? "UNSUPPORTED" : "SKIPPED",
+            }
+          } else if (row.metrics) state.selfTest = row.metrics as SelfTestResult
           break
         case "SURFACE":
           if (row.metrics) state.surface = row.metrics as SurfaceResult
@@ -521,13 +551,16 @@ export class TestEngine extends EventEmitter {
 
   /** Loads the most recent SMART snapshot for a run/phase, for reconstructing RunState on resume. */
   #loadSnapshot(runId: number, phase: "before" | "after"): SmartKeyMetrics | undefined {
-    const row = this.db
+    return this.#loadSnapshotRow(runId, phase)?.keyMetrics as SmartKeyMetrics | undefined
+  }
+
+  #loadSnapshotRow(runId: number, phase: "before" | "after"): SnapshotRow | undefined {
+    return this.db
       .select()
       .from(smartSnapshots)
       .where(and(eq(smartSnapshots.runId, runId), eq(smartSnapshots.phase, phase)))
       .orderBy(desc(smartSnapshots.id))
       .get()
-    return row ? (row.keyMetrics as SmartKeyMetrics) : undefined
   }
 
   /**
@@ -573,6 +606,21 @@ export class TestEngine extends EventEmitter {
       const step = stages[i]
       if (!step) break // unreachable — i stays within [startIndex, stages.length)
       const { stage, surfaceMode } = step
+
+      // A drive that cannot run the routine gets the stage recorded as skipped
+      // rather than started: `smartctl -t long` on such a drive prints
+      // "Self-tests not supported" and exits 0, so the stage would otherwise
+      // "succeed", poll an empty log, and return UNKNOWN — a warning that no such
+      // drive could ever shake off.
+      if (stage === "SELFTEST_LONG" && state.selfTestSupported === false) {
+        addStage(this.db, { runId, stage, status: "SKIPPED", finishedAt: new Date() })
+        state.selfTest = { status: "UNSUPPORTED" }
+        this.log.info(
+          { runId, driveSerial: currentDrive.serial, stage },
+          "drive does not support self-tests — stage skipped",
+        )
+        continue
+      }
 
       if (skipStages.has(stage)) {
         // Recorded as SKIPPED rather than DONE so the timeline tells the truth
@@ -732,7 +780,7 @@ export class TestEngine extends EventEmitter {
 
     const condemned = condemnedByBaseline({
       before: state.before,
-      deviceType: drive.type,
+      deviceType: state.deviceType ?? drive.type,
       thresholds: resolveThresholds(cfg.thresholds),
     })
     if (condemned.length === 0) return none
@@ -769,16 +817,30 @@ export class TestEngine extends EventEmitter {
     skipSelfTestStart = false,
   ): Promise<DiscoveredDrive> {
     switch (stage) {
-      case "SMART_BEFORE":
-        state.before = await this.#runSmartStage(runId, drive.devicePath, "before")
+      case "SMART_BEFORE": {
+        const before = await this.#runSmartStage(runId, drive.devicePath, "before")
+        const { metrics, deviceType } = before
+        state.before = metrics
+        state.deviceType = deviceType
+        state.selfTestSupported = before.selfTestSupported
+        // Correct discovery's guess where SMART disagrees, so the dashboard and
+        // the verdict tell the same story about what kind of drive this is.
+        if (deviceType !== drive.type) {
+          this.log.info(
+            { runId, driveSerial: drive.serial, discovered: drive.type, actual: deviceType },
+            "drive type corrected from SMART data",
+          )
+          setDriveType(this.db, drive.serial, deviceType)
+        }
         return drive
+      }
       case "SMART_AFTER": {
         // The drive may have sat through a long self-test and/or a
         // destructive surface write since it was last resolved — re-resolve
         // by serial rather than trust a stale/possibly-reused device path.
         const fresh = await this.#resolveDriveBySerial(drive.serial)
         if (!fresh) throw new DriveGoneError(drive.serial)
-        state.after = await this.#runSmartStage(runId, fresh.devicePath, "after")
+        state.after = (await this.#runSmartStage(runId, fresh.devicePath, "after")).metrics
         return fresh
       }
       case "SELFTEST_LONG": {
@@ -822,11 +884,15 @@ export class TestEngine extends EventEmitter {
     runId: number,
     devicePath: string,
     phase: "before" | "after",
-  ): Promise<SmartKeyMetrics> {
+  ): Promise<{ metrics: SmartKeyMetrics; deviceType: DriveType; selfTestSupported: boolean }> {
     const raw = await this.deviceApi.readSmartRaw(devicePath)
     const metrics = parseSmartMetrics(raw)
     saveSnapshot(this.db, { runId, phase, raw, keyMetrics: metrics })
-    return metrics
+    return {
+      metrics,
+      deviceType: parseDeviceType(raw),
+      selfTestSupported: selfTestSupported(raw),
+    }
   }
 
   async #runSelfTestStage(
@@ -1010,7 +1076,7 @@ export class TestEngine extends EventEmitter {
     const { verdict, reasons } = evaluateVerdict({
       before,
       after,
-      deviceType: drive.type,
+      deviceType: state.deviceType ?? drive.type,
       selfTest,
       surface,
       thresholds: resolveThresholds(getConfig(this.db).thresholds),

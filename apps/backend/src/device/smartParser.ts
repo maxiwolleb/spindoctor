@@ -77,6 +77,32 @@ const ATA_SSD_WEAR_ATTR_IDS = [
   202, // "Percent_Lifetime_Remain" — Crucial/Micron
 ] as const
 
+/**
+ * Whether the drive can run a device self-test at all. `false` only when the
+ * drive positively says it cannot; `true` when it says it can or doesn't say —
+ * absence of evidence must not turn into "unsupported", or a drive whose
+ * capability page we simply failed to parse would silently skip the stage.
+ *
+ * NVMe advertises this in the optional-admin-commands bitmap; a real Realtek
+ * RTL9210 enclosure on the test rig reports `self_test: false`, and
+ * `smartctl -t long` on it prints "Self-tests not supported" and exits 0 — so
+ * without this probe the stage "succeeded", polled an empty log, and returned
+ * UNKNOWN, which graded as a warning and made a PASS unreachable.
+ *
+ * ATA exposes the equivalent in its capability flags.
+ */
+export function selfTestSupported(json: unknown): boolean {
+  const j = asRecord(json)
+
+  const nvme = asRecord(j.nvme_optional_admin_commands)
+  if (typeof nvme.self_test === "boolean") return nvme.self_test
+
+  const ata = asRecord(asRecord(j.ata_smart_data).capabilities)
+  if (typeof ata.self_tests_supported === "boolean") return ata.self_tests_supported
+
+  return true
+}
+
 /** True for a SAS/SCSI device, which reports health via SCSI log pages rather
  * than an ATA attribute table (see `parseScsiMetrics`). */
 export function isScsiDevice(json: unknown): boolean {

@@ -5,6 +5,7 @@ import {
   scsiSelfTestInProgress,
   parseDeviceType,
   parseSmartAttributes,
+  selfTestSupported,
   parseSmartMetrics,
   parseSelfTest,
 } from "./smartParser"
@@ -666,5 +667,31 @@ describe("parseSmartAttributes NVMe available_spare on a real USB-bridged drive"
     expect(m.spinRetryCount).toBeNull()
     expect(m.commandTimeouts).toBeNull()
     expect(m.grownDefects).toBeNull()
+  })
+})
+
+// #14: the capability probe behind the unsupported-self-test handling.
+describe("selfTestSupported", () => {
+  it("is false for the real USB-bridged NVMe, which reports self_test: false", () => {
+    expect(selfTestSupported(nvmeUsbBridgeReal)).toBe(false)
+  })
+
+  it("is true when NVMe advertises the command", () => {
+    expect(selfTestSupported({ nvme_optional_admin_commands: { self_test: true } })).toBe(true)
+  })
+
+  it("reads the ATA capability flag", () => {
+    expect(
+      selfTestSupported({ ata_smart_data: { capabilities: { self_tests_supported: false } } }),
+    ).toBe(false)
+    expect(selfTestSupported(ataHealthy)).toBe(true)
+  })
+
+  // Absence of evidence must not become "unsupported", or a payload we simply
+  // failed to parse would silently skip the stage on a capable drive.
+  it("defaults to supported when the drive says nothing", () => {
+    expect(selfTestSupported({})).toBe(true)
+    expect(selfTestSupported(null)).toBe(true)
+    expect(selfTestSupported(sasImpendingFailure)).toBe(true)
   })
 })

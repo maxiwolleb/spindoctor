@@ -112,13 +112,20 @@ export interface SmartAttributeRow {
 }
 
 /**
+ * `UNSUPPORTED` is for a drive that cannot run the routine at all — plenty of
+ * cheap NVMe controllers don't implement the device self-test command. Kept
+ * distinct from `SKIPPED` (we chose not to run it) and from
+ * `UNKNOWN`/`ABORTED` (it should have run and didn't), because only those last
+ * two leave the drive's health less certain. A drive that never had the feature
+ * isn't suspicious for lacking it.
+ *
  * `SKIPPED` is not something a drive ever reports — it is the engine's record
  * that it deliberately never started the routine, because the baseline SMART
  * read had already condemned the drive (issue #49). Deliberately distinct from
  * `UNKNOWN`/`ABORTED`, which mean a test that was meant to run didn't finish and
  * therefore leave the drive's health less certain, not more.
  */
-export type SelfTestStatus = "PASSED" | "FAILED" | "ABORTED" | "UNKNOWN" | "SKIPPED"
+export type SelfTestStatus = "PASSED" | "FAILED" | "ABORTED" | "UNKNOWN" | "SKIPPED" | "UNSUPPORTED"
 
 export interface SelfTestResult {
   status: SelfTestStatus

@@ -1,5 +1,5 @@
 {
-  "_comment": "Real capture from a Realtek RTL9210 USB-NVMe enclosure (E2M2 64GB), 2026-07-27 \u2014 the repo's first non-hand-authored NVMe fixture. smartctl auto-detects the bridge as type sntrealtek/protocol NVMe with no -d flag, so discovery and the NVMe path work through USB. Note this controller populates almost nothing: power-on hours, data units, power cycles and BOTH available_spare and its threshold read 0, which is 'feature not implemented', not 'spare exhausted' \u2014 see nvmeAttributeHealth.",
+  "_comment": "Real capture from a Realtek RTL9210 USB-NVMe enclosure (E2M2 64GB), 2026-07-27 \u2014 the repo's first non-hand-authored NVMe fixture. smartctl auto-detects the bridge as type sntrealtek/protocol NVMe with no -d flag, so discovery and the NVMe path work through USB. Note this controller populates almost nothing: power-on hours, data units, power cycles and BOTH available_spare and its threshold read 0, which is 'feature not implemented', not 'spare exhausted' \u2014 see nvmeAttributeHealth. Also note nvme_optional_admin_commands.self_test is false: the controller cannot run a device self-test at all, and 'smartctl -t long' on it prints 'Self-tests not supported' while exiting 0.",
   "device": {
     "name": "/dev/sdb",
     "info_name": "/dev/sdb [USB NVMe Realtek]",
@@ -69,5 +69,20 @@
     "string": "1.3",
     "value": 66304
   },
-  "nvme_number_of_namespaces": 1
+  "nvme_number_of_namespaces": 1,
+  "nvme_optional_admin_commands": {
+    "value": 6,
+    "security_send_receive": false,
+    "format_nvm": true,
+    "firmware_download": true,
+    "namespace_management": false,
+    "self_test": false,
+    "directives": false,
+    "mi_send_receive": false,
+    "virtualization_management": false,
+    "doorbell_buffer_config": false,
+    "get_lba_status": false,
+    "command_and_feature_lockdown": false,
+    "other": 0
+  }
 }

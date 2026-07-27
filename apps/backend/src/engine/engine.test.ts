@@ -1382,3 +1382,129 @@ describe("TestEngine early exit on a condemned baseline (#49)", () => {
     expect(api.surfaceCalls).toEqual([])
   })
 })
+
+// Both findings from the first real NVMe the project was pointed at — a Realtek
+// RTL9210 USB enclosure. lsblk reported `rota: true` for it, so discovery called
+// an NVMe a spinning disk; and the controller implements no self-test command.
+describe("TestEngine grading a USB-bridged NVMe", () => {
+  /** What smartctl actually returned for that enclosure: NVMe protocol, no
+   * self-test support, and a health log with wear in it. */
+  const nvmeSmart = (over: Record<string, unknown> = {}): unknown => ({
+    device: { name: "/dev/sdb", type: "sntrealtek", protocol: "NVMe" },
+    model_name: "E2M2 64GB",
+    smart_status: { passed: true },
+    temperature: { current: 35 },
+    nvme_optional_admin_commands: { self_test: false },
+    nvme_smart_health_information_log: {
+      critical_warning: 0,
+      percentage_used: 0,
+      available_spare: 0,
+      available_spare_threshold: 0,
+      media_errors: 0,
+      power_on_hours: 0,
+    },
+    ...over,
+  })
+
+  /** Discovery's view: lsblk says rotational, so HDD, over USB. */
+  const bridged = (over: Partial<DiscoveredDrive> = {}): DiscoveredDrive =>
+    drive({
+      devicePath: "/dev/sdb",
+      serial: "MLK136D003912",
+      model: "E2M2 64GB",
+      type: "HDD",
+      transport: "USB",
+      ...over,
+    })
+
+  function engineFor(api: FakeDeviceApi): TestEngine {
+    return new TestEngine({ db, deviceApi: api, sleep: async () => {}, selfTestPollIntervalMs: 0 })
+  }
+
+  it("grades on the type SMART reports, not the one lsblk guessed", async () => {
+    const d = bridged()
+    // Wear past the fail threshold: only graded if the drive is treated as
+    // SSD/NVMe, so this is what proves the correction took effect.
+    const worn = nvmeSmart({
+      nvme_smart_health_information_log: {
+        critical_warning: 0,
+        percentage_used: 105,
+        media_errors: 0,
+      },
+    })
+    const api = new FakeDeviceApi({
+      drives: [d],
+      smartByPath: { [d.devicePath]: worn },
+      surface: { plan: [100], result: { mode: "write", badBlocks: 0, completed: true } },
+    })
+    const engine = engineFor(api)
+
+    const runId = await engine.startRun({ serial: d.serial, mode: "destructive" })
+    const terminal = await waitForSettled(engine, runId)
+
+    expect(terminal.verdict).toBe("FAIL")
+    const reasons = repo.getRun(db, runId)!.reasons as { code: string }[]
+    expect(reasons.map((r) => r.code)).toContain("WEAR_EXHAUSTED")
+  })
+
+  it("corrects the drive's recorded type so the dashboard stops calling it an HDD", async () => {
+    const d = bridged()
+    const api = new FakeDeviceApi({
+      drives: [d],
+      smartByPath: { [d.devicePath]: nvmeSmart() },
+      surface: { plan: [100], result: { mode: "write", badBlocks: 0, completed: true } },
+    })
+    const engine = engineFor(api)
+
+    const runId = await engine.startRun({ serial: d.serial, mode: "destructive" })
+    await waitForSettled(engine, runId)
+
+    expect(repo.getDrive(db, d.serial)?.type).toBe("NVMe")
+  })
+
+  it("skips the self-test on a drive that cannot run one, without warning for it", async () => {
+    const d = bridged()
+    const api = new FakeDeviceApi({
+      drives: [d],
+      smartByPath: { [d.devicePath]: nvmeSmart() },
+      surface: { plan: [100], result: { mode: "write", badBlocks: 0, completed: true } },
+    })
+    const engine = engineFor(api)
+
+    const runId = await engine.startRun({ serial: d.serial, mode: "destructive" })
+    const terminal = await waitForSettled(engine, runId)
+
+    // The whole point: a healthy drive with no self-test support still PASSes.
+    expect(terminal.verdict).toBe("PASS")
+    expect(api.started).toEqual([])
+
+    const stages = db.select().from(stageResults).where(eq(stageResults.runId, runId)).all()
+    expect(stages.find((s) => s.stage === "SELFTEST_LONG")?.status).toBe("SKIPPED")
+    // The surface pass still ran — this is not the #49 early exit.
+    expect(stages.find((s) => s.stage === "SURFACE")?.status).toBe("DONE")
+    expect(api.surfaceCalls).toHaveLength(1)
+
+    const reasons = repo.getRun(db, runId)!.reasons as { code: string; severity: string }[]
+    expect(reasons.map((r) => r.code)).toContain("SELFTEST_UNSUPPORTED")
+    expect(reasons.find((r) => r.code === "SELFTEST_UNSUPPORTED")?.severity).toBe("info")
+    expect(reasons.map((r) => r.code)).not.toContain("SELFTEST_INCOMPLETE")
+  })
+
+  it("still starts a self-test on a drive that supports one", async () => {
+    const d = bridged()
+    const api = new FakeDeviceApi({
+      drives: [d],
+      smartByPath: {
+        [d.devicePath]: nvmeSmart({ nvme_optional_admin_commands: { self_test: true } }),
+      },
+      selfTestByPath: { [d.devicePath]: PASSED_SELFTEST },
+      surface: { plan: [100], result: { mode: "write", badBlocks: 0, completed: true } },
+    })
+    const engine = engineFor(api)
+
+    const runId = await engine.startRun({ serial: d.serial, mode: "destructive" })
+    await waitForSettled(engine, runId)
+
+    expect(api.started).toEqual([d.devicePath])
+  })
+})

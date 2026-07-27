@@ -42,6 +42,12 @@ What that table contains depends on how the drive reports health:
   counter.
 - **NVMe** — the health-information log: critical warning, percentage used,
   available spare, media errors, and so on.
+  Drive type is taken from the drive's own SMART data rather than from `lsblk`'s
+  rotational flag, because a USB bridge doesn't necessarily pass that flag through
+  — a real USB-NVMe enclosure reports itself as rotational, and grading it as a
+  spinning disk would skip the wear and media-error rules entirely. Where the two
+  disagree, the recorded type is corrected once the first SMART read lands.
+
 - **SAS/SCSI** — SCSI log pages instead of an attribute table: the drive's own
   self-assessment, the grown defect list, the error counter log split by
   read/write/verify (uncorrected, recovered-by-retry, and corrected totals), and
@@ -111,6 +117,11 @@ from](#where-the-thresholds-come-from) below. The rules, in order:
     drive — see above) → an informational note only; it cannot move the
     verdict, since the reasons that condemned the drive are in the same
     list.
+  - `UNSUPPORTED` (the drive cannot run one — many cheap NVMe controllers
+    don't implement the command) → an informational note only. A drive that
+    never had the feature isn't suspicious for lacking it, and the
+    destructive surface pass, which writes and verifies every sector, is
+    stronger evidence than a firmware self-test anyway.
 - **Surface scan:**
   - any bad block found (`badBlocks > 0`) → **FAIL**.
   - didn't complete → **WARN**.
