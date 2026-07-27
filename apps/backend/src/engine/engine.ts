@@ -744,6 +744,16 @@ export class TestEngine extends EventEmitter {
         return
       }
 
+      // A self-test the drive turned out to be incapable of never ran, so it is
+      // recorded SKIPPED at 0% like the pre-flight case — not DONE at 100%, which
+      // would claim a routine completed. Detected here rather than before the
+      // stage because on smartmontools 7.4 the only signal is what `smartctl -t`
+      // prints when asked (see `#runSelfTestStage`).
+      if (stage === "SELFTEST_LONG" && state.selfTest?.status === "UNSUPPORTED") {
+        updateStage(this.db, stageId, { status: "SKIPPED", finishedAt: new Date() })
+        continue
+      }
+
       // Idempotent: SURFACE already persists its own terminal status (see
       // #runSurfaceStage) before this point, so that a listener reacting to
       // an ABORTED run:update event never observes a stale RUNNING stage
@@ -910,7 +920,19 @@ export class TestEngine extends EventEmitter {
     const logLines: string[] = []
     if (!skipStart) {
       logLines.push(`[${new Date().toISOString()}] smartctl -t long ${devicePath}`)
-      await this.deviceApi.startLongSelfTest(devicePath)
+      const started = await this.deviceApi.startLongSelfTest(devicePath)
+      // The drive cannot run the routine. Reported here rather than caught by the
+      // pre-flight capability probe because that field only exists in the JSON
+      // from smartmontools 7.5, while the message `startLongSelfTest` reads is
+      // there from 7.4 — so on the shipped image this is the signal that fires.
+      // Without it, polling an empty log returns UNKNOWN, which grades as a
+      // warning no such drive could ever shake off.
+      if (!started) {
+        logLines.push(
+          `[${new Date().toISOString()}] drive reports self-tests are not supported — skipping`,
+        )
+        return { result: { status: "UNSUPPORTED" }, log: logLines.join("\n") }
+      }
     } else {
       logLines.push(`[${new Date().toISOString()}] resuming poll for an already-running self-test`)
     }

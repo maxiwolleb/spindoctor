@@ -80,7 +80,12 @@ build and runtime stages):
    `@spindoctor/shared`, `tsx`, and `better-sqlite3` resolved into it).
 2. **Runtime stage** — the same slim base, with the CLI tools the device
    layer shells out to installed via `apt`: `smartmontools`,
-   `e2fsprogs`, `nvme-cli`, `hdparm`, and `util-linux` (for `lsblk`). The
+   `e2fsprogs`, `nvme-cli`, `hdparm`, and `util-linux` (for `lsblk`).
+   `smartmontools` specifically comes from `bookworm-backports`: Debian
+   bookworm ships 7.3, which predates NVMe self-test support, so
+   `smartctl -t long` against an NVMe drive there does nothing at all while
+   still exiting 0 — leaving every NVMe run stuck at "self-test did not
+   complete". The
    deploy output and the built SPA are copied in, and the container runs
    `node_modules/.bin/tsx src/main.ts` as its entrypoint.
 

@@ -8,6 +8,9 @@ import type { DeviceApi } from "./deviceApi"
 
 export interface FakeDeviceApiState {
   drives?: DiscoveredDrive[]
+  /** Device paths whose drive cannot run a self-test, so `startLongSelfTest`
+   * reports it never started (see `DeviceApi.startLongSelfTest`). */
+  selfTestUnsupportedPaths?: string[]
   smartByPath?: Record<string, unknown>
   selfTestByPath?: Record<string, SelfTestProgress>
   surface?: { plan?: number[]; result?: SurfaceResult; log?: string }
@@ -33,8 +36,9 @@ export class FakeDeviceApi implements DeviceApi {
     if (s === undefined) throw new Error(`no SMART data for ${devicePath}`)
     return s
   }
-  async startLongSelfTest(devicePath: string): Promise<void> {
+  async startLongSelfTest(devicePath: string): Promise<boolean> {
     this.started.push(devicePath)
+    return !(this.state.selfTestUnsupportedPaths ?? []).includes(devicePath)
   }
   async abortSelfTest(devicePath: string): Promise<void> {
     this.selfTestAborts.push(devicePath)

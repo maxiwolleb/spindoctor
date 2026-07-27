@@ -106,8 +106,14 @@ export class RealDeviceApi implements DeviceApi {
     }
   }
 
-  async startLongSelfTest(devicePath: string): Promise<void> {
-    await this.runner.run("smartctl", ["-t", "long", devicePath])
+  async startLongSelfTest(devicePath: string): Promise<boolean> {
+    const { stdout, stderr } = await this.runner.run("smartctl", ["-t", "long", devicePath])
+    // smartctl exits 0 whether or not it started anything, so the only signal is
+    // what it printed. Checked as a substring rather than parsed: this string is
+    // console output, not JSON, and the capability is not in the JSON at all
+    // before smartmontools 7.5 (`nvme_optional_admin_commands`), while the
+    // message is there from 7.4 — which is what the image ships.
+    return !/self[-\s]?tests? not supported/i.test(`${stdout}\n${stderr}`)
   }
 
   async abortSelfTest(devicePath: string): Promise<void> {
