@@ -265,15 +265,104 @@ const NVME_BY_NAME: Record<string, SmartAttributeInfo> = {
   },
 }
 
+/**
+ * SAS/SCSI field descriptions (issue #54), keyed by the synthetic row names
+ * `parseScsiAttributes` emits. SAS drives report health through SCSI log pages
+ * rather than an attribute table, so these are counters rather than normalized
+ * attributes — and several of them are routinely large on a perfectly good
+ * drive, which is exactly why they need explaining rather than just showing.
+ */
+const SCSI_BY_NAME: Record<string, SmartAttributeInfo> = {
+  scsi_smart_status: {
+    label: "Drive self-assessment",
+    description:
+      'The drive\'s own overall verdict on itself. On SAS this is the authoritative failure signal — it is what carries conditions like "impending failure, data error rate too high" — so FAILING here condemns the drive on its own. OK is not proof of health: every other row still matters.',
+  },
+  scsi_grown_defect_list: {
+    label: "Grown defects",
+    description:
+      "Blocks the drive has retired since it was formatted — the SAS equivalent of reallocated sectors, but on a completely different scale: healthy in-service SAS drives routinely carry counts in the thousands. A high number is not by itself a failure; a count that rises while the drive is under test is.",
+  },
+  read_total_uncorrected_errors: {
+    label: "Read errors — uncorrected",
+    description:
+      "Reads the drive could not recover even with retries and error correction. Any non-zero count means data could not be read back.",
+  },
+  write_total_uncorrected_errors: {
+    label: "Write errors — uncorrected",
+    description:
+      "Writes the drive could not complete successfully even after retries. Any non-zero count means data could not be written.",
+  },
+  verify_total_uncorrected_errors: {
+    label: "Verify errors — uncorrected",
+    description:
+      "Verify operations that failed outright — the drive read back something it could not reconcile with what should be there. Any non-zero count is a real defect.",
+  },
+  read_errors_corrected_by_rereads_rewrites: {
+    label: "Read recoveries (rereads)",
+    description:
+      "Reads that only succeeded after the drive re-read the block — the fast error-correction path had already failed. Recovered, so no data was lost, but this is the counter that usually starts climbing before uncorrected errors appear. Worth watching over time rather than reacting to once.",
+  },
+  write_errors_corrected_by_rereads_rewrites: {
+    label: "Write recoveries (rewrites)",
+    description:
+      "Writes that only succeeded after being rewritten. Recovered, but a sign the media is making the drive work for it.",
+  },
+  verify_errors_corrected_by_rereads_rewrites: {
+    label: "Verify recoveries (rereads)",
+    description: "Verify operations that only succeeded after a re-read. Recovered, not lost.",
+  },
+  read_total_errors_corrected: {
+    label: "Read errors corrected",
+    description:
+      "Every read error the drive fixed on its own, overwhelmingly by fast error correction. Counts in the millions are normal on a healthy drive that has read a lot of data — this is what error correction is for, not a defect count.",
+  },
+  write_total_errors_corrected: {
+    label: "Write errors corrected",
+    description:
+      "Write errors the drive corrected on its own. As with reads, a large number here is normal operation rather than damage.",
+  },
+  verify_total_errors_corrected: {
+    label: "Verify errors corrected",
+    description: "Verify errors the drive corrected on its own. Informational.",
+  },
+  sas_invalid_dword_count: {
+    label: "Invalid DWORDs (SAS link)",
+    description:
+      "Malformed words received on the SAS link, summed over every phy. This is a cable, connector or backplane signal-quality measure, not a media one — counts in the hundreds that don't move under load are the wiring, not the disk. Flagged as a warning only, never a failure.",
+  },
+  sas_loss_of_dword_synchronization_count: {
+    label: "Loss of sync (SAS link)",
+    description:
+      "Times the SAS link lost word synchronization and had to recover. Same cabling story as invalid DWORDs: check the cable and backplane before suspecting the drive.",
+  },
+  sas_running_disparity_error_count: {
+    label: "Running disparity errors (SAS link)",
+    description:
+      "Encoding errors on the SAS link — another signal-integrity counter that tracks alongside invalid DWORDs. Shown for reference; not graded.",
+  },
+  sas_phy_reset_problem_count: {
+    label: "Phy reset problems (SAS link)",
+    description:
+      "Times the link failed to come back cleanly after a reset. Usually points at the connection or the expander rather than the drive.",
+  },
+  temperature_celsius: {
+    label: "Temperature",
+    description:
+      "Current drive temperature. Sustained high temperatures shorten lifespan; shown for reference, not individually graded.",
+  },
+}
+
 /** Plain-language label + description for a `SmartAttributeRow` (issue #14).
  * ATA rows are looked up by their smartctl-reported `name` first, then by
  * numeric id (covers vendor-specific naming of the same standard attribute);
- * NVMe rows (no numeric id) are looked up by their log field name. Anything
- * unrecognized still renders — with a generic fallback message — rather than
- * being hidden. */
+ * NVMe and SAS/SCSI rows (no numeric id) are looked up by field name across
+ * both tables — the two vocabularies don't collide, and `power_on_hours` is
+ * deliberately shared. Anything unrecognized still renders — with a generic
+ * fallback message — rather than being hidden. */
 export function describeAttribute(row: SmartAttributeRow): SmartAttributeInfo {
   if (row.id != null) {
     return ATA_BY_NAME[row.name] ?? ATA_BY_ID[row.id] ?? FALLBACK(row.name)
   }
-  return NVME_BY_NAME[row.name] ?? FALLBACK(row.name)
+  return NVME_BY_NAME[row.name] ?? SCSI_BY_NAME[row.name] ?? FALLBACK(row.name)
 }

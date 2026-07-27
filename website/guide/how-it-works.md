@@ -26,6 +26,33 @@ SMART_BEFORE → SELFTEST_LONG → SURFACE → SMART_AFTER → VERDICT
 
 ![Drive detail: SMART before/after diff and stage timeline](/screenshots/detail.png)
 
+## Reading the SMART data
+
+Both SMART snapshots are shown two ways in the run detail. The **diff table**
+covers the handful of metrics the verdict actually grades, before against after.
+The **attribute table** shows everything the drive reported, one row per field,
+each with a plain-language description of what it measures and a per-row
+ok / warn / fail flag. Row flags follow the same rules the verdict does, so a
+red row never sits next to a PASS.
+
+What that table contains depends on how the drive reports health:
+
+- **ATA/SATA** — the standard SMART attribute table, with each attribute's
+  normalized value, worst-ever value and vendor threshold alongside the raw
+  counter.
+- **NVMe** — the health-information log: critical warning, percentage used,
+  available spare, media errors, and so on.
+- **SAS/SCSI** — SCSI log pages instead of an attribute table: the drive's own
+  self-assessment, the grown defect list, the error counter log split by
+  read/write/verify (uncorrected, recovered-by-retry, and corrected totals), and
+  the SAS phy link counters summed across every phy.
+
+Some of those counters are routinely enormous on a perfectly healthy drive —
+millions of ECC-corrected reads, thousands of grown defects, hundreds of invalid
+DWORDs from ordinary cabling — which is the whole reason each row carries an
+explanation rather than just a number. The raw `smartctl --json` output for
+either snapshot is downloadable from the same page.
+
 ## Already-failed drives stop early
 
 A drive whose very first SMART read already condemns it does not get the

@@ -27,6 +27,14 @@ function fmtRaw(row: SmartAttributeRow): string {
   return row.rawString ?? fmt(row.rawValue)
 }
 
+/** ATA reports a normalized value/worst/threshold triplet per attribute; NVMe
+ * and SAS/SCSI have no such concept and leave all three null (issues #14, #54).
+ * Rendering them anyway gave a SAS drive three columns of "—", so they appear
+ * only when something actually populates them. */
+const showNormalized = computed<boolean>(() =>
+  props.attributes.some((a) => a.value != null || a.worst != null || a.thresh != null),
+)
+
 const rows = computed<Row[]>(() =>
   props.attributes.map((a) => {
     const info = describeAttribute(a)
@@ -49,9 +57,11 @@ const rows = computed<Row[]>(() =>
     <thead>
       <tr>
         <th>Attribute</th>
-        <th>Value</th>
-        <th>Worst</th>
-        <th>Thresh</th>
+        <template v-if="showNormalized">
+          <th>Value</th>
+          <th>Worst</th>
+          <th>Thresh</th>
+        </template>
         <th>Raw</th>
         <th>Status</th>
       </tr>
@@ -62,9 +72,11 @@ const rows = computed<Row[]>(() =>
           <div class="smart-attributes-table__label">{{ row.label }}</div>
           <div class="smart-attributes-table__description">{{ row.description }}</div>
         </td>
-        <td>{{ row.value }}</td>
-        <td>{{ row.worst }}</td>
-        <td>{{ row.thresh }}</td>
+        <template v-if="showNormalized">
+          <td>{{ row.value }}</td>
+          <td>{{ row.worst }}</td>
+          <td>{{ row.thresh }}</td>
+        </template>
         <td>{{ row.raw }}</td>
         <td>
           <v-chip :color="attributeHealthColor(row.health)" variant="tonal" size="small" label>

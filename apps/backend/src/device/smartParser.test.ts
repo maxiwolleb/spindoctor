@@ -8,6 +8,7 @@ import {
   parseSmartMetrics,
   parseSelfTest,
 } from "./smartParser"
+import { evaluateVerdict } from "../verdict/evaluate"
 import ataHealthy from "./__fixtures__/ata-healthy.json"
 import ataFailing from "./__fixtures__/ata-failing.json"
 import ataWarning from "./__fixtures__/ata-warning.json"
@@ -348,5 +349,104 @@ describe("parseSmartMetrics — SAS link counters", () => {
       },
     }
     expect(parseSmartMetrics(spaced).linkErrors).toBe(13)
+  })
+})
+
+// Issue #54: SAS/SCSI drives had an empty attribute table — `parseSmartAttributes`
+// only knew the ATA table and the NVMe health log — even though the health data
+// is in the raw JSON we already store.
+describe("parseSmartAttributes (SAS/SCSI)", () => {
+  const byName = (rows: ReturnType<typeof parseSmartAttributes>, name: string) =>
+    rows.find((r) => r.name === name)
+
+  it("surfaces the drive's own failing self-assessment as the leading row", () => {
+    const rows = parseSmartAttributes(sasImpendingFailure, DEFAULT_THRESHOLDS)
+
+    // On SAS this is the authoritative failure signal, so it leads the table.
+    expect(rows[0]).toMatchObject({
+      name: "scsi_smart_status",
+      id: null,
+      rawValue: null,
+      rawString: "FAILING",
+      health: "fail",
+    })
+  })
+
+  it("grades grown defects as a warning and link counters as cabling warnings", () => {
+    const rows = parseSmartAttributes(sasImpendingFailure, DEFAULT_THRESHOLDS)
+
+    // Warn, not fail: healthy in-service SAS drives routinely carry thousands,
+    // so only growth during a run condemns (see verdict/evaluate.ts).
+    expect(byName(rows, "scsi_grown_defect_list")).toMatchObject({ rawValue: 636, health: "warn" })
+    expect(byName(rows, "sas_invalid_dword_count")).toMatchObject({ rawValue: 255, health: "warn" })
+    expect(byName(rows, "sas_loss_of_dword_synchronization_count")).toMatchObject({
+      rawValue: 6,
+      health: "warn",
+    })
+    // Never graded — same cabling story, but the evaluator doesn't act on them.
+    expect(byName(rows, "sas_running_disparity_error_count")).toMatchObject({
+      rawValue: 249,
+      health: "ok",
+    })
+    expect(byName(rows, "sas_phy_reset_problem_count")).toMatchObject({ rawValue: 0, health: "ok" })
+  })
+
+  it("fails uncorrected errors per operation, and leaves ECC-corrected counts alone", () => {
+    const rows = parseSmartAttributes(sasUncorrectedErrors, DEFAULT_THRESHOLDS)
+
+    expect(byName(rows, "read_total_uncorrected_errors")).toMatchObject({
+      rawValue: 158,
+      health: "fail",
+    })
+    expect(byName(rows, "write_total_uncorrected_errors")).toMatchObject({ health: "ok" })
+    // 19.6M ECC-corrected reads is normal operation, not a defect — this row
+    // exists to be read, not to be graded.
+    const corrected = byName(
+      parseSmartAttributes(sasImpendingFailure, DEFAULT_THRESHOLDS),
+      "read_total_errors_corrected",
+    )
+    expect(corrected).toMatchObject({ rawValue: 19650581, health: "ok" })
+  })
+
+  it("surfaces reread/rewrite recoveries, the counter that precedes real trouble", () => {
+    const rows = parseSmartAttributes(sasUncorrectedErrors, DEFAULT_THRESHOLDS)
+    expect(byName(rows, "read_errors_corrected_by_rereads_rewrites")).toMatchObject({
+      rawValue: 158,
+      health: "ok",
+    })
+  })
+
+  it("includes power-on hours and temperature as informational rows", () => {
+    const rows = parseSmartAttributes(sasImpendingFailure, DEFAULT_THRESHOLDS)
+    expect(byName(rows, "power_on_hours")).toMatchObject({ rawValue: 56724, health: "ok" })
+    expect(byName(rows, "temperature_celsius")).toMatchObject({ rawValue: 40, health: "ok" })
+  })
+
+  it("every row agrees with the verdict the same snapshot produces", () => {
+    const rows = parseSmartAttributes(sasImpendingFailure, DEFAULT_THRESHOLDS)
+    const metrics = parseSmartMetrics(sasImpendingFailure)
+    const { reasons } = evaluateVerdict({
+      before: metrics,
+      after: metrics,
+      deviceType: "HDD",
+      selfTest: { status: "PASSED" },
+      surface: null,
+      thresholds: DEFAULT_THRESHOLDS,
+    })
+    const worst = reasons.some((r) => r.severity === "fail") ? "fail" : "warn"
+    const worstRow = rows.some((r) => r.health === "fail") ? "fail" : "warn"
+    expect(worstRow).toBe(worst)
+  })
+
+  it("omits rows a drive doesn't report rather than inventing zeros", () => {
+    // scsi-minimal has no error counter log, no defect list, no phy counters
+    // and no power-on time — only a self-assessment.
+    const rows = parseSmartAttributes(scsiMinimal, DEFAULT_THRESHOLDS)
+    expect(rows.map((r) => r.name)).toEqual(["scsi_smart_status"])
+    expect(rows[0]).toMatchObject({ rawString: "OK", health: "ok" })
+  })
+
+  it("still returns an empty table for a device that reports nothing at all", () => {
+    expect(parseSmartAttributes({ device: { protocol: "SCSI" } }, DEFAULT_THRESHOLDS)).toEqual([])
   })
 })
