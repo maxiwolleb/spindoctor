@@ -5,8 +5,10 @@ self-test → destructive surface scan (`badblocks -w`) → SMART again →
 **PASS / WARN / FAIL** — driven from a live web console.
 
 [![CI](https://img.shields.io/github/actions/workflow/status/maxiwolleb/spindoctor/ci.yml?branch=main&label=CI)](https://github.com/maxiwolleb/spindoctor/actions/workflows/ci.yml)
+[![Coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fmaxiwolleb.github.io%2Fspindoctor%2Fcoverage.json)](https://maxiwolleb.github.io/spindoctor/)
+[![Docs](https://img.shields.io/badge/docs-maxiwolleb.github.io-38F5A2)](https://maxiwolleb.github.io/spindoctor/)
 [![License: MIT](https://img.shields.io/github/license/maxiwolleb/spindoctor)](LICENSE)
-[![Image](https://img.shields.io/badge/ghcr.io-maxiwolleb%2Fspindoctor-blue)](https://github.com/maxiwolleb/spindoctor/pkgs/container/spindoctor)
+[![Image](https://img.shields.io/badge/ghcr.io-maxiwolleb%2Fspindoctor-blue)](https://github.com/maxiwolleb/spindoctor/packages)
 
 > [!WARNING]
 > **In active development — not ready for use.** spindoctor is still a work
@@ -53,6 +55,18 @@ any device through.
   list, and the auto-mode acknowledgment + toggle.
 
 ## Quickstart
+
+> [!IMPORTANT]
+> **No image has been published yet**, so `ghcr.io/maxiwolleb/spindoctor:latest`
+> cannot be pulled until the first `v*` tag exists. Until then, build it from a
+> checkout and use that tag instead:
+>
+> ```
+> git clone https://github.com/maxiwolleb/spindoctor && cd spindoctor
+> docker build -t spindoctor:local .
+> ```
+>
+> then set `image: spindoctor:local` below.
 
 ```yaml
 # docker-compose.yml
@@ -137,6 +151,16 @@ startup.
   surface scan → WARN.
 - Interface CRC errors → WARN (check cabling).
 - NVMe media errors → FAIL.
+- **The drive's own SMART health verdict** reporting failure → FAIL. On SAS this
+  is authoritative ("impending failure, data error rate too high"); on ATA it
+  can condemn a drive but is never taken as proof one is healthy, since it
+  routinely still reads "passed" on a failing disk.
+- **SAS/SCSI grown defects:** present but stable → WARN; grown during the test
+  window → FAIL. Deliberately no absolute-count FAIL: measured across a fleet of
+  in-service SAS drives, counts on healthy drives and on drives reporting
+  impending failure overlap completely, so the count alone cannot decide.
+- **SAS link errors** (invalid DWORDs, loss of sync) → WARN — usually the
+  cable/backplane rather than the drive.
 
 ### Auto-mode
 
@@ -244,6 +268,13 @@ built for a trusted LAN — do not expose it directly to the internet.
 Full docs, including install/run, how-it-works, safety, configuration, and
 architecture guides, are at
 **[maxiwolleb.github.io/spindoctor](https://maxiwolleb.github.io/spindoctor/)**.
+
+### Test coverage
+
+`pnpm test:coverage` reports it locally; CI runs the same command and fails
+below the thresholds in `vitest.config.ts`. The badge at the top is served from
+the docs site itself (`coverage.json`, written by the `Docs` workflow), so it
+tracks `main` without a third-party coverage service.
 
 The docs site (`website/`, VitePress) builds and deploys to GitHub Pages
 from `main` via the [`Docs`](.github/workflows/docs.yml) workflow — see

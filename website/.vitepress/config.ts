@@ -1,5 +1,12 @@
 import { defineConfig } from "vitepress"
 
+// The Pages deploy is a project site, so every absolute asset path has to carry
+// the base. VitePress rewrites the ones it owns (themeConfig.logo, markdown
+// links), but `head` entries are emitted verbatim — so `/favicon.svg` resolved to
+// maxiwolleb.github.io/favicon.svg and 404'd, leaving the docs with no icon.
+const base = process.env.DOCS_BASE ?? "/"
+const asset = (path: string): string => `${base.replace(/\/$/, "")}/${path.replace(/^\//, "")}`
+
 export default defineConfig({
   title: "spindoctor",
   description:
@@ -11,13 +18,13 @@ export default defineConfig({
   // Local dev/build serve from the root. The GitHub Pages deploy is a
   // project site (https://maxiwolleb.github.io/spindoctor/), so the Docs
   // workflow sets DOCS_BASE=/spindoctor/ for that build only.
-  base: process.env.DOCS_BASE ?? "/",
+  base,
 
   head: [
-    ["link", { rel: "icon", href: "/favicon.svg", type: "image/svg+xml" }],
-    ["link", { rel: "icon", type: "image/png", href: "/favicon-512.png" }],
-    ["link", { rel: "apple-touch-icon", href: "/apple-touch-icon.png" }],
-    ["link", { rel: "icon", href: "/favicon.ico", sizes: "any" }],
+    ["link", { rel: "icon", href: asset("favicon.svg"), type: "image/svg+xml" }],
+    ["link", { rel: "icon", type: "image/png", href: asset("favicon-512.png") }],
+    ["link", { rel: "apple-touch-icon", href: asset("apple-touch-icon.png") }],
+    ["link", { rel: "icon", href: asset("favicon.ico"), sizes: "any" }],
   ],
 
   themeConfig: {

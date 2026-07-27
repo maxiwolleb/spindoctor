@@ -12,7 +12,8 @@ export default defineConfig({
       // build + manual checks, not unit tests, so counting them here would
       // misrepresent how well the tested logic is covered.
       all: false,
-      reporter: ["text", "html", "lcov"],
+      // json-summary feeds the README's coverage badge (see the Docs workflow).
+      reporter: ["text", "html", "lcov", "json-summary"],
       exclude: [
         "**/*.config.*",
         "**/vitest.workspace.ts",

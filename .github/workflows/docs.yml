@@ -45,6 +45,27 @@ jobs:
           # Project site is served under /spindoctor/, not the domain root.
           DOCS_BASE: /spindoctor/
 
+      # Coverage is measured here, not just in CI, because this is the workflow
+      # that publishes to Pages — and the badge below is served from the site
+      # itself, which keeps the number in lockstep with what is on main without
+      # needing a third-party coverage service or any token. Costs one extra
+      # test run per docs deploy.
+      - name: Measure coverage for the README badge
+        run: pnpm test:coverage
+
+      - name: Publish the coverage badge endpoint
+        run: |
+          node -e '
+            const fs = require("node:fs");
+            const pct = require("./coverage/coverage-summary.json").total.lines.pct;
+            const color =
+              pct >= 90 ? "brightgreen" : pct >= 80 ? "green" : pct >= 70 ? "yellow" : "orange";
+            fs.writeFileSync(
+              "website/.vitepress/dist/coverage.json",
+              JSON.stringify({ schemaVersion: 1, label: "coverage", message: pct.toFixed(1) + "%", color }),
+            );
+          '
+
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
