@@ -1,0 +1,73 @@
+{
+  "_comment": "Real capture from a Realtek RTL9210 USB-NVMe enclosure (E2M2 64GB), 2026-07-27 \u2014 the repo's first non-hand-authored NVMe fixture. smartctl auto-detects the bridge as type sntrealtek/protocol NVMe with no -d flag, so discovery and the NVMe path work through USB. Note this controller populates almost nothing: power-on hours, data units, power cycles and BOTH available_spare and its threshold read 0, which is 'feature not implemented', not 'spare exhausted' \u2014 see nvmeAttributeHealth.",
+  "device": {
+    "name": "/dev/sdb",
+    "info_name": "/dev/sdb [USB NVMe Realtek]",
+    "type": "sntrealtek",
+    "protocol": "NVMe"
+  },
+  "model_name": "E2M2 64GB",
+  "serial_number": "MLK136D003912",
+  "firmware_version": "10100080",
+  "user_capacity": {
+    "blocks": 120831998,
+    "bytes": 61865982976
+  },
+  "logical_block_size": 512,
+  "smart_support": {
+    "available": true,
+    "enabled": true
+  },
+  "smart_status": {
+    "passed": true,
+    "nvme": {
+      "value": 0
+    }
+  },
+  "temperature": {
+    "op_limit_max": 70,
+    "critical_limit_max": 80,
+    "current": 35
+  },
+  "power_cycle_count": 0,
+  "power_on_time": {
+    "hours": 0
+  },
+  "spare_available": {
+    "current_percent": 0,
+    "threshold_percent": 0
+  },
+  "endurance_used": {
+    "current_percent": 0
+  },
+  "nvme_smart_health_information_log": {
+    "nsid": -1,
+    "critical_warning": 0,
+    "temperature": 35,
+    "available_spare": 0,
+    "available_spare_threshold": 0,
+    "percentage_used": 0,
+    "data_units_read": 0,
+    "data_units_written": 0,
+    "host_reads": 0,
+    "host_writes": 0,
+    "controller_busy_time": 0,
+    "power_cycles": 0,
+    "power_on_hours": 0,
+    "unsafe_shutdowns": 0,
+    "media_errors": 0,
+    "num_err_log_entries": 0,
+    "warning_temp_time": 0,
+    "critical_comp_time": 0
+  },
+  "nvme_error_information_log": {
+    "size": 1,
+    "read": 1,
+    "unread": 0
+  },
+  "nvme_version": {
+    "string": "1.3",
+    "value": 66304
+  },
+  "nvme_number_of_namespaces": 1
+}
