@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest"
 import {
   parseBadblocksPercent,
   countBadBlocks,
+  collapseProgressRedraw,
   formatSurfaceLog,
   badblocksPhaseCount,
   BadblocksProgressTracker,
@@ -34,7 +35,94 @@ describe("countBadBlocks", () => {
   })
 })
 
+// badblocks redraws its counter in place: each update is followed by a run of
+// backspaces. Stored raw, a real 500 GB run captured 3.87 MB of which 49.9% was
+// literally \x08, in 42,990 updates — see the shape here.
+const BS = "\x08".repeat(42)
+const progress = (pct: string, elapsed: string): string =>
+  `${pct}% done, ${elapsed} elapsed. (0/0/0 errors)`
+
+describe("collapseProgressRedraw", () => {
+  it("keeps one update per whole percent and drops the backspace runs", () => {
+    const stderr =
+      `Testing with pattern 0xaa:   ${progress("0.00", "0:00")}${BS}` +
+      `${progress("0.31", "0:01")}${BS}` +
+      `${progress("0.62", "0:02")}${BS}` +
+      `${progress("1.20", "0:03")}${BS}` +
+      `${progress("1.55", "0:04")}${BS}` +
+      `${progress("2.10", "0:05")}`
+
+    const out = collapseProgressRedraw(stderr)
+
+    expect(out).not.toContain("\x08")
+    // 0.xx collapses to one line, then 1.xx, then 2.xx.
+    expect(out.split("\n")).toEqual([
+      `Testing with pattern 0xaa:   ${progress("0.00", "0:00")}`,
+      progress("1.20", "0:03"),
+      progress("2.10", "0:05"),
+    ])
+  })
+
+  it("keeps phase headers and the trailing done verbatim, and restarts the percent run per phase", () => {
+    const stderr =
+      `Testing with pattern 0xaa:   ${progress("99.00", "1:00")}${BS}` +
+      `${progress("100.00", "1:01")}${BS}` +
+      `Reading and comparing:   ${progress("0.50", "1:02")}${BS}` +
+      `${progress("1.50", "1:03")}${BS}` +
+      `done                              `
+
+    const out = collapseProgressRedraw(stderr)
+    const lines = out.split("\n")
+
+    expect(lines[0]).toContain("Testing with pattern 0xaa:")
+    expect(lines).toContain(progress("100.00", "1:01"))
+    expect(lines.some((l) => l.startsWith("Reading and comparing:"))).toBe(true)
+    expect(lines[lines.length - 1]).toBe("done")
+  })
+
+  it("always keeps the final update, so the last percent reached is never lost", () => {
+    const stderr = `${progress("7.10", "0:10")}${BS}${progress("7.90", "0:11")}`
+
+    // Both are 7%, but the last line still has to survive.
+    expect(collapseProgressRedraw(stderr).split("\n")).toEqual([
+      progress("7.10", "0:10"),
+      progress("7.90", "0:11"),
+    ])
+  })
+
+  it("shrinks a full-length run by orders of magnitude", () => {
+    // One pattern's write phase at the real update rate: ~5400 updates.
+    let stderr = "Testing with pattern 0xaa:   "
+    for (let i = 0; i <= 5400; i++) {
+      stderr += progress(((i / 5400) * 100).toFixed(2), `0:${i}`) + BS
+    }
+    stderr += "done"
+
+    const out = collapseProgressRedraw(stderr)
+
+    expect(out.length).toBeLessThan(stderr.length / 40)
+    expect(out).not.toContain("\x08")
+    expect(out.split("\n").length).toBeLessThanOrEqual(103) // header + 0..100 + done
+  })
+
+  it("leaves output that has no redraw untouched", () => {
+    expect(collapseProgressRedraw("Checking for bad blocks\n")).toBe("Checking for bad blocks")
+  })
+})
+
 describe("formatSurfaceLog", () => {
+  it("collapses the redraw in the stderr section rather than storing it raw", () => {
+    const stderr =
+      `Testing with pattern 0xaa:   ${progress("0.00", "0:00")}${BS}` +
+      `${progress("0.50", "0:01")}${BS}` +
+      `${progress("5.00", "0:02")}`
+
+    const log = formatSurfaceLog({ stdout: "", stderr, badBlocksLog: "" })
+
+    expect(log).not.toContain("\x08")
+    expect(log).toContain(progress("5.00", "0:02"))
+  })
+
   it("labels each section and includes the given content verbatim", () => {
     const log = formatSurfaceLog({
       stdout: "checking devices\n",
