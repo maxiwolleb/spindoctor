@@ -12,6 +12,7 @@ import type {
   Thresholds,
 } from "@spindoctor/shared"
 import type { Db } from "../db/client"
+import { silentLogger, type Logger } from "../logger"
 import type { DeviceApi } from "../device/deviceApi"
 import { parseSmartMetrics } from "../device/smartParser"
 import { evaluateVerdict } from "../verdict/evaluate"
@@ -75,6 +76,9 @@ export class RunInProgressError extends Error {
 export interface TestEngineDeps {
   db: Db
   deviceApi: DeviceApi
+  /** Structured logger. Defaults to silent so tests stay quiet; `createServer`
+   * passes the real one. */
+  logger?: Logger
   sleep?: (ms: number) => Promise<void>
   selfTestPollIntervalMs?: number
   concurrency?: number
@@ -117,6 +121,7 @@ interface ResumeInfo {
 export class TestEngine extends EventEmitter {
   private readonly db: Db
   private readonly deviceApi: DeviceApi
+  private readonly log: Logger
   private readonly sleep: (ms: number) => Promise<void>
   private readonly selfTestPollIntervalMs: number
   private readonly semaphore: Semaphore
@@ -157,6 +162,7 @@ export class TestEngine extends EventEmitter {
     super()
     this.db = deps.db
     this.deviceApi = deps.deviceApi
+    this.log = deps.logger ?? silentLogger()
     this.sleep = deps.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)))
     this.selfTestPollIntervalMs = deps.selfTestPollIntervalMs ?? 60_000
     this.semaphore = new Semaphore(deps.concurrency ?? getConfig(deps.db).concurrency)
@@ -203,6 +209,7 @@ export class TestEngine extends EventEmitter {
         action: mode === "destructive" ? "DESTRUCTIVE_START" : "READONLY_START",
         driveSerial: serial,
       })
+      this.log.info({ runId, driveSerial: serial, mode }, "run started")
 
       const controller = new AbortController()
       this.controllers.set(runId, controller)
@@ -254,6 +261,12 @@ export class TestEngine extends EventEmitter {
    */
   async reconcile(): Promise<void> {
     const runs = listRuns(this.db).filter((r) => r.status === "RUNNING" || r.status === "PENDING")
+    if (runs.length > 0) {
+      this.log.info(
+        { count: runs.length, runIds: runs.map((r) => r.id) },
+        "resuming interrupted runs",
+      )
+    }
     for (const run of runs) {
       // Guard against double-starting a run already being executed in this
       // process — e.g. a run already driven by startRun, or an overlapping
@@ -547,6 +560,7 @@ export class TestEngine extends EventEmitter {
       // listening for run:update events, can still see where a RUNNING run
       // currently is.
       updateRun(this.db, runId, { currentStage: stage })
+      this.log.info({ runId, driveSerial: currentDrive.serial, stage }, "stage started")
       this.#emitRunUpdate({
         runId,
         driveSerial: currentDrive.serial,
@@ -566,6 +580,10 @@ export class TestEngine extends EventEmitter {
           skipSelfTestStart,
         )
       } catch (err) {
+        this.log.error(
+          { err, runId, driveSerial: currentDrive.serial, stage },
+          "stage failed — run aborted",
+        )
         updateStage(this.db, stageId, { status: "FAILED", finishedAt: new Date() })
         this.terminalRuns.add(runId)
         updateRun(this.db, runId, {
@@ -899,6 +917,10 @@ export class TestEngine extends EventEmitter {
       currentStage: "VERDICT",
       finishedAt: new Date(),
     })
+    this.log.info(
+      { runId, driveSerial: drive.serial, verdict, reasons: reasons.map((r) => r.code) },
+      "run finished",
+    )
     this.#emitRunUpdate({ runId, driveSerial: drive.serial, status: "DONE", verdict })
   }
 

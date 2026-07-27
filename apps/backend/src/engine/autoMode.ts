@@ -2,6 +2,7 @@ import type { DiscoveredDrive, RegimeMode } from "@spindoctor/shared"
 import type { Db } from "../db/client"
 import type { DeviceApi } from "../device/deviceApi"
 import { appendAudit, getConfig, upsertDrive } from "../db/repositories"
+import { silentLogger, type Logger } from "../logger"
 import { checkDestructiveAllowed } from "../safety/guards"
 
 /**
@@ -24,6 +25,8 @@ export interface AutoModePollerDeps {
   engine: AutoModeEngine
   intervalMs?: number
   sleep?: (ms: number) => Promise<void>
+  /** Structured logger; silent by default so tests stay quiet. */
+  logger?: Logger
 }
 
 /**
@@ -39,6 +42,7 @@ export class AutoModePoller {
   readonly #engine: AutoModeEngine
   readonly #intervalMs: number
   readonly #sleep: (ms: number) => Promise<void>
+  readonly #log: Logger
   /**
    * Serials already enqueued for a destructive run, tracked in-memory for
    * this process's lifetime so a drive isn't re-enqueued on every poll.
@@ -62,6 +66,7 @@ export class AutoModePoller {
     this.#deviceApi = deps.deviceApi
     this.#engine = deps.engine
     this.#intervalMs = deps.intervalMs ?? 30_000
+    this.#log = deps.logger ?? silentLogger()
     this.#sleep = deps.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)))
   }
 
@@ -104,6 +109,7 @@ export class AutoModePoller {
         // re-enqueued (and a second run started) on the next poll.
         this.#enqueued.add(drive.serial)
         appendAudit(this.#db, { action: "AUTO_ENQUEUE", driveSerial: drive.serial })
+        this.#log.info({ driveSerial: drive.serial }, "auto-mode enqueued a destructive run")
       } catch {
         // Per-drive isolation: e.g. a race where the drive became unsafe (or
         // vanished) between the check above and startRun actually resolving
@@ -162,7 +168,7 @@ export class AutoModePoller {
     try {
       await this.pollOnce()
     } catch (err) {
-      console.error("[autoMode] poll cycle failed:", err)
+      this.#log.error({ err }, "auto-mode poll cycle failed")
     }
   }
 }

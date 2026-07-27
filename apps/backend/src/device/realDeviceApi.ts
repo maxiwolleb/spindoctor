@@ -15,6 +15,7 @@ import { parseLsblk } from "./lsblkParser"
 import { parseSmartctlScan } from "./scanParser"
 import { mergeDiscovery } from "./discovery"
 import { parseSelfTest, scsiSelfTestInProgress } from "./smartParser"
+import { silentLogger, type Logger } from "../logger"
 import {
   parseBadblocksPercent,
   countBadBlocks,
@@ -43,6 +44,8 @@ export interface RealDeviceApiOpts {
   surfaceCommand?: string
   /** Test seam: builds the arg list (given the logfile path) instead of the real `-w/-n -s -o` flags. */
   surfaceArgsPrefix?: (logfile: string) => string[]
+  /** Structured logger; silent by default. */
+  logger?: Logger
 }
 
 /**
@@ -63,10 +66,14 @@ export class RealDeviceApi implements DeviceApi {
    */
   private reportedSkips = new Set<string>()
 
+  private readonly log: Logger
+
   constructor(
     private runner: CommandRunner,
     private opts: RealDeviceApiOpts = {},
-  ) {}
+  ) {
+    this.log = opts.logger ?? silentLogger()
+  }
 
   async listDevices(): Promise<DiscoveredDrive[]> {
     const [lsblkResult, scanResult] = await Promise.all([
@@ -79,7 +86,7 @@ export class RealDeviceApi implements DeviceApi {
       const key = `${devicePath}\t${reason}`
       if (this.reportedSkips.has(key)) return
       this.reportedSkips.add(key)
-      console.warn(`[discovery] ignoring ${devicePath}: ${reason}`)
+      this.log.warn({ devicePath, reason }, "ignoring block device during discovery")
     })
   }
 

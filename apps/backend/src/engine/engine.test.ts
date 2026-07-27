@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest"
+import pino from "pino"
 import { and, eq } from "drizzle-orm"
 import type {
   DiscoveredDrive,
@@ -1152,5 +1153,70 @@ describe("TestEngine driveSerial in events (Fix 3)", () => {
     expect(stageProgress.some((e) => e.stage === "SELFTEST_LONG")).toBe(true)
     expect(stageProgress.some((e) => e.stage === "SURFACE")).toBe(true)
     expect(stageProgress.every((e) => e.driveSerial === d.serial)).toBe(true)
+  })
+})
+
+// #17: a stage failure used to land only in a DB column, so `docker logs` showed
+// nothing when a run broke. These assert it reaches the log with enough context
+// to identify the run, drive and stage.
+describe("TestEngine structured logging (#17)", () => {
+  function memoryLogger() {
+    const lines: string[] = []
+    const logger = pino({ level: "info" }, { write: (line: string) => void lines.push(line) })
+    return { logger, entries: () => lines.map((l) => JSON.parse(l) as Record<string, unknown>) }
+  }
+
+  it("logs run start, each stage, and the verdict with run context", async () => {
+    const d = drive()
+    const { logger, entries } = memoryLogger()
+    const api = new FakeDeviceApi({
+      drives: [d],
+      smartByPath: { [d.devicePath]: smartRaw() },
+      selfTestByPath: { [d.devicePath]: PASSED_SELFTEST },
+    })
+    const engine = new TestEngine({
+      db,
+      deviceApi: api,
+      logger,
+      sleep: async () => {},
+      selfTestPollIntervalMs: 0,
+    })
+
+    const runId = await engine.startRun({ serial: d.serial, mode: "read-only" })
+    await waitForSettled(engine, runId)
+
+    const msgs = entries().map((e) => e.msg)
+    expect(msgs).toContain("run started")
+    expect(msgs).toContain("stage started")
+    expect(msgs).toContain("run finished")
+
+    const finished = entries().find((e) => e.msg === "run finished")
+    expect(finished).toMatchObject({ runId, driveSerial: d.serial, verdict: "PASS" })
+  })
+
+  it("logs a stage failure at error level with the run, drive and stage", async () => {
+    const d = drive()
+    const { logger, entries } = memoryLogger()
+    const api = new FakeDeviceApi({ drives: [d] }) // no SMART data -> SMART_BEFORE throws
+    const engine = new TestEngine({
+      db,
+      deviceApi: api,
+      logger,
+      sleep: async () => {},
+      selfTestPollIntervalMs: 0,
+    })
+
+    const runId = await engine.startRun({ serial: d.serial, mode: "read-only" })
+    await waitForSettled(engine, runId)
+
+    const failure = entries().find((e) => e.msg === "stage failed — run aborted")
+    expect(failure).toMatchObject({
+      runId,
+      driveSerial: d.serial,
+      stage: "SMART_BEFORE",
+      level: 50,
+    })
+    // The thrown error itself must be there, not just a message.
+    expect(JSON.stringify(failure?.err)).toContain("no SMART data")
   })
 })
