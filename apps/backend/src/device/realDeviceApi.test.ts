@@ -29,6 +29,32 @@ describe("RealDeviceApi", () => {
     expect(drives.map((d) => d.serial).sort()).toEqual(["S4EWNX0M", "WD-WCC7K1", "ZFL9AB"])
   })
 
+  // The lsblk fixture contains a serial-less disk (sdc), which discovery drops.
+  // listDevices runs on every auto-mode poll, so the warning has to be logged
+  // once per device+reason and not on every cycle.
+  it("warns once per ignored device, not on every poll", async () => {
+    const warnings: string[] = []
+    const warn = console.warn
+    console.warn = (msg: unknown) => void warnings.push(String(msg))
+    try {
+      const api = new RealDeviceApi(
+        fakeRunner({
+          lsblk: { stdout: JSON.stringify(lsblk) },
+          "smartctl --scan": { stdout: JSON.stringify(scan) },
+        }),
+      )
+      await api.listDevices()
+      await api.listDevices()
+      await api.listDevices()
+    } finally {
+      console.warn = warn
+    }
+
+    expect(warnings.filter((w) => w.includes("/dev/sdc"))).toHaveLength(1)
+    expect(warnings[0]).toMatch(/no serial/)
+    expect(warnings[0]).toMatch(/udev/)
+  })
+
   it("parses SMART even when smartctl exits non-zero (bitmask)", async () => {
     const api = new RealDeviceApi(
       fakeRunner({ "smartctl -x": { stdout: JSON.stringify(ataHealthy), code: 4 } }),

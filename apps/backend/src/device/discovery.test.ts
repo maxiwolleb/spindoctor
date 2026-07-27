@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest"
 import { parseLsblk } from "./lsblkParser"
 import { parseSmartctlScan } from "./scanParser"
 import { mergeDiscovery } from "./discovery"
+import type { DiscoverySkip } from "./discovery"
 import type { LsblkDisk } from "./lsblkParser"
 import lsblk from "./__fixtures__/lsblk.json"
 import scan from "./__fixtures__/smartctl-scan.json"
@@ -77,5 +78,55 @@ describe("mergeDiscovery", () => {
 
     const result = mergeDiscovery([real, virtualDisk], scanDevices)
     expect(result.map((d) => d.serial)).toEqual(["REAL1"])
+  })
+
+  it("reports every dropped device, and why, so an empty dashboard is diagnosable", () => {
+    const skips: DiscoverySkip[] = []
+    const noSerial = lsblkDisk({ devicePath: "/dev/sdb", serial: null })
+    const notScanned = lsblkDisk({ devicePath: "/dev/sdc", serial: "UNSEEN" })
+    const virtualDisk = lsblkDisk({
+      devicePath: "/dev/sdd",
+      serial: "VIRTUAL2",
+      transport: "UNKNOWN",
+    })
+    const kept = lsblkDisk({ devicePath: "/dev/sde", serial: "KEEP" })
+    const scanDevices = [
+      { devicePath: "/dev/sdb" },
+      { devicePath: "/dev/sdd" },
+      { devicePath: "/dev/sde" },
+    ]
+
+    const result = mergeDiscovery([noSerial, notScanned, virtualDisk, kept], scanDevices, (s) =>
+      skips.push(s),
+    )
+
+    expect(result.map((d) => d.serial)).toEqual(["KEEP"])
+    expect(skips).toEqual([
+      { devicePath: "/dev/sdb", reason: expect.stringContaining("serial") },
+      { devicePath: "/dev/sdc", reason: expect.stringContaining("smartctl") },
+      { devicePath: "/dev/sdd", reason: expect.stringContaining("transport") },
+    ])
+  })
+
+  // The no-serial case is almost always a container without /run/udev mounted:
+  // lsblk resolves SERIAL out of the udev database, so without it every disk
+  // looks serial-less and the dashboard comes up empty. Name the cause in the
+  // message rather than making the operator guess.
+  it("names the udev mount as the likely cause of a missing serial", () => {
+    const skips: DiscoverySkip[] = []
+    mergeDiscovery([lsblkDisk({ serial: null })], [{ devicePath: "/dev/sdx" }], (s) =>
+      skips.push(s),
+    )
+    expect(skips[0]?.reason).toMatch(/udev/)
+  })
+
+  it("says nothing when every disk is kept", () => {
+    const skips: DiscoverySkip[] = []
+    mergeDiscovery(
+      [lsblkDisk({ devicePath: "/dev/sde", serial: "KEEP" })],
+      [{ devicePath: "/dev/sde" }],
+      (s) => skips.push(s),
+    )
+    expect(skips).toEqual([])
   })
 })

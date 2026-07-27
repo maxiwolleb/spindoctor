@@ -11,6 +11,12 @@ services:
       # App database (SQLite) lives here; back this up like you would any
       # other stateful volume.
       - ./data:/data
+      # Uncomment together with the device-passthrough block below. `lsblk`
+      # resolves drive serials out of the host's udev database, and spindoctor
+      # keys every drive on its serial — so without this mount every disk is
+      # reported serial-less, discovery drops all of them, and the dashboard
+      # stays empty even though the disks are attached and healthy.
+      # - /run/udev:/run/udev:ro
     restart: unless-stopped
 
     # ---------------------------------------------------------------------
@@ -37,7 +43,10 @@ services:
     #   - SYS_RAWIO
     #   - SYS_ADMIN
     #
-    # Either way, list the exact drives to pass through (replace /dev/sdX,
+    # Either way: also uncomment the `/run/udev` mount in `volumes:` above, or
+    # no drive will be discovered at all.
+    #
+    # Then list the exact drives to pass through (replace /dev/sdX,
     # /dev/sdY with the real device paths on the host — double-check with
     # `lsblk` first):
     # devices:
