@@ -112,12 +112,32 @@ describe("mergeDiscovery", () => {
   // lsblk resolves SERIAL out of the udev database, so without it every disk
   // looks serial-less and the dashboard comes up empty. Name the cause in the
   // message rather than making the operator guess.
-  it("names the udev mount as the likely cause of a missing serial", () => {
+  it("names the udev mount as the likely cause when nothing at all was discovered", () => {
     const skips: DiscoverySkip[] = []
     mergeDiscovery([lsblkDisk({ serial: null })], [{ devicePath: "/dev/sdx" }], (s) =>
       skips.push(s),
     )
     expect(skips[0]?.reason).toMatch(/udev/)
+  })
+
+  // zram and loop devices have no serial by nature. Blaming udev when the mount
+  // is plainly working (a real drive came through) sends the operator to inspect
+  // correct configuration.
+  it("does not blame udev when other drives were discovered fine", () => {
+    const skips: DiscoverySkip[] = []
+    const kept = lsblkDisk({ devicePath: "/dev/sda", serial: "KEEP" })
+    const noSerial = lsblkDisk({ devicePath: "/dev/zram0", serial: null })
+
+    const result = mergeDiscovery(
+      [kept, noSerial],
+      [{ devicePath: "/dev/sda" }, { devicePath: "/dev/zram0" }],
+      (s) => skips.push(s),
+    )
+
+    expect(result.map((d) => d.serial)).toEqual(["KEEP"])
+    expect(skips[0]?.devicePath).toBe("/dev/zram0")
+    expect(skips[0]?.reason).toMatch(/no serial/)
+    expect(skips[0]?.reason).not.toMatch(/udev/)
   })
 
   it("says nothing when every disk is kept", () => {
