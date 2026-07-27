@@ -1,0 +1,53 @@
+{
+  "json_format_version": [1, 0],
+  "smartctl": { "version": [7, 5], "exit_status": 8 },
+  "device": { "name": "/dev/sda", "info_name": "/dev/sda", "type": "scsi", "protocol": "SCSI" },
+  "scsi_vendor": "SEAGATE",
+  "scsi_product": "ST12000NM0027",
+  "scsi_revision": "E004",
+  "scsi_version": "SPC-4",
+  "model_name": "SEAGATE ST12000NM0027",
+  "scsi_model_name": "SEAGATE ST12000NM0027",
+  "serial_number": "SASFIXTURE0001",
+  "logical_unit_id": "0x5000c500000000a1",
+  "rotation_rate": 7200,
+  "form_factor": { "scsi_value": 2, "name": "3.5 inches" },
+  "user_capacity": { "blocks": 23437770752, "bytes": 12000138625024 },
+  "logical_block_size": 512,
+  "physical_block_size": 4096,
+  "scsi_transport_protocol": { "value": 6, "name": "SAS (SPL-4)" },
+  "smart_support": { "available": true, "enabled": true },
+  "smart_status": { "passed": false },
+  "temperature": { "current": 40, "drive_trip": 60 },
+  "power_on_time": { "hours": 56724 },
+  "scsi_grown_defect_list": 636,
+  "scsi_error_counter_log": {
+    "read": {
+      "errors_corrected_by_eccfast": 19650581,
+      "errors_corrected_by_eccdelayed": 0,
+      "errors_corrected_by_rereads_rewrites": 0,
+      "total_errors_corrected": 19650581,
+      "correction_algorithm_invocations": 0,
+      "gigabytes_processed": "79.324",
+      "total_uncorrected_errors": 0
+    },
+    "write": {
+      "errors_corrected_by_eccfast": 0,
+      "errors_corrected_by_eccdelayed": 0,
+      "errors_corrected_by_rereads_rewrites": 0,
+      "total_errors_corrected": 0,
+      "correction_algorithm_invocations": 0,
+      "gigabytes_processed": "219.451",
+      "total_uncorrected_errors": 0
+    },
+    "verify": {
+      "errors_corrected_by_eccfast": 0,
+      "errors_corrected_by_eccdelayed": 0,
+      "errors_corrected_by_rereads_rewrites": 0,
+      "total_errors_corrected": 0,
+      "correction_algorithm_invocations": 0,
+      "gigabytes_processed": "0.000",
+      "total_uncorrected_errors": 0
+    }
+  }
+}

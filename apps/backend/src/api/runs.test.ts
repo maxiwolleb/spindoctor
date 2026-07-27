@@ -398,6 +398,8 @@ describe("GET /api/runs/:id", () => {
         percentageUsed: null,
         mediaErrors: null,
         temperatureC: 30,
+        grownDefects: null,
+        smartHealthPassed: null,
       },
     })
 

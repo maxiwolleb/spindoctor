@@ -33,10 +33,64 @@ const ATA_ATTR_IDS = {
   crcErrors: 199,
 } as const
 
+/** True for a SAS/SCSI device, which reports health via SCSI log pages rather
+ * than an ATA attribute table (see `parseScsiMetrics`). */
+export function isScsiDevice(json: unknown): boolean {
+  const device = asRecord(asRecord(json).device)
+  return device.protocol === "SCSI" || device.type === "scsi"
+}
+
+/**
+ * SAS/SCSI metrics. There is no ATA attribute table here — smartctl reports
+ * the grown defect list and an error counter log split by operation
+ * (`read`/`write`/`verify`), each with its own uncorrected-error total.
+ *
+ * The uncorrected totals are summed across all three operations into
+ * `reportedUncorrect`: the ATA attribute of that name (187) counts the same
+ * thing — errors the drive could not recover — so a SAS drive lands on the
+ * existing verdict rule rather than needing a parallel one.
+ *
+ * Fields with no SAS analogue stay `null`: SAS has no current-pending or
+ * offline-uncorrectable concept, no interface CRC attribute, and no wear
+ * percentage. Power-on hours are absent on some vendors' drives (HGST omits
+ * the Seagate/Hitachi vendor page this is read from), so it stays nullable.
+ */
+function parseScsiMetrics(j: Record<string, any>, temperatureC: number | null): SmartKeyMetrics {
+  const counters = asRecord(j.scsi_error_counter_log)
+  const uncorrectedFor = (op: string): number | null =>
+    num(asRecord(counters[op]).total_uncorrected_errors)
+
+  const uncorrected = ["read", "write", "verify"]
+    .map(uncorrectedFor)
+    .filter((v): v is number => v != null)
+
+  return {
+    reallocatedSectors: null,
+    currentPending: null,
+    offlineUncorrectable: null,
+    reportedUncorrect: uncorrected.length > 0 ? uncorrected.reduce((a, b) => a + b, 0) : null,
+    crcErrors: null,
+    powerOnHours: num(asRecord(j.power_on_time).hours),
+    percentageUsed: null,
+    mediaErrors: null,
+    temperatureC,
+    grownDefects: num(j.scsi_grown_defect_list),
+    smartHealthPassed: healthPassed(j),
+  }
+}
+
+/** The drive's own overall verdict, if it reported one. */
+function healthPassed(j: Record<string, any>): boolean | null {
+  const passed = asRecord(j.smart_status).passed
+  return typeof passed === "boolean" ? passed : null
+}
+
 export function parseSmartMetrics(json: unknown): SmartKeyMetrics {
   const j = asRecord(json)
   const temperatureC = num(asRecord(j.temperature).current)
   const type = parseDeviceType(json)
+
+  if (isScsiDevice(json)) return parseScsiMetrics(j, temperatureC)
 
   if (type === "NVMe") {
     const log = asRecord(j.nvme_smart_health_information_log)
@@ -50,6 +104,8 @@ export function parseSmartMetrics(json: unknown): SmartKeyMetrics {
       percentageUsed: num(log.percentage_used),
       mediaErrors: num(log.media_errors),
       temperatureC,
+      grownDefects: null,
+      smartHealthPassed: healthPassed(j),
     }
   }
 
@@ -71,6 +127,8 @@ export function parseSmartMetrics(json: unknown): SmartKeyMetrics {
     percentageUsed: null,
     mediaErrors: null,
     temperatureC,
+    grownDefects: null,
+    smartHealthPassed: healthPassed(j),
   }
 }
 

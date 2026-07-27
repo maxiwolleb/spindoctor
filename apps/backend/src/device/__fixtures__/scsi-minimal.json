@@ -1,0 +1,89 @@
+{
+  "json_format_version": [
+    1,
+    0
+  ],
+  "smartctl": {
+    "version": [
+      7,
+      5
+    ],
+    "exit_status": 4
+  },
+  "device": {
+    "name": "/dev/sdb",
+    "info_name": "/dev/sdb",
+    "type": "scsi",
+    "protocol": "SCSI"
+  },
+  "scsi_vendor": "Linux",
+  "scsi_product": "scsi_debug",
+  "model_name": "Linux scsi_debug",
+  "scsi_model_name": "Linux scsi_debug",
+  "scsi_revision": "0191",
+  "scsi_version": "SPC-5",
+  "user_capacity": {
+    "blocks": 32768,
+    "bytes": 16777216
+  },
+  "logical_block_size": 512,
+  "scsi_lb_provisioning": {
+    "name": "fully provisioned",
+    "value": 0,
+    "management_enabled": {
+      "name": "LBPME",
+      "value": -1
+    },
+    "read_zeros": {
+      "name": "LBPRZ",
+      "value": 0
+    }
+  },
+  "rotation_rate": 0,
+  "form_factor": {
+    "scsi_value": 5,
+    "name": "< 1.8 inches"
+  },
+  "logical_unit_id": "0x3333333000003e80",
+  "serial_number": "16000",
+  "device_type": {
+    "scsi_terminology": "Peripheral Device Type [PDT]",
+    "scsi_value": 0,
+    "name": "disk"
+  },
+  "scsi_transport_protocol": {
+    "name": "SAS (SPL-4)",
+    "value": 6
+  },
+  "smart_support": {
+    "available": true,
+    "enabled": false
+  },
+  "temperature_warning": {
+    "enabled": false
+  },
+  "smart_status": {
+    "passed": true
+  },
+  "scsi_environmental_reports": {
+    "temperature_1": {
+      "parameter_code": 0,
+      "current": 40,
+      "lifetime_maximum": 72,
+      "lifetime_minimum": -1,
+      "maximum_since_power_on": 45,
+      "minimum_since_power_on": 18
+    },
+    "relative_humidity_1": {
+      "parameter_code": 256,
+      "current": 55,
+      "lifetime_maximum": 72,
+      "lifetime_minimum": 35,
+      "maximum_since_power_on": 55,
+      "minimum_since_power_on": 45
+    }
+  },
+  "seagate_farm_log": {
+    "supported": false
+  }
+}

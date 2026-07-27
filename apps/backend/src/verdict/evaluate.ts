@@ -1,6 +1,6 @@
 import type {
+  NumericSmartMetricKey,
   Reason,
-  SmartKeyMetrics,
   Verdict,
   VerdictInput,
   VerdictResult,
@@ -53,7 +53,7 @@ export function evaluateVerdict(input: VerdictInput): VerdictResult {
   }
 
   // --- hard uncorrectable indicators (post-test) ---
-  const hard: Array<[keyof SmartKeyMetrics, string, string]> = [
+  const hard: Array<[NumericSmartMetricKey, string, string]> = [
     ["currentPending", "CURRENT_PENDING", "Current pending sectors"],
     ["offlineUncorrectable", "OFFLINE_UNCORRECTABLE", "Offline uncorrectable sectors"],
     ["reportedUncorrect", "REPORTED_UNCORRECT", "Reported uncorrectable errors"],
@@ -107,6 +107,51 @@ export function evaluateVerdict(input: VerdictInput): VerdictResult {
         after: realloc,
       })
     }
+  }
+
+  // --- SAS/SCSI grown defect list ---
+  //
+  // Growth is the signal, not the absolute count. Measured across a fleet of 18
+  // in-service SAS drives, grown-defect counts of healthy drives and of drives
+  // reporting impending failure overlap completely (7827 on a drive reporting
+  // OK, 355 on one reporting failure), so there is deliberately no
+  // absolute-count "fail" rule here — the ATA `reallocatedWarnMax` equivalent
+  // would condemn most working SAS drives. A count that *rises* while we test
+  // is the drive retiring blocks under our own load, which is real degradation.
+  if (grew(before.grownDefects, after.grownDefects)) {
+    push({
+      code: "GROWN_DEFECT_GROWTH",
+      severity: "fail",
+      message: `Grown defect list grew during test (${before.grownDefects} → ${after.grownDefects})`,
+      metric: "grownDefects",
+      before: before.grownDefects,
+      after: after.grownDefects,
+    })
+  } else if (after.grownDefects != null && after.grownDefects > 0) {
+    push({
+      code: "GROWN_DEFECTS_PRESENT",
+      severity: "warn",
+      message: `${after.grownDefects} grown defect(s) present (stable)`,
+      metric: "grownDefects",
+      after: after.grownDefects,
+    })
+  }
+
+  // --- the drive's own health verdict ---
+  //
+  // Only acted on when the drive says it is failing. On SAS this is the
+  // authoritative call and the only field separating a failing drive from a
+  // healthy one when defect counts overlap; on ATA it is a vendor-threshold
+  // summary that routinely still reads "passed" on a dying drive. So a false
+  // here condemns, but a true is never treated as evidence of health — that is
+  // what every other rule in this function is for.
+  if (after.smartHealthPassed === false || before.smartHealthPassed === false) {
+    push({
+      code: "SMART_HEALTH_FAILED",
+      severity: "fail",
+      message: "Drive reports its own SMART health as failing",
+      metric: "smartHealthPassed",
+    })
   }
 
   // --- interface CRC errors ---

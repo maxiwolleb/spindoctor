@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from "vue"
-import type { SmartKeyMetrics } from "@spindoctor/shared"
+import type { NumericSmartMetricKey, SmartKeyMetrics } from "@spindoctor/shared"
 
 const props = defineProps<{
   before: SmartKeyMetrics | null
@@ -8,7 +8,7 @@ const props = defineProps<{
 }>()
 
 interface MetricDef {
-  key: keyof SmartKeyMetrics
+  key: NumericSmartMetricKey
   label: string
   /** Mirrors the verdict evaluator's growth/threshold checks
    * (apps/backend/src/verdict/evaluate.ts): for these metrics a rise from
@@ -24,6 +24,9 @@ const METRICS: MetricDef[] = [
   { key: "currentPending", label: "Current pending sectors", worseIsHigher: true },
   { key: "offlineUncorrectable", label: "Offline uncorrectable", worseIsHigher: true },
   { key: "reportedUncorrect", label: "Reported uncorrect", worseIsHigher: true },
+  // SAS/SCSI only — null (and so rendered "—") on ATA/NVMe, same as the NVMe
+  // rows are on a spinning ATA disk.
+  { key: "grownDefects", label: "Grown defects (SAS)", worseIsHigher: true },
   { key: "crcErrors", label: "CRC errors", worseIsHigher: true },
   { key: "powerOnHours", label: "Power-on hours", worseIsHigher: false },
   { key: "percentageUsed", label: "Percentage used", worseIsHigher: true },

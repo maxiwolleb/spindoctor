@@ -18,6 +18,8 @@ const clean: SmartKeyMetrics = {
   percentageUsed: null,
   mediaErrors: null,
   temperatureC: 33,
+  grownDefects: null,
+  smartHealthPassed: null,
 }
 const selfTestOk: SelfTestResult = { status: "PASSED" }
 const surfaceOk: SurfaceResult = { mode: "write", badBlocks: 0, completed: true }
@@ -152,6 +154,8 @@ describe("evaluateVerdict", () => {
       percentageUsed: null,
       mediaErrors: null,
       temperatureC: null,
+      grownDefects: null,
+      smartHealthPassed: null,
     }
     const r = evaluateVerdict(input({ before: after, after }))
     expect(r.verdict).toBe("PASS")
@@ -184,5 +188,92 @@ describe("evaluateVerdict", () => {
     const r = evaluateVerdict(input({ before, after }))
     expect(r.verdict).toBe("FAIL")
     expect(codes(r)).toContain("PENDING_GROWTH")
+  })
+})
+
+// SAS/SCSI grading (#18). The numbers below are the real distribution from an
+// 18-drive SAS burn-in archive: grown-defect counts on drives reporting OK and
+// on drives reporting impending failure overlap completely, which is why the
+// health verdict — not the count — decides FAIL.
+describe("evaluateVerdict — SAS/SCSI", () => {
+  const sas = (over: Partial<typeof clean> = {}) => ({
+    ...clean,
+    // SAS reports none of the ATA attributes.
+    reallocatedSectors: null,
+    currentPending: null,
+    offlineUncorrectable: null,
+    crcErrors: null,
+    reportedUncorrect: 0,
+    ...over,
+  })
+
+  it("FAILs a drive that reports its own health as failing, whatever the defect count", () => {
+    const after = sas({ grownDefects: 636, smartHealthPassed: false })
+    const r = evaluateVerdict(input({ before: after, after }))
+
+    expect(r.verdict).toBe("FAIL")
+    expect(r.reasons.map((x) => x.code)).toContain("SMART_HEALTH_FAILED")
+  })
+
+  it("does NOT fail a healthy drive carrying thousands of stable grown defects", () => {
+    // Real drive: 7827 grown defects, health OK, still in service. An
+    // absolute-count rule borrowed from ATA would have condemned it.
+    const after = sas({ grownDefects: 7827, smartHealthPassed: true })
+    const r = evaluateVerdict(input({ before: after, after }))
+
+    expect(r.verdict).toBe("WARN")
+    expect(r.reasons.map((x) => x.code)).toEqual(["GROWN_DEFECTS_PRESENT"])
+  })
+
+  it("FAILs when the grown defect list grows during the test", () => {
+    const r = evaluateVerdict(
+      input({
+        before: sas({ grownDefects: 631, smartHealthPassed: true }),
+        after: sas({ grownDefects: 640, smartHealthPassed: true }),
+      }),
+    )
+
+    expect(r.verdict).toBe("FAIL")
+    expect(r.reasons.map((x) => x.code)).toContain("GROWN_DEFECT_GROWTH")
+  })
+
+  it("PASSes a clean SAS drive with no defects and a healthy verdict", () => {
+    const after = sas({ grownDefects: 0, smartHealthPassed: true })
+    const r = evaluateVerdict(input({ before: after, after }))
+
+    expect(r.verdict).toBe("PASS")
+    expect(r.reasons).toEqual([])
+  })
+
+  it("FAILs on uncorrected errors reported by the SCSI error counter log", () => {
+    // Real HGST drive: 158 uncorrected read errors while reporting health OK.
+    const after = sas({ grownDefects: 2, reportedUncorrect: 158, smartHealthPassed: true })
+    const r = evaluateVerdict(input({ before: after, after }))
+
+    expect(r.verdict).toBe("FAIL")
+    expect(r.reasons.map((x) => x.code)).toContain("REPORTED_UNCORRECT")
+  })
+
+  it("a failing health verdict seen only before the test still condemns", () => {
+    const r = evaluateVerdict(
+      input({
+        before: sas({ grownDefects: 5, smartHealthPassed: false }),
+        after: sas({ grownDefects: 5, smartHealthPassed: true }),
+      }),
+    )
+
+    expect(r.verdict).toBe("FAIL")
+    expect(r.reasons.map((x) => x.code)).toContain("SMART_HEALTH_FAILED")
+  })
+
+  it("ignores a healthy ATA health verdict as evidence of health on its own", () => {
+    // smartHealthPassed true must not suppress the ATA rules: this drive is
+    // failing on pending sectors while still self-reporting "passed", which is
+    // the normal ATA behavior.
+    const after = { ...clean, currentPending: 8, smartHealthPassed: true }
+    const r = evaluateVerdict(input({ before: after, after }))
+
+    expect(r.verdict).toBe("FAIL")
+    expect(r.reasons.map((x) => x.code)).toContain("CURRENT_PENDING")
   })
 })
