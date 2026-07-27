@@ -131,7 +131,12 @@ describe("createApiClient", () => {
 
   it("getSettings GETs /api/settings", async () => {
     const settings: SettingsView = {
-      thresholds: { reallocatedWarnMax: 10, ssdPercentageUsedWarn: 80, ssdPercentageUsedFail: 100 },
+      thresholds: {
+        reallocatedWarnMax: 4,
+        commandTimeoutWarnMax: 100,
+        ssdPercentageUsedWarn: 80,
+        ssdPercentageUsedFail: 100,
+      },
       concurrency: 2,
       autoModeEnabled: false,
       protectList: [],
@@ -149,7 +154,8 @@ describe("createApiClient", () => {
     fetchMock.mockResolvedValueOnce(
       jsonResponse({
         thresholds: {
-          reallocatedWarnMax: 10,
+          reallocatedWarnMax: 4,
+          commandTimeoutWarnMax: 100,
           ssdPercentageUsedWarn: 80,
           ssdPercentageUsedFail: 100,
         },

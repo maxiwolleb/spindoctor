@@ -1,5 +1,6 @@
 import { EventEmitter } from "node:events"
 import { and, desc, eq } from "drizzle-orm"
+import { resolveThresholds } from "@spindoctor/shared"
 import type {
   DiscoveredDrive,
   RegimeMode,
@@ -732,7 +733,7 @@ export class TestEngine extends EventEmitter {
     const condemned = condemnedByBaseline({
       before: state.before,
       deviceType: drive.type,
-      thresholds: cfg.thresholds as Thresholds,
+      thresholds: resolveThresholds(cfg.thresholds),
     })
     if (condemned.length === 0) return none
 
@@ -1012,7 +1013,7 @@ export class TestEngine extends EventEmitter {
       deviceType: drive.type,
       selfTest,
       surface,
-      thresholds: getConfig(this.db).thresholds as Thresholds,
+      thresholds: resolveThresholds(getConfig(this.db).thresholds),
     })
 
     // Mark the run terminal *before* persisting/emitting DONE: abortRun() is

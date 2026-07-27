@@ -1,0 +1,70 @@
+{
+  "_comment": "Hand-authored SATA SSD near the end of its rated write endurance, for the wear mapping in issue #54. Attribute 231 (SSD_Life_Left) reports a NORMALIZED value counting down from 100, so a value of 12 means 88% used; the raw column on these attributes is not the wear figure. Also carries a spin-retry-free, timeout-free profile so the wear rule is what the test isolates.",
+  "device": { "name": "/dev/sdd", "type": "sat", "protocol": "ATA" },
+  "model_name": "Crucial_CT960M500SSD1",
+  "serial_number": "SSDFIXTURE0001",
+  "rotation_rate": 0,
+  "user_capacity": { "blocks": 1875385008, "bytes": 960197124096 },
+  "smart_status": { "passed": true },
+  "temperature": { "current": 35 },
+  "ata_smart_attributes": {
+    "table": [
+      {
+        "id": 5,
+        "name": "Reallocated_Sector_Ct",
+        "value": 100,
+        "worst": 100,
+        "thresh": 10,
+        "when_failed": "",
+        "raw": { "value": 0, "string": "0" }
+      },
+      {
+        "id": 9,
+        "name": "Power_On_Hours",
+        "value": 92,
+        "worst": 92,
+        "thresh": 0,
+        "when_failed": "",
+        "raw": { "value": 38412, "string": "38412" }
+      },
+      {
+        "id": 177,
+        "name": "Wear_Leveling_Count",
+        "value": 40,
+        "worst": 40,
+        "thresh": 0,
+        "when_failed": "",
+        "raw": { "value": 2871, "string": "2871" }
+      },
+      {
+        "id": 199,
+        "name": "UDMA_CRC_Error_Count",
+        "value": 200,
+        "worst": 200,
+        "thresh": 0,
+        "when_failed": "",
+        "raw": { "value": 0, "string": "0" }
+      },
+      {
+        "id": 231,
+        "name": "SSD_Life_Left",
+        "value": 12,
+        "worst": 12,
+        "thresh": 0,
+        "when_failed": "",
+        "raw": { "value": 12, "string": "12" }
+      }
+    ]
+  },
+  "ata_smart_self_test_log": {
+    "standard": {
+      "table": [
+        {
+          "type": { "value": 2, "string": "Extended offline" },
+          "status": { "value": 0, "string": "Completed without error", "passed": true },
+          "lifetime_hours": 38400
+        }
+      ]
+    }
+  }
+}

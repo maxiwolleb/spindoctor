@@ -26,12 +26,33 @@ export function parseDeviceType(json: unknown): DriveType {
 /** SMART attribute IDs → SmartKeyMetrics fields (ATA). */
 const ATA_ATTR_IDS = {
   reallocatedSectors: 5,
+  spinRetryCount: 10,
   powerOnHours: 9,
   reportedUncorrect: 187,
+  commandTimeouts: 188,
   currentPending: 197,
   offlineUncorrectable: 198,
   crcErrors: 199,
 } as const
+
+/**
+ * SATA SSD wear attributes, in the order they're preferred. Each reports a
+ * *normalized* value that counts down from 100 as the drive is written to, so
+ * wear is `100 - value` — unlike every other attribute here, where the raw
+ * counter is what matters.
+ *
+ * Without this mapping `percentageUsed` was null for every non-NVMe device, so
+ * the evaluator's SSD-wear rule was unreachable on SATA SSDs: a worn-out SATA
+ * SSD could pass. Several of these attribute ids are vendor-specific and a drive
+ * typically reports just one, hence first-match-wins over an ordered list rather
+ * than a single id.
+ */
+const ATA_SSD_WEAR_ATTR_IDS = [
+  231, // "SSD_Life_Left" / "Life_Left" — most common
+  233, // "Media_Wearout_Indicator" — Intel and others
+  177, // "Wear_Leveling_Count" — Samsung
+  202, // "Percent_Lifetime_Remain" — Crucial/Micron
+] as const
 
 /** True for a SAS/SCSI device, which reports health via SCSI log pages rather
  * than an ATA attribute table (see `parseScsiMetrics`). */
@@ -71,6 +92,8 @@ function parseScsiMetrics(j: Record<string, any>, temperatureC: number | null): 
     reportedUncorrect: uncorrected.length > 0 ? uncorrected.reduce((a, b) => a + b, 0) : null,
     crcErrors: null,
     powerOnHours: num(asRecord(j.power_on_time).hours),
+    spinRetryCount: null,
+    commandTimeouts: null,
     percentageUsed: null,
     mediaErrors: null,
     temperatureC,
@@ -118,6 +141,30 @@ function parseSasLinkErrors(j: Record<string, any>): number | null {
   return total
 }
 
+/**
+ * SATA SSD wear as a percentage used, from whichever wear attribute the drive
+ * reports (see `ATA_SSD_WEAR_ATTR_IDS`). Only consulted for SSDs: several of
+ * these ids mean something entirely different on a spinning disk (202 is
+ * "Data Address Mark errors" on an HDD), so reading them there would invent a
+ * wear figure for a drive that has no such thing.
+ *
+ * A normalized value of 100 is a new drive and 0 is one at its rated endurance,
+ * so used = 100 - value. Values are clamped at 0 rather than allowed negative;
+ * unlike NVMe's `percentage_used`, an ATA normalized value cannot express
+ * "beyond rated endurance", so the ceiling here is 100.
+ */
+function ataSsdPercentageUsed(
+  type: DriveType,
+  normalizedById: (id: number) => number | null,
+): number | null {
+  if (type !== "SSD") return null
+  for (const id of ATA_SSD_WEAR_ATTR_IDS) {
+    const value = normalizedById(id)
+    if (value != null) return Math.max(0, 100 - value)
+  }
+  return null
+}
+
 export function parseSmartMetrics(json: unknown): SmartKeyMetrics {
   const j = asRecord(json)
   const temperatureC = num(asRecord(j.temperature).current)
@@ -134,6 +181,8 @@ export function parseSmartMetrics(json: unknown): SmartKeyMetrics {
       reportedUncorrect: null,
       crcErrors: null,
       powerOnHours: num(log.power_on_hours),
+      spinRetryCount: null,
+      commandTimeouts: null,
       percentageUsed: num(log.percentage_used),
       mediaErrors: num(log.media_errors),
       temperatureC,
@@ -150,6 +199,10 @@ export function parseSmartMetrics(json: unknown): SmartKeyMetrics {
     const row = table.find((r) => asRecord(r).id === id)
     return row ? num(asRecord(asRecord(row).raw).value) : null
   }
+  const normalizedById = (id: number): number | null => {
+    const row = table.find((r) => asRecord(r).id === id)
+    return row ? num(asRecord(row).value) : null
+  }
 
   return {
     reallocatedSectors: rawById(ATA_ATTR_IDS.reallocatedSectors),
@@ -158,7 +211,9 @@ export function parseSmartMetrics(json: unknown): SmartKeyMetrics {
     reportedUncorrect: rawById(ATA_ATTR_IDS.reportedUncorrect),
     crcErrors: rawById(ATA_ATTR_IDS.crcErrors),
     powerOnHours: rawById(ATA_ATTR_IDS.powerOnHours),
-    percentageUsed: null,
+    spinRetryCount: rawById(ATA_ATTR_IDS.spinRetryCount),
+    commandTimeouts: rawById(ATA_ATTR_IDS.commandTimeouts),
+    percentageUsed: ataSsdPercentageUsed(type, normalizedById),
     mediaErrors: null,
     temperatureC,
     grownDefects: null,

@@ -62,6 +62,7 @@ describe("PUT /api/settings", () => {
     const app = build()
     const newThresholds = {
       reallocatedWarnMax: 5,
+      commandTimeoutWarnMax: 50,
       ssdPercentageUsedWarn: 70,
       ssdPercentageUsedFail: 90,
     }
@@ -176,6 +177,28 @@ describe("PUT /api/settings", () => {
 
     const follow = await app.inject({ method: "GET", url: "/api/settings" })
     expect(follow.json<SettingsView>().concurrency).toBe(4)
+  })
+
+  // #54: a config stored before commandTimeoutWarnMax existed reads back with
+  // the current default filled in, rather than grading counters against
+  // undefined — which is silently false for every drive.
+  it("fills in a threshold missing from a config that predates it", async () => {
+    repo.updateConfig(db, {
+      thresholds: {
+        reallocatedWarnMax: 10,
+        ssdPercentageUsedWarn: 80,
+        ssdPercentageUsedFail: 100,
+      } as never,
+    })
+    const app = build()
+    const res = await app.inject({ method: "GET", url: "/api/settings" })
+
+    expect(res.json<SettingsView>().thresholds).toEqual({
+      reallocatedWarnMax: 10,
+      commandTimeoutWarnMax: DEFAULT_THRESHOLDS.commandTimeoutWarnMax,
+      ssdPercentageUsedWarn: 80,
+      ssdPercentageUsedFail: 100,
+    })
   })
 
   it("400s on an incomplete thresholds object (missing keys), persisting nothing", async () => {

@@ -63,6 +63,13 @@ export function evaluateVerdict(input: VerdictInput): VerdictResult {
   }
 
   // --- hard uncorrectable indicators (post-test) ---
+  //
+  // Any non-zero value fails, with no tolerance band, and Backblaze's fleet data
+  // says that is not over-strict: against a ~2.5%/year baseline for drives
+  // reporting zero, the very first recorded error takes the annual failure rate
+  // to 34% for current-pending, 34% for reported-uncorrectable and 81% for
+  // offline-uncorrectable — twelve to twenty-eight times baseline. There is no
+  // gentle band to grade here; the first error is the signal.
   const hard: Array<[NumericSmartMetricKey, string, string]> = [
     ["currentPending", "CURRENT_PENDING", "Current pending sectors"],
     ["offlineUncorrectable", "OFFLINE_UNCORRECTABLE", "Offline uncorrectable sectors"],
@@ -98,6 +105,12 @@ export function evaluateVerdict(input: VerdictInput): VerdictResult {
   }
 
   // --- reallocated absolute value (post-test) ---
+  //
+  // The threshold that separates warn from fail is the one number here taken
+  // straight from observed failure rates: 1–4 reallocated sectors fails at
+  // 2.74%/year against a 2.52% baseline (indistinguishable from a pristine
+  // drive), while 4–16 fails at 7.50% and 16–70 at 23.6%. Hence a default
+  // `reallocatedWarnMax` of 4 — see `DEFAULT_THRESHOLDS`.
   const realloc = after.reallocatedSectors
   if (realloc != null) {
     if (realloc > thresholds.reallocatedWarnMax) {
@@ -121,13 +134,17 @@ export function evaluateVerdict(input: VerdictInput): VerdictResult {
 
   // --- SAS/SCSI grown defect list ---
   //
-  // Growth is the signal, not the absolute count. Measured across a fleet of 18
-  // in-service SAS drives, grown-defect counts of healthy drives and of drives
-  // reporting impending failure overlap completely (7827 on a drive reporting
-  // OK, 355 on one reporting failure), so there is deliberately no
-  // absolute-count "fail" rule here — the ATA `reallocatedWarnMax` equivalent
-  // would condemn most working SAS drives. A count that *rises* while we test
-  // is the drive retiring blocks under our own load, which is real degradation.
+  // Growth is the signal, not the absolute count. Across a fleet of 18
+  // in-service SAS drives, the counts of healthy drives and of drives reporting
+  // impending failure don't just overlap — they invert: the three drives
+  // reporting "data channel impending failure" carried 636, 2601 and 3045 grown
+  // defects, while drives reporting OK carried 0, 1, 2, 4, 11, 13, 19, 20, 100,
+  // 155, 631, 1104, 6056 and 7827. The single highest count in the fleet is on a
+  // drive the vendor considers fine. So there is deliberately no absolute-count
+  // "fail" rule here — an ATA-style `reallocatedWarnMax` equivalent would condemn
+  // most working SAS drives, including the healthiest one measured. A count that
+  // *rises* while we test is the drive retiring blocks under our own load, which
+  // is real degradation.
   if (grew(before.grownDefects, after.grownDefects)) {
     push({
       code: "GROWN_DEFECT_GROWTH",
@@ -179,7 +196,50 @@ export function evaluateVerdict(input: VerdictInput): VerdictResult {
     })
   }
 
+  // --- spin retries ---
+  //
+  // Mechanical, and decisive on the first occurrence: a drive that needed a
+  // retry to bring its platters to speed fails at roughly ten times the rate of
+  // one that never did. (Scrutiny flags the attribute critical but notes its
+  // rate is extrapolated from the neighboring spin-up-retry attribute rather
+  // than measured directly — so the multiplier is indicative, not exact. The
+  // direction is not in doubt, and a drive whose motor already struggles is not
+  // one to sell on, which is the call this tool exists to make.)
+  if (after.spinRetryCount != null && after.spinRetryCount > 0) {
+    push({
+      code: "SPIN_RETRY",
+      severity: "fail",
+      message: `${after.spinRetryCount} spin retry/retries — the motor struggled to reach speed`,
+      metric: "spinRetryCount",
+      after: after.spinRetryCount,
+    })
+  }
+
+  // --- command timeouts ---
+  //
+  // Given a tolerance band rather than any-non-zero, unlike the uncorrectable counters:
+  // ≤100 timeouts fails at 2.49%/year, indistinguishable from baseline, while
+  // above that it is 10.0%, four times baseline. Warn rather than fail because a
+  // timeout can as easily be the cable or controller as the drive — the same
+  // reasoning as the CRC rule below.
+  if (after.commandTimeouts != null && after.commandTimeouts > thresholds.commandTimeoutWarnMax) {
+    push({
+      code: "COMMAND_TIMEOUTS",
+      severity: "warn",
+      message: `${after.commandTimeouts} command timeout(s) exceeds ${thresholds.commandTimeoutWarnMax} — check cabling and controller`,
+      metric: "commandTimeouts",
+      after: after.commandTimeouts,
+    })
+  }
+
   // --- interface CRC errors ---
+  //
+  // Warn, never fail, and the failure data agrees: the annual failure rate goes
+  // from 4.1% at zero-to-one error to roughly 15% and then simply plateaus —
+  // 15.4% at 4–8 errors, 14.9% at 8–16, 13.7% at 35–70, 18.3% at 130–260. No
+  // dose-response at all, which is what a cable problem looks like rather than a
+  // failing disk. Scrutiny reaches the same conclusion and marks the attribute
+  // non-critical.
   if (after.crcErrors != null && after.crcErrors > 0) {
     push({
       code: "CRC_ERRORS",

@@ -8,7 +8,12 @@ import type { ApiClient } from "../api/client"
 import SettingsView from "./SettingsView.vue"
 
 const baseSettings: SettingsViewDto = {
-  thresholds: { reallocatedWarnMax: 10, ssdPercentageUsedWarn: 80, ssdPercentageUsedFail: 100 },
+  thresholds: {
+    reallocatedWarnMax: 4,
+    commandTimeoutWarnMax: 100,
+    ssdPercentageUsedWarn: 80,
+    ssdPercentageUsedFail: 100,
+  },
   concurrency: 4,
   autoModeEnabled: false,
   protectList: ["EXISTING1"],
@@ -157,7 +162,12 @@ describe("SettingsView", () => {
     await flushPromises()
 
     expect(api.putSettings).toHaveBeenCalledWith({
-      thresholds: { reallocatedWarnMax: 10, ssdPercentageUsedWarn: 80, ssdPercentageUsedFail: 100 },
+      thresholds: {
+        reallocatedWarnMax: 4,
+        commandTimeoutWarnMax: 100,
+        ssdPercentageUsedWarn: 80,
+        ssdPercentageUsedFail: 100,
+      },
       concurrency: 6,
       autoModeEnabled: false,
       skipCondemnedDrives: true,
@@ -205,6 +215,31 @@ describe("SettingsView", () => {
 
     expect(api.putSettings).toHaveBeenCalledWith(
       expect.objectContaining({ skipCondemnedDrives: false }),
+    )
+
+    wrapper.unmount()
+  })
+
+  // #54: the command-timeout threshold joined the form when the rule was added.
+  it("loads and saves the command-timeout threshold", async () => {
+    const api = fakeApi()
+    setConsoleDeps({ api: api as unknown as ApiClient })
+
+    const wrapper = mount(SettingsView, { global: { plugins: [vuetify] }, attachTo: document.body })
+    await flushPromises()
+
+    expect((wrapper.find("#command-timeout-warn-max").element as HTMLInputElement).value).toBe(
+      "100",
+    )
+
+    await wrapper.find("#command-timeout-warn-max").setValue(50)
+    clickButton(document.body, "Save settings")
+    await flushPromises()
+
+    expect(api.putSettings).toHaveBeenCalledWith(
+      expect.objectContaining({
+        thresholds: expect.objectContaining({ commandTimeoutWarnMax: 50 }),
+      }),
     )
 
     wrapper.unmount()

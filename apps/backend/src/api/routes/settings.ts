@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyPluginAsync, FastifyRequest } from "fastify"
+import { resolveThresholds } from "@spindoctor/shared"
 import type { SettingsView, Thresholds } from "@spindoctor/shared"
 import type { Db } from "../../db/client"
 import { getConfig, updateConfig, type ConfigRow, type ConfigUpdate } from "../../db/repositories"
@@ -9,6 +10,7 @@ export interface SettingsRouteDeps {
 
 const THRESHOLD_KEYS = [
   "reallocatedWarnMax",
+  "commandTimeoutWarnMax",
   "ssdPercentageUsedWarn",
   "ssdPercentageUsedFail",
 ] as const
@@ -16,7 +18,9 @@ const THRESHOLD_KEYS = [
 function toSettingsView(row: ConfigRow): SettingsView {
   const protectList = row.protectList
   return {
-    thresholds: row.thresholds as Thresholds,
+    // Resolved rather than cast: an install created before a threshold existed
+    // has a stored blob without that key (issue #54).
+    thresholds: resolveThresholds(row.thresholds),
     concurrency: row.concurrency,
     autoModeEnabled: row.autoModeEnabled,
     protectList: Array.isArray(protectList) ? (protectList as string[]) : [],

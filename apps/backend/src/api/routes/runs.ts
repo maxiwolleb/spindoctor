@@ -1,5 +1,6 @@
 import { eq } from "drizzle-orm"
 import type { FastifyInstance, FastifyPluginAsync, FastifyRequest } from "fastify"
+import { resolveThresholds } from "@spindoctor/shared"
 import type {
   CreateRunRequest,
   RegimeMode,
@@ -178,7 +179,7 @@ export function runsRoutes(deps: RunsRouteDeps): FastifyPluginAsync {
       }
       const snapshots: { before: SmartKeyMetrics | null; after: SmartKeyMetrics | null } =
         getSnapshots(db, id)
-      const attributes = buildAttributesView(db, id, getConfig(db).thresholds as Thresholds)
+      const attributes = buildAttributesView(db, id, resolveThresholds(getConfig(db).thresholds))
       return { run: toRunView(row), stages: listStageRows(db, id), snapshots, attributes }
     })
 

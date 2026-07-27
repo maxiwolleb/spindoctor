@@ -429,6 +429,8 @@ describe("GET /api/runs/:id", () => {
         reportedUncorrect: 0,
         crcErrors: 0,
         powerOnHours: 100,
+        spinRetryCount: null,
+        commandTimeouts: null,
         percentageUsed: null,
         mediaErrors: null,
         temperatureC: 30,
