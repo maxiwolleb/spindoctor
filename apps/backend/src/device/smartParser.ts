@@ -282,6 +282,170 @@ function parseNvmeAttributes(json: unknown, thresholds: Thresholds): SmartAttrib
 }
 
 /**
+ * One SAS/SCSI row's numeric value and the health flag it earns. SCSI has no
+ * normalized value/worst/threshold triplet and no `when_failed` marker, so
+ * unlike ATA there is no drive-provided verdict to fall back on — every flag
+ * here has to come from a rule this project owns.
+ *
+ * Which is why the graded set is deliberately narrow: exactly the fields
+ * `verdict/evaluate.ts` acts on, with the same severities (see
+ * `scsiAttributeHealth`). Everything else is `ok` and carries its meaning in
+ * the plain-language description instead — inventing a threshold for, say,
+ * ECC-corrected reads would put a red row next to a PASS verdict and make the
+ * table disagree with the run.
+ */
+interface ScsiRowSpec {
+  name: string
+  rawValue: number | null
+  rawString?: string
+  health: SmartAttributeHealth
+}
+
+/** Per-operation error counters from `scsi_error_counter_log`, in the order
+ * they're shown: what the drive gave up on, what it had to work for, then the
+ * bulk-corrected total. */
+const SCSI_COUNTER_FIELDS = [
+  "total_uncorrected_errors",
+  "errors_corrected_by_rereads_rewrites",
+  "total_errors_corrected",
+] as const
+
+const SCSI_OPERATIONS = ["read", "write", "verify"] as const
+
+/** SAS phy counters, summed across every phy of every port the drive reports —
+ * the same aggregation `parseSasLinkErrors` does for the graded metric, so the
+ * row and the verdict reason are counting the same thing. The `[human, snake]`
+ * key pairs mirror `parseSasLinkErrors`'s tolerance for either spelling. */
+const SAS_PHY_COUNTERS = [
+  ["sas_invalid_dword_count", ["Invalid DWORD count", "invalid_dword_count"]],
+  [
+    "sas_loss_of_dword_synchronization_count",
+    ["Loss of DWORD synchronization count", "loss_of_dword_synchronization_count"],
+  ],
+  [
+    "sas_running_disparity_error_count",
+    ["Running disparity error count", "running_disparity_error_count"],
+  ],
+  ["sas_phy_reset_problem_count", ["Phy reset problem count", "phy_reset_problem_count"]],
+] as const satisfies ReadonlyArray<readonly [string, readonly string[]]>
+
+/**
+ * Health for a SAS/SCSI row, mirroring `verdict/evaluate.ts` rule for rule so a
+ * row's flag can never disagree with the verdict the same snapshot produces:
+ *
+ *  - uncorrected errors, any operation → **fail** (`REPORTED_UNCORRECT`, which
+ *    sums the same three counters);
+ *  - grown defects → **warn** (`GROWN_DEFECTS_PRESENT`). Not fail at any count:
+ *    healthy in-service SAS drives routinely carry thousands, so only growth
+ *    during a run condemns — and growth is a two-snapshot judgement this
+ *    single-snapshot view can't make;
+ *  - invalid DWORDs / loss-of-sync → **warn** (`LINK_ERRORS`), the cabling
+ *    signal that must never fail a drive.
+ *
+ * Everything else is `ok` on purpose — see `ScsiRowSpec`.
+ */
+function scsiAttributeHealth(name: string, value: number): SmartAttributeHealth {
+  if (name.endsWith("total_uncorrected_errors")) return value > 0 ? "fail" : "ok"
+  if (name === "scsi_grown_defect_list") return value > 0 ? "warn" : "ok"
+  if (name === "sas_invalid_dword_count" || name === "sas_loss_of_dword_synchronization_count") {
+    return value > 0 ? "warn" : "ok"
+  }
+  return "ok"
+}
+
+/** Sums one phy counter across every `scsi_sas_port_*.phy_*` the drive reports;
+ * `null` when no phy reported it, so "not reported" stays distinct from "zero". */
+function sumPhyCounter(j: Record<string, any>, keys: readonly string[]): number | null {
+  let total: number | null = null
+  for (const [portKey, port] of Object.entries(j)) {
+    if (!portKey.startsWith("scsi_sas_port_")) continue
+    for (const [phyKey, phy] of Object.entries(asRecord(port))) {
+      if (!phyKey.startsWith("phy_")) continue
+      const record = asRecord(phy)
+      const value = keys.map((k) => num(record[k])).find((v) => v != null)
+      if (value != null) total = (total ?? 0) + value
+    }
+  }
+  return total
+}
+
+/**
+ * The SAS/SCSI attribute table (issue #54). Before this, SAS drives — the ones
+ * this tool is mostly pointed at — got an empty table, because there is no
+ * `ata_smart_attributes` to read and the health data lives in SCSI log pages
+ * instead: the grown defect list, the per-operation error counter log, and the
+ * SAS phy counters.
+ *
+ * Rows are ordered worst-signal-first (the drive's own assessment, then defects,
+ * then error counters, then the cabling counters, then age/temperature), and a
+ * field the drive doesn't report is omitted rather than shown as zero — a
+ * missing counter and a clean one mean different things.
+ */
+function parseScsiAttributes(json: unknown): SmartAttributeRow[] {
+  const j = asRecord(json)
+  const specs: ScsiRowSpec[] = []
+
+  // On SAS this is the authoritative failure signal — it is what carries
+  // conditions like "impending failure data error rate too high" — so it leads.
+  const passed = asRecord(j.smart_status).passed
+  if (typeof passed === "boolean") {
+    specs.push({
+      name: "scsi_smart_status",
+      rawValue: null,
+      rawString: passed ? "OK" : "FAILING",
+      health: passed ? "ok" : "fail",
+    })
+  }
+
+  const defects = num(j.scsi_grown_defect_list)
+  if (defects != null) {
+    specs.push({
+      name: "scsi_grown_defect_list",
+      rawValue: defects,
+      health: scsiAttributeHealth("scsi_grown_defect_list", defects),
+    })
+  }
+
+  const counters = asRecord(j.scsi_error_counter_log)
+  for (const field of SCSI_COUNTER_FIELDS) {
+    for (const op of SCSI_OPERATIONS) {
+      const value = num(asRecord(counters[op])[field])
+      if (value == null) continue
+      const name = `${op}_${field}`
+      specs.push({ name, rawValue: value, health: scsiAttributeHealth(name, value) })
+    }
+  }
+
+  for (const [name, keys] of SAS_PHY_COUNTERS) {
+    const value = sumPhyCounter(j, keys)
+    if (value == null) continue
+    specs.push({ name, rawValue: value, health: scsiAttributeHealth(name, value) })
+  }
+
+  const hours = num(asRecord(j.power_on_time).hours)
+  if (hours != null) specs.push({ name: "power_on_hours", rawValue: hours, health: "ok" })
+
+  // Same source as `parseSmartMetrics`'s `temperatureC`, deliberately: a drive
+  // that reports temperature only under `scsi_environmental_reports` shows it in
+  // neither place rather than in one and not the other.
+  const temperature = num(asRecord(j.temperature).current)
+  if (temperature != null) {
+    specs.push({ name: "temperature_celsius", rawValue: temperature, health: "ok" })
+  }
+
+  return specs.map((spec) => ({
+    id: null,
+    name: spec.name,
+    value: null,
+    worst: null,
+    thresh: null,
+    rawValue: spec.rawValue,
+    rawString: spec.rawString ?? null,
+    health: spec.health,
+  }))
+}
+
+/**
  * The full SMART attribute table for a snapshot (issue #14) — every row
  * smartctl reported, each with a per-row health flag, for the "show me
  * everything and explain it" viewer. Returns `[]` when the raw JSON has no
@@ -292,6 +456,9 @@ function parseNvmeAttributes(json: unknown, thresholds: Thresholds): SmartAttrib
 export function parseSmartAttributes(json: unknown, thresholds: Thresholds): SmartAttributeRow[] {
   const type = parseDeviceType(json)
   if (type === "NVMe") return parseNvmeAttributes(json, thresholds)
+  // Checked before the ATA table: a SCSI device has no `ata_smart_attributes`,
+  // so without this it fell through to an empty table (issue #54).
+  if (isScsiDevice(json)) return parseScsiAttributes(json)
 
   const table = asRecord(asRecord(json).ata_smart_attributes).table
   return Array.isArray(table) ? parseAtaAttributes(table, thresholds) : []

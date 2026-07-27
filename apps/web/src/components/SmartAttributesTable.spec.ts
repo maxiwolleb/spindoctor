@@ -100,3 +100,66 @@ describe("SmartAttributesTable", () => {
     expect(wrapper.text()).toContain("No SMART attributes available")
   })
 })
+
+// #54: SAS/SCSI (and NVMe) rows have no normalized value/worst/threshold, so
+// those columns were three columns of "—" on exactly the drives this tool is
+// mostly pointed at.
+describe("SmartAttributesTable normalized columns", () => {
+  const scsiRow = (name: string, rawValue: number, health: SmartAttributeRow["health"] = "ok") => ({
+    id: null,
+    name,
+    value: null,
+    worst: null,
+    thresh: null,
+    rawValue,
+    rawString: null,
+    health,
+  })
+
+  it("hides value/worst/thresh when no row reports them", () => {
+    const wrapper = mount(SmartAttributesTable, {
+      props: {
+        attributes: [
+          scsiRow("scsi_grown_defect_list", 636, "warn"),
+          scsiRow("sas_invalid_dword_count", 255, "warn"),
+        ],
+      },
+      global: { plugins: [vuetify] },
+    })
+
+    const headers = wrapper.findAll("th").map((th) => th.text())
+    expect(headers).toEqual(["Attribute", "Raw", "Status"])
+    expect(wrapper.findAll("tbody tr")[0]!.findAll("td")).toHaveLength(3)
+    expect(wrapper.text()).toContain("Grown defects")
+    expect(wrapper.text()).toContain("636")
+  })
+
+  it("keeps them for an ATA table that does report them", () => {
+    const wrapper = mount(SmartAttributesTable, {
+      props: {
+        attributes: [
+          {
+            id: 5,
+            name: "Reallocated_Sector_Ct",
+            value: 100,
+            worst: 100,
+            thresh: 10,
+            rawValue: 0,
+            rawString: null,
+            health: "ok" as const,
+          },
+        ],
+      },
+      global: { plugins: [vuetify] },
+    })
+
+    expect(wrapper.findAll("th").map((th) => th.text())).toEqual([
+      "Attribute",
+      "Value",
+      "Worst",
+      "Thresh",
+      "Raw",
+      "Status",
+    ])
+  })
+})

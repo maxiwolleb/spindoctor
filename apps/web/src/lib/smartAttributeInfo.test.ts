@@ -55,3 +55,72 @@ describe("describeAttribute", () => {
     expect(info.description).toContain("no plain-language explanation yet")
   })
 })
+
+// Issue #54: SAS/SCSI rows carry the same plain-language treatment ATA and NVMe
+// already had — and several of these counters are routinely huge on a healthy
+// drive, so the description has to say so or the number reads as damage.
+describe("describeAttribute (SAS/SCSI)", () => {
+  const scsiRow = (name: string, rawValue: number | null = 0): SmartAttributeRow => ({
+    id: null,
+    name,
+    value: null,
+    worst: null,
+    thresh: null,
+    rawValue,
+    rawString: null,
+    health: "ok",
+  })
+
+  it("describes the drive's own self-assessment as the authoritative SAS signal", () => {
+    const info = describeAttribute(scsiRow("scsi_smart_status", null))
+    expect(info.label).toBe("Drive self-assessment")
+    expect(info.description).toContain("authoritative")
+  })
+
+  it("explains that a large grown-defect count is not by itself a failure", () => {
+    const info = describeAttribute(scsiRow("scsi_grown_defect_list", 7827))
+    expect(info.label).toBe("Grown defects")
+    expect(info.description).toContain("thousands")
+  })
+
+  it("explains that millions of corrected read errors are normal", () => {
+    const info = describeAttribute(scsiRow("read_total_errors_corrected", 19650581))
+    expect(info.description).toContain("normal")
+  })
+
+  it("points link counters at the cabling rather than the drive", () => {
+    expect(describeAttribute(scsiRow("sas_invalid_dword_count", 255)).description).toContain(
+      "cable",
+    )
+    expect(
+      describeAttribute(scsiRow("sas_loss_of_dword_synchronization_count", 6)).description,
+    ).toContain("cabling")
+  })
+
+  it("has a description for every row the SAS parser can emit", () => {
+    const emitted = [
+      "scsi_smart_status",
+      "scsi_grown_defect_list",
+      "read_total_uncorrected_errors",
+      "write_total_uncorrected_errors",
+      "verify_total_uncorrected_errors",
+      "read_errors_corrected_by_rereads_rewrites",
+      "write_errors_corrected_by_rereads_rewrites",
+      "verify_errors_corrected_by_rereads_rewrites",
+      "read_total_errors_corrected",
+      "write_total_errors_corrected",
+      "verify_total_errors_corrected",
+      "sas_invalid_dword_count",
+      "sas_loss_of_dword_synchronization_count",
+      "sas_running_disparity_error_count",
+      "sas_phy_reset_problem_count",
+      "power_on_hours",
+      "temperature_celsius",
+    ]
+    for (const name of emitted) {
+      const info = describeAttribute(scsiRow(name))
+      expect(info.label, name).not.toBe(name)
+      expect(info.description, name).not.toContain("no plain-language explanation yet")
+    }
+  })
+})
