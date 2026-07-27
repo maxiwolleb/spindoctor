@@ -11,6 +11,8 @@ const baseMetrics: SmartKeyMetrics = {
   reportedUncorrect: 0,
   crcErrors: 0,
   powerOnHours: 1000,
+  spinRetryCount: null,
+  commandTimeouts: null,
   percentageUsed: null,
   mediaErrors: null,
   temperatureC: 32,

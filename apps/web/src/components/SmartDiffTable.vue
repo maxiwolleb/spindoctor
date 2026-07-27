@@ -28,6 +28,8 @@ const METRICS: MetricDef[] = [
   // rows are on a spinning ATA disk.
   { key: "grownDefects", label: "Grown defects (SAS)", worseIsHigher: true },
   { key: "linkErrors", label: "Link errors (SAS)", worseIsHigher: true },
+  { key: "spinRetryCount", label: "Spin retries", worseIsHigher: true },
+  { key: "commandTimeouts", label: "Command timeouts", worseIsHigher: true },
   { key: "crcErrors", label: "CRC errors", worseIsHigher: true },
   { key: "powerOnHours", label: "Power-on hours", worseIsHigher: false },
   { key: "percentageUsed", label: "Percentage used", worseIsHigher: true },

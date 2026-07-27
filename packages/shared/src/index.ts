@@ -21,6 +21,21 @@ export interface SmartKeyMetrics {
   reportedUncorrect: number | null
   crcErrors: number | null
   powerOnHours: number | null
+  /**
+   * ATA attribute 10 — times the platters needed a retry to reach speed. A
+   * mechanical signal, and the rare SMART counter where the first non-zero value
+   * is already decisive: in Backblaze's fleet data a drive with any spin retries
+   * shows roughly ten times the annual failure rate of one with none. `null` on
+   * SAS/NVMe, which have no equivalent.
+   */
+  spinRetryCount: number | null
+  /**
+   * ATA attribute 188 — commands the drive abandoned because they timed out.
+   * Graded on a threshold rather than on any non-zero value: low historical
+   * counts are common and are as often a cable as a drive (the same story as
+   * `crcErrors`). `null` on SAS/NVMe.
+   */
+  commandTimeouts: number | null
   /** SSD/NVMe wear, 0–100+. */
   percentageUsed: number | null
   /** NVMe media/integrity errors. */
@@ -119,16 +134,60 @@ export interface SurfaceResult {
 export interface Thresholds {
   /** Reallocated sectors up to and including this (and > 0) → WARN; above → FAIL. */
   reallocatedWarnMax: number
+  /** Command timeouts up to and including this → no reason raised; above → WARN. */
+  commandTimeoutWarnMax: number
   /** SSD/NVMe percentage-used ≥ this → WARN. */
   ssdPercentageUsedWarn: number
   /** SSD/NVMe percentage-used ≥ this → FAIL. */
   ssdPercentageUsedFail: number
 }
 
+/**
+ * Defaults chosen from Backblaze's published per-attribute failure rates (by way
+ * of Scrutiny's dataset) rather than from round numbers, so each one can be
+ * justified against an observed failure rate instead of taste:
+ *
+ * - `reallocatedWarnMax: 4` — a drive with 1–4 reallocated sectors fails at
+ *   2.74%/year against a 2.52% baseline for a pristine drive, i.e. it is
+ *   statistically indistinguishable from zero. The next band up (4–16) fails at
+ *   7.50%, three times baseline. 4 is where the data stops being ambiguous;
+ *   anything above it is a real elevation, which for a drive about to be sold on
+ *   is disqualifying.
+ * - `commandTimeoutWarnMax: 100` — ≤100 timeouts fails at 2.49% (baseline);
+ *   above that, 10.0%. The cutoff is deliberately generous because a handful of
+ *   timeouts is as often a cable as a drive.
+ * - `ssdPercentageUsedWarn/Fail: 80/100` — kept as-is. There is no comparable
+ *   fleet data for SSD wear (Backblaze's SSD population is too small, and
+ *   Scrutiny marks every wear attribute non-critical with no observed
+ *   thresholds), so these stay a manufacturer-endurance reading: 100% means the
+ *   drive has reached its own rated write endurance.
+ */
 export const DEFAULT_THRESHOLDS: Thresholds = {
-  reallocatedWarnMax: 10,
+  reallocatedWarnMax: 4,
+  commandTimeoutWarnMax: 100,
   ssdPercentageUsedWarn: 80,
   ssdPercentageUsedFail: 100,
+}
+
+/**
+ * Fills in any threshold a persisted config predates. Settings are stored as a
+ * JSON blob, so an install created before a threshold existed has an object
+ * missing that key — and reading it raw would compare a counter against
+ * `undefined`, which is silently false for every drive. Values already stored
+ * win: a threshold someone may have tuned is never overwritten by a later change
+ * to the default.
+ */
+export function resolveThresholds(stored: unknown): Thresholds {
+  if (typeof stored !== "object" || stored === null || Array.isArray(stored)) {
+    return { ...DEFAULT_THRESHOLDS }
+  }
+  const raw = stored as Record<string, unknown>
+  const merged = { ...DEFAULT_THRESHOLDS }
+  for (const key of Object.keys(DEFAULT_THRESHOLDS) as Array<keyof Thresholds>) {
+    const value = raw[key]
+    if (typeof value === "number" && Number.isFinite(value)) merged[key] = value
+  }
+  return merged
 }
 
 export interface Reason {

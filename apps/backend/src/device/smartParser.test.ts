@@ -16,6 +16,7 @@ import nvmeHealthy from "./__fixtures__/nvme-healthy.json"
 import scsiMinimal from "./__fixtures__/scsi-minimal.json"
 import sasImpendingFailure from "./__fixtures__/sas-impending-failure.json"
 import sasUncorrectedErrors from "./__fixtures__/sas-uncorrected-errors.json"
+import sataSsdWorn from "./__fixtures__/sata-ssd-worn.json"
 
 describe("parseDeviceType", () => {
   it("detects HDD from rotation rate", () => {
@@ -38,6 +39,8 @@ describe("parseSmartMetrics (ATA)", () => {
       reportedUncorrect: 0,
       crcErrors: 0,
       powerOnHours: 21000,
+      spinRetryCount: null,
+      commandTimeouts: null,
       percentageUsed: null,
       mediaErrors: null,
       temperatureC: 33,
@@ -74,6 +77,8 @@ describe("parseSmartMetrics (NVMe)", () => {
       reportedUncorrect: null,
       crcErrors: null,
       powerOnHours: 1200,
+      spinRetryCount: null,
+      commandTimeouts: null,
       percentageUsed: 4,
       mediaErrors: 0,
       temperatureC: 41,
@@ -448,5 +453,98 @@ describe("parseSmartAttributes (SAS/SCSI)", () => {
 
   it("still returns an empty table for a device that reports nothing at all", () => {
     expect(parseSmartAttributes({ device: { protocol: "SCSI" } }, DEFAULT_THRESHOLDS)).toEqual([])
+  })
+})
+
+// Issue #54: percentageUsed was null for every non-NVMe device, so the
+// evaluator's SSD-wear rule was unreachable on SATA SSDs — a worn-out SATA SSD
+// could pass. These attributes report a NORMALIZED value counting down from 100,
+// not a raw counter, which is what made them easy to miss.
+describe("parseSmartMetrics SATA SSD wear (#54)", () => {
+  it("derives percentage-used from the normalized wear attribute, not the raw value", () => {
+    const metrics = parseSmartMetrics(sataSsdWorn)
+    // 231 SSD_Life_Left normalized 12 -> 88% used. The raw column also reads 12,
+    // which would have given 12% used had it been read instead.
+    expect(metrics.percentageUsed).toBe(88)
+  })
+
+  it("condemns a worn SATA SSD that the drive's own SMART status still passes", () => {
+    const metrics = parseSmartMetrics(sataSsdWorn)
+    expect(metrics.smartHealthPassed).toBe(true)
+    const { verdict, reasons } = evaluateVerdict({
+      before: metrics,
+      after: metrics,
+      deviceType: "SSD",
+      selfTest: { status: "PASSED" },
+      surface: null,
+      thresholds: DEFAULT_THRESHOLDS,
+    })
+    expect(verdict).toBe("WARN")
+    expect(reasons.map((r) => r.code)).toContain("WEAR_HIGH")
+  })
+
+  it("prefers the first wear attribute the drive reports, in order", () => {
+    // Only 233 (Media_Wearout_Indicator) present: normalized 30 -> 70% used.
+    const json = {
+      device: { protocol: "ATA", type: "sat" },
+      rotation_rate: 0,
+      ata_smart_attributes: {
+        table: [{ id: 233, name: "Media_Wearout_Indicator", value: 30, raw: { value: 0 } }],
+      },
+    }
+    expect(parseSmartMetrics(json).percentageUsed).toBe(70)
+  })
+
+  it("leaves wear null on a spinning disk, where those attribute ids mean other things", () => {
+    // 202 is "Data Address Mark errors" on an HDD, not a wear percentage.
+    const json = {
+      device: { protocol: "ATA", type: "sat" },
+      rotation_rate: 7200,
+      ata_smart_attributes: {
+        table: [{ id: 202, name: "Data_Address_Mark_Errs", value: 100, raw: { value: 0 } }],
+      },
+    }
+    expect(parseSmartMetrics(json).percentageUsed).toBeNull()
+  })
+
+  it("leaves wear null for an SSD that reports no wear attribute at all", () => {
+    const json = {
+      device: { protocol: "ATA", type: "sat" },
+      rotation_rate: 0,
+      ata_smart_attributes: {
+        table: [{ id: 5, name: "Reallocated_Sector_Ct", raw: { value: 0 } }],
+      },
+    }
+    expect(parseSmartMetrics(json).percentageUsed).toBeNull()
+  })
+
+  it("clamps rather than reporting negative wear for a value above 100", () => {
+    const json = {
+      device: { protocol: "ATA", type: "sat" },
+      rotation_rate: 0,
+      ata_smart_attributes: {
+        table: [{ id: 231, name: "SSD_Life_Left", value: 120, raw: { value: 0 } }],
+      },
+    }
+    expect(parseSmartMetrics(json).percentageUsed).toBe(0)
+  })
+})
+
+// The two ATA attributes the threshold audit added (#54).
+describe("parseSmartMetrics spin retries and command timeouts (#54)", () => {
+  it("reads attribute 10 and 188 raw values", () => {
+    const json = {
+      device: { protocol: "ATA", type: "sat" },
+      rotation_rate: 7200,
+      ata_smart_attributes: {
+        table: [
+          { id: 10, name: "Spin_Retry_Count", value: 100, raw: { value: 2 } },
+          { id: 188, name: "Command_Timeout", value: 100, raw: { value: 143 } },
+        ],
+      },
+    }
+    const metrics = parseSmartMetrics(json)
+    expect(metrics.spinRetryCount).toBe(2)
+    expect(metrics.commandTimeouts).toBe(143)
   })
 })

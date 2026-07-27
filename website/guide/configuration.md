@@ -23,9 +23,12 @@ These map directly onto `createServer()`'s overrides in
 Everything else is configured at runtime through the **Settings** page,
 persisted in the database (so it survives a restart):
 
-- **Grading thresholds** — the three numeric thresholds the verdict
-  evaluator uses (see [How it works](/guide/how-it-works)):
-  - Reallocated sectors — warn above (default `10`)
+- **Grading thresholds** — the numeric thresholds the verdict evaluator
+  uses. Each default is calibrated against observed failure rates rather
+  than picked as a round number — see [Where the thresholds come
+  from](/guide/how-it-works#where-the-thresholds-come-from):
+  - Reallocated sectors — warn above (default `4`)
+  - Command timeouts — warn above (default `100`)
   - SSD/NVMe wear % — warn at (default `80`)
   - SSD/NVMe wear % — fail at (default `100`)
 - **Concurrency** — the number of simultaneous test slots (default `4`).
@@ -48,3 +51,8 @@ Settings are read and written via `GET`/`PUT /api/settings`; the same
 validation the Settings form applies client-side (numeric thresholds,
 whole-number concurrency ≥ 1, string-only protect-list entries) is
 enforced again server-side.
+
+Thresholds are stored per install. An install created before a threshold
+existed reads back with the current default filled in for it, and any value
+already stored is left alone — a default that changes in a later release
+never silently moves a number an operator may have tuned.

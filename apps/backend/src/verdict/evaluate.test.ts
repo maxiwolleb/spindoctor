@@ -15,6 +15,8 @@ const clean: SmartKeyMetrics = {
   reportedUncorrect: 0,
   crcErrors: 0,
   powerOnHours: 21000,
+  spinRetryCount: null,
+  commandTimeouts: null,
   percentageUsed: null,
   mediaErrors: null,
   temperatureC: 33,
@@ -46,7 +48,7 @@ describe("evaluateVerdict", () => {
   })
 
   it("WARN when a small stable reallocated count is present", () => {
-    const after = { ...clean, reallocatedSectors: 5 }
+    const after = { ...clean, reallocatedSectors: 3 }
     const r = evaluateVerdict(input({ before: after, after }))
     expect(r.verdict).toBe("WARN")
     expect(codes(r)).toContain("REALLOCATED_PRESENT")
@@ -159,6 +161,8 @@ describe("evaluateVerdict", () => {
       reportedUncorrect: null,
       crcErrors: null,
       powerOnHours: null,
+      spinRetryCount: null,
+      commandTimeouts: null,
       percentageUsed: null,
       mediaErrors: null,
       temperatureC: null,
@@ -170,11 +174,21 @@ describe("evaluateVerdict", () => {
     expect(r.verdict).toBe("PASS")
   })
 
-  it("WARN at exactly the reallocated warn-max (10, stable)", () => {
-    const after = { ...clean, reallocatedSectors: 10 }
+  // The boundary is the point of the default: 1-4 reallocated sectors fails at
+  // 2.74%/year against a 2.52% baseline, so it warns; above 4 the observed rate
+  // triples, so it fails. See DEFAULT_THRESHOLDS.
+  it("WARN at exactly the reallocated warn-max (4, stable)", () => {
+    const after = { ...clean, reallocatedSectors: 4 }
     const r = evaluateVerdict(input({ before: after, after }))
     expect(r.verdict).toBe("WARN")
     expect(codes(r)).toContain("REALLOCATED_PRESENT")
+  })
+
+  it("FAIL one sector above the reallocated warn-max (5, stable)", () => {
+    const after = { ...clean, reallocatedSectors: 5 }
+    const r = evaluateVerdict(input({ before: after, after }))
+    expect(r.verdict).toBe("FAIL")
+    expect(codes(r)).toContain("REALLOCATED_HIGH")
   })
 
   it("FAIL one past the reallocated warn-max (11)", () => {
@@ -311,5 +325,44 @@ describe("evaluateVerdict — SAS link errors", () => {
   it("stays silent on a clean link", () => {
     const after = { ...clean, grownDefects: 0, linkErrors: 0, smartHealthPassed: true }
     expect(evaluateVerdict(input({ before: after, after })).verdict).toBe("PASS")
+  })
+})
+
+// Issue #54: two rules added from Backblaze's per-attribute failure rates, where
+// we previously graded nothing at all.
+describe("evaluateVerdict spin retries and command timeouts (#54)", () => {
+  it("FAILs on any spin retry — a motor that struggled once is not shippable", () => {
+    const after = { ...clean, spinRetryCount: 1 }
+    const r = evaluateVerdict(input({ before: after, after }))
+    expect(r.verdict).toBe("FAIL")
+    expect(codes(r)).toContain("SPIN_RETRY")
+  })
+
+  it("stays PASS with zero spin retries", () => {
+    const after = { ...clean, spinRetryCount: 0 }
+    expect(evaluateVerdict(input({ before: after, after })).verdict).toBe("PASS")
+  })
+
+  // Unlike the uncorrectable counters, this one gets a tolerance band: up to 100
+  // timeouts is baseline failure rate, and a handful is as often the cable.
+  it("tolerates command timeouts up to the threshold", () => {
+    const after = { ...clean, commandTimeouts: 100 }
+    const r = evaluateVerdict(input({ before: after, after }))
+    expect(r.verdict).toBe("PASS")
+    expect(codes(r)).not.toContain("COMMAND_TIMEOUTS")
+  })
+
+  it("WARNs above the command-timeout threshold, never FAILs", () => {
+    const after = { ...clean, commandTimeouts: 101 }
+    const r = evaluateVerdict(input({ before: after, after }))
+    expect(r.verdict).toBe("WARN")
+    expect(codes(r)).toContain("COMMAND_TIMEOUTS")
+  })
+
+  it("ignores both on a drive that doesn't report them (SAS/NVMe)", () => {
+    const after = { ...clean, spinRetryCount: null, commandTimeouts: null }
+    const r = evaluateVerdict(input({ before: after, after }))
+    expect(r.verdict).toBe("PASS")
+    expect(codes(r)).toEqual([])
   })
 })

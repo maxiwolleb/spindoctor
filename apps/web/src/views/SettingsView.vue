@@ -12,6 +12,7 @@ const loading = ref(true)
  * edit-then-cancel-navigation doesn't mutate the store before Save. */
 const form = reactive({
   reallocatedWarnMax: 0,
+  commandTimeoutWarnMax: 0,
   ssdPercentageUsedWarn: 0,
   ssdPercentageUsedFail: 0,
   concurrency: 1,
@@ -45,6 +46,7 @@ async function load(): Promise<void> {
   const settings = store.settings
   if (settings) {
     form.reallocatedWarnMax = settings.thresholds.reallocatedWarnMax
+    form.commandTimeoutWarnMax = settings.thresholds.commandTimeoutWarnMax
     form.ssdPercentageUsedWarn = settings.thresholds.ssdPercentageUsedWarn
     form.ssdPercentageUsedFail = settings.thresholds.ssdPercentageUsedFail
     form.concurrency = settings.concurrency
@@ -75,6 +77,7 @@ function removeSerial(serial: string): void {
 function validate(): string | null {
   const thresholdFields: Array<[string, number]> = [
     ["Reallocated sectors — warn above", form.reallocatedWarnMax],
+    ["Command timeouts — warn above", form.commandTimeoutWarnMax],
     ["SSD/NVMe wear % — warn at", form.ssdPercentageUsedWarn],
     ["SSD/NVMe wear % — fail at", form.ssdPercentageUsedFail],
   ]
@@ -116,6 +119,7 @@ async function onSave(): Promise<void> {
   const patch: Partial<SettingsDto> = {
     thresholds: {
       reallocatedWarnMax: form.reallocatedWarnMax,
+      commandTimeoutWarnMax: form.commandTimeoutWarnMax,
       ssdPercentageUsedWarn: form.ssdPercentageUsedWarn,
       ssdPercentageUsedFail: form.ssdPercentageUsedFail,
     },
@@ -156,6 +160,15 @@ async function onSave(): Promise<void> {
           v-model.number="form.reallocatedWarnMax"
           type="number"
           label="Reallocated sectors — warn above"
+          density="comfortable"
+          hide-details
+          style="max-width: 280px"
+        />
+        <v-text-field
+          id="command-timeout-warn-max"
+          v-model.number="form.commandTimeoutWarnMax"
+          type="number"
+          label="Command timeouts — warn above"
           density="comfortable"
           hide-details
           style="max-width: 280px"
