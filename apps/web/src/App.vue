@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { onMounted, onUnmounted } from "vue"
 import { useConsoleStore } from "./stores/useConsoleStore"
 
 interface NavItem {
@@ -12,10 +13,15 @@ const navItems: NavItem[] = [
   { label: "Audit", to: "/audit" },
 ]
 
-// The dashboard (or any other view) owns connectEvents()/disconnectEvents()
-// on mount/unmount; this shell just reads the shared store's `connected` flag
-// so the indicator reflects whichever view's live SSE connection is active.
 const store = useConsoleStore()
+
+// The shell owns the live connection, not any single view. When the dashboard
+// owned it, every other route had no subscription at all: drive detail never
+// updated mid-run, and the indicator below read "Disconnected" while the
+// backend was perfectly healthy. Held for the lifetime of the app so all
+// routes share one socket.
+onMounted(() => store.connectEvents())
+onUnmounted(() => store.disconnectEvents())
 </script>
 
 <template>

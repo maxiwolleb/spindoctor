@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { flushPromises, mount } from "@vue/test-utils"
+import { createPinia, setActivePinia } from "pinia"
 import { createMemoryHistory, createRouter } from "vue-router"
+import { useConsoleStore } from "../stores/useConsoleStore"
 import type { DriveView, RunView, SmartAttributeRow, StageView } from "@spindoctor/shared"
 import { vuetify } from "../plugins/vuetify"
 import DriveDetailView from "./DriveDetailView.vue"
@@ -79,6 +81,11 @@ const reallocatedAttribute: SmartAttributeRow = {
 }
 
 function mountView(serial = "SERA1234") {
+  // The view reads live run state off the shared store now (#21), so it needs an
+  // active Pinia. Activated here too, so a test can grab the same store
+  // instance with useConsoleStore() and drive the live state directly.
+  const pinia = createPinia()
+  setActivePinia(pinia)
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [
@@ -88,8 +95,22 @@ function mountView(serial = "SERA1234") {
   })
   return mount(DriveDetailView, {
     props: { serial },
-    global: { plugins: [vuetify, router] },
+    global: { plugins: [vuetify, pinia, router] },
   })
+}
+
+/** The two fetches a mount performs: `GET /api/drives/:serial`, then
+ * `GET /api/runs/:id` for the newest run. */
+function mockLoad(fetchMock: ReturnType<typeof vi.fn>, over: Partial<RunView> = {}): void {
+  fetchMock.mockResolvedValueOnce(jsonResponse({ drive, runs: [{ ...run, ...over }] }))
+  fetchMock.mockResolvedValueOnce(
+    jsonResponse({
+      run: { ...run, ...over },
+      stages,
+      snapshots: { before: { reallocatedSectors: 0 }, after: { reallocatedSectors: 5 } },
+      attributes: { before: [], after: [] },
+    }),
+  )
 }
 
 describe("DriveDetailView", () => {
@@ -238,5 +259,77 @@ describe("DriveDetailView", () => {
     expect(wrapper.text()).toContain("No test runs yet")
     expect(wrapper.text()).toContain("No runs recorded")
     expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe("DriveDetailView live updates (#21)", () => {
+  const fetchMock = vi.fn()
+
+  beforeEach(() => {
+    fetchMock.mockReset()
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it("shows live activity and advances the timeline's running stage from the shared connection", async () => {
+    mockLoad(fetchMock, { status: "RUNNING", verdict: null, currentStage: "SMART_BEFORE" })
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    const store = useConsoleStore()
+    store.liveByDrive.SERA1234 = {
+      runId: 9,
+      stage: "SMART_BEFORE",
+      percent: 64,
+      status: "RUNNING",
+      verdict: null,
+      startedAt: "2026-01-01T00:00:00.000Z",
+    }
+    await flushPromises()
+
+    expect(wrapper.find('[data-test="live-activity"]').exists()).toBe(true)
+    // The fetched row said 100%; the live percent must win for the running stage.
+    expect(wrapper.text()).toContain("64%")
+  })
+
+  it("renders no live activity block when nothing is running for this drive", async () => {
+    mockLoad(fetchMock)
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.find('[data-test="live-activity"]').exists()).toBe(false)
+  })
+
+  it("reloads when the run goes terminal, so verdict and after-SMART appear without a reload", async () => {
+    mockLoad(fetchMock, { status: "RUNNING", verdict: null, currentStage: "SURFACE" })
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    const store = useConsoleStore()
+    store.liveByDrive.SERA1234 = {
+      runId: 9,
+      stage: "SURFACE",
+      percent: 12,
+      status: "RUNNING",
+      verdict: null,
+      startedAt: null,
+    }
+    await flushPromises()
+    const callsBefore = fetchMock.mock.calls.length
+
+    // Terminal drops the live entry — the store's own behavior on a terminal
+    // run:update — which is this page's cue that everything it shows changed.
+    mockLoad(fetchMock)
+    delete store.liveByDrive.SERA1234
+    await flushPromises()
+
+    expect(fetchMock.mock.calls.length).toBeGreaterThan(callsBefore)
+    expect(wrapper.find('[data-test="live-activity"]').exists()).toBe(false)
   })
 })
