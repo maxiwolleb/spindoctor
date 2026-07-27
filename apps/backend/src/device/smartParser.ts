@@ -36,6 +36,29 @@ const ATA_ATTR_IDS = {
 } as const
 
 /**
+ * Attribute 188's 48-bit raw field is not one counter — it packs up to three
+ * 16-bit counters, and smartctl passes it through as-is (unlike attribute
+ * 190, whose `raw.string` it renders as "31 (Min/Max 29/47)"). A healthy Seagate
+ * ST9500423AS on the test rig reports raw `4295032838` = `0x1_0001_0006`, i.e.
+ * the words 6, 1, 1 — six command timeouts, not four billion.
+ *
+ * Read as a plain integer it trips any threshold instantly, so the low word is
+ * taken as the count. This also explains the shape of the published failure-rate
+ * bands for this attribute, whose boundaries run to 13, 26 and 39 *billion*:
+ * that dataset contains the same undecoded composites, so only its lowest band
+ * ("≤100", ordinary small counts) describes real timeout counts at all.
+ *
+ * The tradeoff: a drive with a genuine count above 65535 is indistinguishable
+ * from a packed value and reads as its low word. That is a drive with tens of
+ * thousands of aborted commands, which every other rule condemns anyway, so
+ * losing the magnitude costs nothing.
+ */
+function decodeCommandTimeouts(raw: number | null): number | null {
+  if (raw == null) return null
+  return raw > 0xffff ? raw & 0xffff : raw
+}
+
+/**
  * SATA SSD wear attributes, in the order they're preferred. Each reports a
  * *normalized* value that counts down from 100 as the drive is written to, so
  * wear is `100 - value` — unlike every other attribute here, where the raw
@@ -212,7 +235,7 @@ export function parseSmartMetrics(json: unknown): SmartKeyMetrics {
     crcErrors: rawById(ATA_ATTR_IDS.crcErrors),
     powerOnHours: rawById(ATA_ATTR_IDS.powerOnHours),
     spinRetryCount: rawById(ATA_ATTR_IDS.spinRetryCount),
-    commandTimeouts: rawById(ATA_ATTR_IDS.commandTimeouts),
+    commandTimeouts: decodeCommandTimeouts(rawById(ATA_ATTR_IDS.commandTimeouts)),
     percentageUsed: ataSsdPercentageUsed(type, normalizedById),
     mediaErrors: null,
     temperatureC,
@@ -265,14 +288,22 @@ function parseAtaAttributes(table: any[], thresholds: Thresholds): SmartAttribut
     const rawString =
       typeof raw.string === "string" && raw.string !== String(rawValue) ? raw.string : null
 
+    // Attribute 188 packs three counters into its raw field and smartctl leaves
+    // them packed (see `decodeCommandTimeouts`), so the table would otherwise
+    // show a healthy drive's six command timeouts as 4295032838. Show the count
+    // and keep the composite visible beside it rather than hiding what the drive
+    // actually reported.
+    const isPacked = id === ATA_ATTR_IDS.commandTimeouts && rawValue != null && rawValue > 0xffff
+    const decoded = isPacked ? decodeCommandTimeouts(rawValue) : rawValue
+
     return {
       id,
       name: typeof row.name === "string" ? row.name : `unknown_attribute_${id ?? "?"}`,
       value,
       worst: num(row.worst),
       thresh,
-      rawValue,
-      rawString,
+      rawValue: decoded,
+      rawString: isPacked ? `${decoded} (packed: ${rawValue})` : rawString,
       health: ataAttributeHealth(id, rawValue, value, thresh, whenFailed, thresholds),
     }
   })
