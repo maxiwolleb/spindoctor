@@ -26,7 +26,36 @@ export interface SmartKeyMetrics {
   /** NVMe media/integrity errors. */
   mediaErrors: number | null
   temperatureC: number | null
+  /**
+   * SAS/SCSI grown defect list size — blocks the drive has retired since
+   * format. The SAS analogue of ATA reallocated sectors, but deliberately kept
+   * as its own metric because the scale is entirely different: healthy SAS
+   * drives in service routinely carry counts in the thousands, so the ATA
+   * `reallocatedWarnMax` threshold is meaningless here. `null` on ATA/NVMe.
+   */
+  grownDefects: number | null
+  /**
+   * The drive's own overall health verdict (`smart_status.passed`).
+   *
+   * On SAS this is the authoritative failure signal — it carries explicit
+   * conditions like "impending failure data error rate too high" — and is the
+   * only field that separates a failing drive from a healthy one when defect
+   * counts overlap. On ATA it is a vendor-threshold summary that often stays
+   * `true` on visibly failing drives, so it is treated as a signal that can
+   * condemn a drive but never as proof one is fine. `null` if not reported.
+   */
+  smartHealthPassed: boolean | null
 }
+
+/**
+ * The `SmartKeyMetrics` keys holding a number — every metric the numeric
+ * threshold/growth rules and the before/after diff table operate on. Keeps
+ * those call sites from having to consider `smartHealthPassed`, which is a
+ * boolean and graded on its own.
+ */
+export type NumericSmartMetricKey = {
+  [K in keyof SmartKeyMetrics]-?: SmartKeyMetrics[K] extends number | null ? K : never
+}[keyof SmartKeyMetrics]
 
 /** Per-attribute flag for the full SMART attribute table (issue #14) — `ok`
  * unless the row itself already looks bad or borderline, independent of any

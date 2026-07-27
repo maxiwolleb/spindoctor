@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest"
 import { DEFAULT_THRESHOLDS } from "@spindoctor/shared"
 import {
+  isScsiDevice,
   parseDeviceType,
   parseSmartAttributes,
   parseSmartMetrics,
@@ -10,6 +11,9 @@ import ataHealthy from "./__fixtures__/ata-healthy.json"
 import ataFailing from "./__fixtures__/ata-failing.json"
 import ataWarning from "./__fixtures__/ata-warning.json"
 import nvmeHealthy from "./__fixtures__/nvme-healthy.json"
+import scsiMinimal from "./__fixtures__/scsi-minimal.json"
+import sasImpendingFailure from "./__fixtures__/sas-impending-failure.json"
+import sasUncorrectedErrors from "./__fixtures__/sas-uncorrected-errors.json"
 
 describe("parseDeviceType", () => {
   it("detects HDD from rotation rate", () => {
@@ -35,6 +39,8 @@ describe("parseSmartMetrics (ATA)", () => {
       percentageUsed: null,
       mediaErrors: null,
       temperatureC: 33,
+      grownDefects: null,
+      smartHealthPassed: true,
     })
   })
   it("maps failing ATA attributes", () => {
@@ -68,6 +74,8 @@ describe("parseSmartMetrics (NVMe)", () => {
       percentageUsed: 4,
       mediaErrors: 0,
       temperatureC: 41,
+      grownDefects: null,
+      smartHealthPassed: true,
     })
   })
 })
@@ -222,5 +230,64 @@ describe("parseSmartAttributes (NVMe)", () => {
     }
     const rows = parseSmartAttributes(worn, DEFAULT_THRESHOLDS)
     expect(rows.find((r) => r.name === "percentage_used")).toMatchObject({ health: "warn" })
+  })
+})
+
+// SAS/SCSI (#18). Field semantics and the value ranges below come from a real
+// 18-drive SAS burn-in archive (Seagate ST12000NM0027/ST12000NM0038, HGST
+// HUH721212AL5200); serials in the fixtures are anonymized. `scsi-minimal.json`
+// is a genuine capture from a kernel `scsi_debug` target, which is why it has a
+// SCSI envelope but none of the log pages a real SAS disk reports.
+describe("parseSmartMetrics — SAS/SCSI", () => {
+  it("detects a SCSI device by protocol", () => {
+    expect(isScsiDevice(scsiMinimal)).toBe(true)
+    expect(isScsiDevice(sasImpendingFailure)).toBe(true)
+    expect(isScsiDevice(ataHealthy)).toBe(false)
+  })
+
+  it("maps the grown defect list and the drive's own failing health verdict", () => {
+    const m = parseSmartMetrics(sasImpendingFailure)
+
+    expect(m.grownDefects).toBe(636)
+    expect(m.smartHealthPassed).toBe(false)
+    expect(m.temperatureC).toBe(40)
+    expect(m.powerOnHours).toBe(56724)
+  })
+
+  it("sums uncorrected errors across read/write/verify into reportedUncorrect", () => {
+    // 158 read + 0 write + 0 verify — the ATA attribute of that name counts the
+    // same thing, so a SAS drive lands on the existing rule.
+    expect(parseSmartMetrics(sasUncorrectedErrors).reportedUncorrect).toBe(158)
+    expect(parseSmartMetrics(sasImpendingFailure).reportedUncorrect).toBe(0)
+  })
+
+  it("leaves ATA-only metrics null rather than inventing SAS equivalents", () => {
+    const m = parseSmartMetrics(sasImpendingFailure)
+
+    // SAS has no current-pending / offline-uncorrectable / CRC attribute, and
+    // grown defects deliberately do NOT populate reallocatedSectors: the scales
+    // differ by orders of magnitude, so the ATA threshold would grade them wrongly.
+    expect(m.reallocatedSectors).toBeNull()
+    expect(m.currentPending).toBeNull()
+    expect(m.offlineUncorrectable).toBeNull()
+    expect(m.crcErrors).toBeNull()
+    expect(m.percentageUsed).toBeNull()
+  })
+
+  it("survives a SCSI device that reports no log pages at all", () => {
+    const m = parseSmartMetrics(scsiMinimal)
+
+    expect(m.smartHealthPassed).toBe(true)
+    expect(m.grownDefects).toBeNull()
+    expect(m.reportedUncorrect).toBeNull()
+    expect(m.powerOnHours).toBeNull()
+  })
+
+  it("reports power-on hours as null for a vendor that omits the page (real HGST behavior)", () => {
+    expect(parseSmartMetrics(sasUncorrectedErrors).powerOnHours).toBeNull()
+  })
+
+  it("still records the health verdict for ATA, where it is a weaker signal", () => {
+    expect(parseSmartMetrics(ataHealthy).smartHealthPassed).toBe(true)
   })
 })

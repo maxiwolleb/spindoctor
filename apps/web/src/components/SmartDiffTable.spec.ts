@@ -14,6 +14,8 @@ const baseMetrics: SmartKeyMetrics = {
   percentageUsed: null,
   mediaErrors: null,
   temperatureC: 32,
+  grownDefects: null,
+  smartHealthPassed: null,
 }
 
 describe("SmartDiffTable", () => {
