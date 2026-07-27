@@ -170,7 +170,15 @@ year**. That is the number every rule below is measured against.
 | Command timeouts        | ≤100 → 2.5% · above → **10%**                    | `> 100` → WARN               |
 | Interface CRC errors    | 0–1 → 4.1% · then flat 14–22% at every magnitude | any `> 0` → WARN, never FAIL |
 
-Two things fall out of that table:
+One row needs a caveat. Attribute 188 packs up to three separate 16-bit counters
+into a single raw field, and `smartctl` passes it through as-is — a healthy
+drive on our own test rig reports `4295032838`, which is really the three values
+6, 1 and 1. The published failure-rate bands for that attribute run to 13, 26 and
+39 _billion_, so they contain the same packed composites; only the lowest band
+describes real timeout counts. spindoctor decodes the field before grading it, and
+sets its threshold at the top of the one band that is trustworthy.
+
+Two more things fall out of the table:
 
 - **The uncorrectable counters have no tolerance band.** The first
   recorded error takes the failure rate to twelve or twenty-eight times

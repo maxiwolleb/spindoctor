@@ -548,3 +548,54 @@ describe("parseSmartMetrics spin retries and command timeouts (#54)", () => {
     expect(metrics.commandTimeouts).toBe(143)
   })
 })
+
+// Found on real hardware during the e2e: a healthy ST9500423AS reports attribute
+// 188 as 4295032838 = 0x1_0001_0006, three packed 16-bit counters (6, 1, 1).
+// smartctl leaves it packed, so reading it as an integer trips any threshold.
+describe("parseSmartMetrics command-timeout packing (attribute 188)", () => {
+  const withCommandTimeout = (rawValue: number) => ({
+    device: { protocol: "ATA", type: "sat" },
+    rotation_rate: 7200,
+    ata_smart_attributes: {
+      table: [{ id: 188, name: "Command_Timeout", value: 100, raw: { value: rawValue } }],
+    },
+  })
+
+  it("takes the low word of a packed raw value", () => {
+    // The exact reading from the rig's healthy drive.
+    expect(parseSmartMetrics(withCommandTimeout(4295032838)).commandTimeouts).toBe(6)
+  })
+
+  it("leaves a plain small count alone", () => {
+    expect(parseSmartMetrics(withCommandTimeout(6)).commandTimeouts).toBe(6)
+    expect(parseSmartMetrics(withCommandTimeout(0)).commandTimeouts).toBe(0)
+    expect(parseSmartMetrics(withCommandTimeout(65535)).commandTimeouts).toBe(65535)
+  })
+
+  // The regression that matters: before decoding, this healthy drive earned a
+  // spurious COMMAND_TIMEOUTS warning on every run.
+  it("does not warn on a healthy drive whose raw value is packed", () => {
+    const metrics = parseSmartMetrics(withCommandTimeout(4295032838))
+    const { verdict, reasons } = evaluateVerdict({
+      before: metrics,
+      after: metrics,
+      deviceType: "HDD",
+      selfTest: { status: "PASSED" },
+      surface: null,
+      thresholds: DEFAULT_THRESHOLDS,
+    })
+    expect(verdict).toBe("PASS")
+    expect(reasons.map((r) => r.code)).not.toContain("COMMAND_TIMEOUTS")
+  })
+
+  it("shows the count in the attribute table, keeping the composite visible", () => {
+    const rows = parseSmartAttributes(withCommandTimeout(4295032838), DEFAULT_THRESHOLDS)
+    const row = rows.find((r) => r.id === 188)
+    expect(row).toMatchObject({ rawValue: 6, rawString: "6 (packed: 4295032838)" })
+  })
+
+  it("leaves an unpacked row's raw rendering untouched", () => {
+    const rows = parseSmartAttributes(withCommandTimeout(6), DEFAULT_THRESHOLDS)
+    expect(rows.find((r) => r.id === 188)).toMatchObject({ rawValue: 6, rawString: null })
+  })
+})
