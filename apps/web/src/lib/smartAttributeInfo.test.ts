@@ -124,3 +124,75 @@ describe("describeAttribute (SAS/SCSI)", () => {
     }
   })
 })
+
+// Found on real hardware during the e2e: a Seagate ST9500423AS reports
+// attributes 184/191/192 with hyphens where this file spells them with
+// underscores, so three rows fell back to "no explanation yet" for attributes
+// already described here.
+describe("describeAttribute name punctuation", () => {
+  const ataRow = (id: number, name: string): SmartAttributeRow => ({
+    id,
+    name,
+    value: 100,
+    worst: 100,
+    thresh: 0,
+    rawValue: 0,
+    rawString: null,
+    health: "ok",
+  })
+
+  const unexplained = (info: { description: string }) =>
+    info.description.includes("no plain-language explanation yet")
+
+  it("matches a hyphenated name against an underscored entry", () => {
+    const info = describeAttribute(ataRow(191, "G-Sense_Error_Rate"))
+    expect(info.label).toBe("Shock sensor errors")
+    expect(unexplained(info)).toBe(false)
+  })
+
+  it("matches the underscored spelling too", () => {
+    expect(describeAttribute(ataRow(191, "G_Sense_Error_Rate")).label).toBe("Shock sensor errors")
+  })
+
+  it("is case-insensitive", () => {
+    expect(describeAttribute(ataRow(192, "power-off_retract_count")).label).toBe(
+      "Power-off retract count",
+    )
+  })
+
+  // Every attribute that real drive reports must now be explained.
+  it("explains every attribute the rig's ST9500423AS reports", () => {
+    const reported: Array<[number, string]> = [
+      [1, "Raw_Read_Error_Rate"],
+      [3, "Spin_Up_Time"],
+      [4, "Start_Stop_Count"],
+      [5, "Reallocated_Sector_Ct"],
+      [7, "Seek_Error_Rate"],
+      [9, "Power_On_Hours"],
+      [10, "Spin_Retry_Count"],
+      [12, "Power_Cycle_Count"],
+      [184, "End-to-End_Error"],
+      [187, "Reported_Uncorrect"],
+      [188, "Command_Timeout"],
+      [189, "High_Fly_Writes"],
+      [190, "Airflow_Temperature_Cel"],
+      [191, "G-Sense_Error_Rate"],
+      [192, "Power-Off_Retract_Count"],
+      [193, "Load_Cycle_Count"],
+      [194, "Temperature_Celsius"],
+      [195, "Hardware_ECC_Recovered"],
+      [197, "Current_Pending_Sector"],
+      [198, "Offline_Uncorrectable"],
+      [199, "UDMA_CRC_Error_Count"],
+      [240, "Head_Flying_Hours"],
+      [241, "Total_LBAs_Written"],
+      [242, "Total_LBAs_Read"],
+      [254, "Free_Fall_Sensor"],
+    ]
+    for (const [id, name] of reported) {
+      const info = describeAttribute(ataRow(id, name))
+      expect(unexplained(info), `${id} ${name}`).toBe(false)
+      expect(info.label, `${id} ${name}`).not.toBe(name)
+    }
+  })
+})

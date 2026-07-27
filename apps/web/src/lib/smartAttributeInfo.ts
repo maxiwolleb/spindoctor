@@ -35,6 +35,21 @@ const ATA_BY_NAME: Record<string, SmartAttributeInfo> = {
     description:
       "Number of spindle start/stop cycles over the drive's life. Informational — tracks usage, not a fault by itself.",
   },
+  "End-to-End_Error": {
+    label: "End-to-end error",
+    description:
+      "Data that failed the drive's internal parity check between its cache and the platters — the transfer path inside the drive, not the cable. Any non-zero count means the drive itself corrupted data in flight, which is why fleet studies treat this attribute as one of the more predictive ones.",
+  },
+  Head_Flying_Hours: {
+    label: "Head flying hours",
+    description:
+      "Hours the heads have spent actually flying over the platters, as opposed to parked. Informational — a measure of real use rather than of health.",
+  },
+  Free_Fall_Sensor: {
+    label: "Free-fall events",
+    description:
+      "Times the drive's free-fall sensor detected it was falling and parked the heads (mainly laptop drives). A non-zero count means the drive has been dropped, which is a reason to look closely at the mechanical attributes above.",
+  },
   Reallocated_Sector_Ct: {
     label: "Reallocated sectors",
     description:
@@ -353,16 +368,33 @@ const SCSI_BY_NAME: Record<string, SmartAttributeInfo> = {
   },
 }
 
+/**
+ * Attribute names are not standardized in their punctuation: the same attribute
+ * is `G_Sense_Error_Rate` on one drive and `G-Sense_Error_Rate` on the next, and
+ * a real ST9500423AS reports 184/191/192 hyphenated. Matching the literal string
+ * meant three rows on that drive fell back to "no explanation yet" for
+ * attributes this file already describes, so lookups go through this first.
+ */
+function normalizeName(name: string): string {
+  return name.replace(/-/g, "_").toLowerCase()
+}
+
+const ATA_BY_NORMALIZED_NAME: Record<string, SmartAttributeInfo> = Object.fromEntries(
+  Object.entries(ATA_BY_NAME).map(([name, info]) => [normalizeName(name), info]),
+)
+
 /** Plain-language label + description for a `SmartAttributeRow` (issue #14).
- * ATA rows are looked up by their smartctl-reported `name` first, then by
- * numeric id (covers vendor-specific naming of the same standard attribute);
- * NVMe and SAS/SCSI rows (no numeric id) are looked up by field name across
- * both tables — the two vocabularies don't collide, and `power_on_hours` is
- * deliberately shared. Anything unrecognized still renders — with a generic
- * fallback message — rather than being hidden. */
+ * ATA rows are looked up by their smartctl-reported `name` first (punctuation
+ * normalized — see `normalizeName`), then by numeric id, which covers a vendor
+ * renaming a standard attribute outright; NVMe and SAS/SCSI rows (no numeric id)
+ * are looked up by field name across both tables — the two vocabularies don't
+ * collide, and `power_on_hours` is deliberately shared. Anything unrecognized
+ * still renders — with a generic fallback message — rather than being hidden. */
 export function describeAttribute(row: SmartAttributeRow): SmartAttributeInfo {
   if (row.id != null) {
-    return ATA_BY_NAME[row.name] ?? ATA_BY_ID[row.id] ?? FALLBACK(row.name)
+    return (
+      ATA_BY_NORMALIZED_NAME[normalizeName(row.name)] ?? ATA_BY_ID[row.id] ?? FALLBACK(row.name)
+    )
   }
   return NVME_BY_NAME[row.name] ?? SCSI_BY_NAME[row.name] ?? FALLBACK(row.name)
 }
