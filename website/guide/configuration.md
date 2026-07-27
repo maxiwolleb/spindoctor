@@ -12,6 +12,8 @@ deployment.
 | `HOST`                      | `0.0.0.0`                                                              | Interface the backend binds to.                                                                                                               |
 | `SPINDOCTOR_WEB_ROOT`       | built-in `apps/web/dist` path, resolved relative to the backend module | Directory of the built SPA served as static files (and its SPA fallback). Static serving is skipped entirely if this directory doesn't exist. |
 | `SPINDOCTOR_MIGRATIONS_DIR` | resolved next to the backend source (`../../drizzle`)                  | Overrides where Drizzle looks for migration files — only needed if your deploy layout differs from the shipped image.                         |
+| `LOG_LEVEL`                 | `info`                                                                 | One of `fatal`, `error`, `warn`, `info`, `debug`, `trace`, `silent`. An unrecognized value falls back to `info` rather than failing to start. |
+| `LOG_FORMAT`                | `pretty`                                                               | `pretty` gives colored, one-line-per-event output in `docker logs`; `json` gives newline-delimited JSON for shipping to a log collector.      |
 
 These map directly onto `createServer()`'s overrides in
 `apps/backend/src/main.ts`; each is read once at startup.
