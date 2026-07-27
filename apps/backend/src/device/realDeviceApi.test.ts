@@ -112,3 +112,41 @@ describe("RealDeviceApi", () => {
     })
   })
 })
+
+// smartctl exits 0 whether or not it started anything, so the only signal that a
+// drive cannot run a self-test is what it printed. Real output from a Realtek
+// RTL9210 NVMe enclosure under smartmontools 7.4.
+describe("RealDeviceApi.startLongSelfTest support detection", () => {
+  function apiWith(stdout: string, stderr = "") {
+    const runner: CommandRunner = {
+      run: async () => ({ stdout, stderr, code: 0 }),
+    }
+    return new RealDeviceApi(runner)
+  }
+
+  it("reports not started when the drive says self-tests are unsupported", async () => {
+    const real = `smartctl 7.4 2023-08-01 r5530 [x86_64-linux] (local build)
+
+Self-tests not supported
+`
+    expect(await apiWith(real).startLongSelfTest("/dev/sdb")).toBe(false)
+  })
+
+  it("matches the singular spelling and other casings too", async () => {
+    expect(await apiWith("Self-test not supported").startLongSelfTest("/dev/sdb")).toBe(false)
+    expect(await apiWith("SELF-TESTS NOT SUPPORTED").startLongSelfTest("/dev/sdb")).toBe(false)
+    expect(await apiWith("self tests not supported").startLongSelfTest("/dev/sdb")).toBe(false)
+  })
+
+  it("reads the message from stderr as well as stdout", async () => {
+    expect(await apiWith("", "Self-tests not supported").startLongSelfTest("/dev/sdb")).toBe(false)
+  })
+
+  it("reports started for the normal ATA response", async () => {
+    const ok = `Sending command: "Execute SMART Extended self-test routine immediately in off-line mode".
+Drive command "Execute SMART Extended self-test routine immediately in off-line mode" successful.
+Testing has begun.
+`
+    expect(await apiWith(ok).startLongSelfTest("/dev/sda")).toBe(true)
+  })
+})

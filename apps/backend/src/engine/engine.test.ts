@@ -1508,3 +1508,69 @@ describe("TestEngine grading a USB-bridged NVMe", () => {
     expect(api.started).toEqual([d.devicePath])
   })
 })
+
+// The image ships smartmontools 7.4, whose JSON carries no self-test capability
+// field — that arrived in 7.5. So the signal that actually fires on a real deploy
+// is what `smartctl -t long` prints, which the DeviceApi reports as "didn't
+// start". Verified against a Realtek RTL9210 NVMe enclosure.
+describe("TestEngine self-test the drive turns out to be incapable of", () => {
+  it("records the stage skipped and still reaches PASS", async () => {
+    const d = drive()
+    const api = new FakeDeviceApi({
+      drives: [d],
+      smartByPath: { [d.devicePath]: smartRaw() },
+      selfTestUnsupportedPaths: [d.devicePath],
+      surface: { plan: [100], result: { mode: "write", badBlocks: 0, completed: true } },
+    })
+    const engine = new TestEngine({
+      db,
+      deviceApi: api,
+      sleep: async () => {},
+      selfTestPollIntervalMs: 0,
+    })
+
+    const runId = await engine.startRun({ serial: d.serial, mode: "destructive" })
+    const terminal = await waitForSettled(engine, runId)
+
+    expect(terminal.verdict).toBe("PASS")
+
+    const stages = db.select().from(stageResults).where(eq(stageResults.runId, runId)).all()
+    const selfTest = stages.find((s) => s.stage === "SELFTEST_LONG")
+    // Never ran, so not DONE at 100% — that would claim a completed routine.
+    expect(selfTest?.status).toBe("SKIPPED")
+    expect(selfTest?.progress).toBe(0)
+    expect(selfTest?.metrics).toEqual({ status: "UNSUPPORTED" })
+
+    // The surface pass still ran; this is not the #49 early exit.
+    expect(stages.find((s) => s.stage === "SURFACE")?.status).toBe("DONE")
+
+    const reasons = repo.getRun(db, runId)!.reasons as { code: string; severity: string }[]
+    expect(reasons.map((r) => r.code)).toContain("SELFTEST_UNSUPPORTED")
+    expect(reasons.map((r) => r.code)).not.toContain("SELFTEST_INCOMPLETE")
+  })
+
+  it("records why in the stage log, and never polls for a result", async () => {
+    const d = drive()
+    const api = new FakeDeviceApi({
+      drives: [d],
+      smartByPath: { [d.devicePath]: smartRaw() },
+      selfTestUnsupportedPaths: [d.devicePath],
+      surface: { plan: [100], result: { mode: "write", badBlocks: 0, completed: true } },
+    })
+    const engine = new TestEngine({
+      db,
+      deviceApi: api,
+      sleep: async () => {},
+      selfTestPollIntervalMs: 0,
+    })
+
+    const runId = await engine.startRun({ serial: d.serial, mode: "destructive" })
+    await waitForSettled(engine, runId)
+
+    const stages = db.select().from(stageResults).where(eq(stageResults.runId, runId)).all()
+    const log = stages.find((s) => s.stage === "SELFTEST_LONG")?.log ?? ""
+    expect(log).toContain("self-tests are not supported")
+    // No poll line: nothing was ever polled for.
+    expect(log).not.toContain("poll:")
+  })
+})

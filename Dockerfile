@@ -34,9 +34,19 @@ RUN pnpm --filter @spindoctor/backend deploy --prod --legacy /app
 # (smartctl, badblocks/e2fsprogs, nvme-cli, hdparm, lsblk via util-linux).
 FROM node:22-bookworm-slim AS runtime
 
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends \
+# smartmontools comes from bookworm-backports, not bookworm. Bookworm ships
+# 7.3 (Feb 2022), which predates NVMe self-test support — `smartctl -t long`
+# against an NVMe drive there exits 0 having done nothing at all, so the
+# self-test stage "succeeded", polled an empty log, and every NVMe run ended
+# WARN ("self-test did not complete") and could never PASS. 7.4 runs NVMe
+# self-tests, and says "Self-tests not supported" when a controller genuinely
+# lacks the command. Everything else stays on bookworm.
+RUN echo "deb http://deb.debian.org/debian bookworm-backports main" \
+      > /etc/apt/sources.list.d/backports.list \
+  && apt-get update \
+  && apt-get install -y --no-install-recommends -t bookworm-backports \
     smartmontools \
+  && apt-get install -y --no-install-recommends \
     e2fsprogs \
     nvme-cli \
     hdparm \

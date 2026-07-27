@@ -8,7 +8,13 @@ import type {
 export interface DeviceApi {
   listDevices(): Promise<DiscoveredDrive[]>
   readSmartRaw(devicePath: string): Promise<unknown>
-  startLongSelfTest(devicePath: string): Promise<void>
+  /**
+   * Asks the drive to begin its long self-test. Resolves `false` when the drive
+   * cannot run one — plenty of cheap NVMe controllers don't implement the
+   * command, and `smartctl` reports that by printing "Self-tests not supported"
+   * while still exiting 0, so the caller cannot learn it from an exit code.
+   */
+  startLongSelfTest(devicePath: string): Promise<boolean>
   /** Tells the drive to stop the self-test routine it is running. Needed on
    * abort: dropping out of the poll loop leaves the drive running the routine
    * on its own for as long as it takes (~90 min on a 500 GB HDD). */
