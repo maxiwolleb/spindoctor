@@ -20,6 +20,8 @@ function toSurfaceMode(mode: RegimeMode): SurfaceResult["mode"] {
 
 export class FakeDeviceApi implements DeviceApi {
   readonly started: string[] = []
+  /** Device paths a self-test abort was issued for, in order. */
+  readonly selfTestAborts: string[] = []
   readonly surfaceCalls: { devicePath: string; mode: RegimeMode }[] = []
   constructor(private state: FakeDeviceApiState = {}) {}
 
@@ -33,6 +35,9 @@ export class FakeDeviceApi implements DeviceApi {
   }
   async startLongSelfTest(devicePath: string): Promise<void> {
     this.started.push(devicePath)
+  }
+  async abortSelfTest(devicePath: string): Promise<void> {
+    this.selfTestAborts.push(devicePath)
   }
   async pollSelfTest(devicePath: string): Promise<SelfTestProgress> {
     return (

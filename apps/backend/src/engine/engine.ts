@@ -737,6 +737,24 @@ export class TestEngine extends EventEmitter {
       await this.sleep(this.selfTestPollIntervalMs)
     }
 
+    // Leaving the loop is not enough: the drive runs the routine on its own
+    // schedule, so an abort that only stops polling leaves it grinding for up
+    // to ~90 min after the user cancelled. Best-effort — a drive that already
+    // finished has nothing to abort, and a failure here must not mask the
+    // abort itself.
+    if (controller.signal.aborted) {
+      logLines.push(
+        `[${new Date().toISOString()}] aborted — asking the drive to stop the self-test`,
+      )
+      try {
+        await this.deviceApi.abortSelfTest(devicePath)
+      } catch (err) {
+        logLines.push(
+          `[${new Date().toISOString()}] could not abort the self-test on the drive: ${String(err)}`,
+        )
+      }
+    }
+
     return { result, log: logLines.join("\n") }
   }
 

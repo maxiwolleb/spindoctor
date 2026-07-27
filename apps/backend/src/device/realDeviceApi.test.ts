@@ -75,6 +75,18 @@ describe("RealDeviceApi", () => {
     expect(calls[0]).toBe("smartctl -t long /dev/sda")
   })
 
+  it("aborts a running self-test with smartctl -X", async () => {
+    const calls: string[] = []
+    const runner: CommandRunner = {
+      async run(cmd, args) {
+        calls.push([cmd, ...args].join(" "))
+        return { stdout: "", stderr: "", code: 0 }
+      },
+    }
+    await new RealDeviceApi(runner).abortSelfTest("/dev/sda")
+    expect(calls[0]).toBe("smartctl -X /dev/sda")
+  })
+
   it("reports a self-test in progress", async () => {
     const api = new RealDeviceApi(
       fakeRunner({ "smartctl -x": { stdout: JSON.stringify(ataSelfTestProgress) } }),
