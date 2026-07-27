@@ -472,6 +472,12 @@ describe("TestEngine full-run behavior", () => {
     const stages = db.select().from(stageResults).where(eq(stageResults.runId, ctx.runId)).all()
     const surfaceStage = stages.find((s) => s.stage === "SURFACE")
     expect(surfaceStage?.status).toBe("ABORTED")
+
+    // ...and it must keep the percentage it actually reached. This is the stage
+    // that overwrites every sector, so recording an interrupted wipe as 100%
+    // invites the reading that the whole disk was written.
+    expect(surfaceStage?.progress).not.toBe(100)
+    expect(surfaceStage?.progress).toBe(25)
   })
 
   it("does not let abortRun called from a DONE listener re-label an already-terminal run (Fix A)", async () => {

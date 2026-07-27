@@ -815,10 +815,15 @@ export class TestEngine extends EventEmitter {
     // re-writes `status` afterwards, so it's fine to set it here too.
     const stagePatch: Partial<StageUpdate> = {
       status: surfaceResult.completed ? "DONE" : "ABORTED",
-      progress: 100,
       metrics: surfaceResult,
       finishedAt: new Date(),
     }
+    // Only a scan that actually finished is 100%. An interrupted one keeps the
+    // percentage it reached (#emitStageProgress has already persisted it on
+    // every whole-percent change) — this is the stage that overwrites every
+    // sector, so "ABORTED, 100%" would invite the reading that the whole disk
+    // was written when only part of it was.
+    if (surfaceResult.completed) stagePatch.progress = 100
     // Only set when the device API actually captured one — omitted (rather
     // than passed as `undefined`) so a DeviceApi that never calls `onLog`
     // (e.g. a bare `FakeDeviceApi` in an unrelated test) doesn't blow away
