@@ -21,7 +21,7 @@ const headers = [
   { title: "Serial", key: "serial" },
   { title: "Size", key: "sizeBytes" },
   { title: "Type", key: "type" },
-  { title: "Health", key: "health", sortable: false },
+  { title: "Flags", key: "flags", sortable: false },
   { title: "Activity", key: "activity", sortable: false },
   { title: "Verdict", key: "verdict", sortable: false },
   { title: "", key: "actions", sortable: false, align: "end" as const },
@@ -41,6 +41,14 @@ function onRowClick(_event: Event, row: { item: DriveView }): void {
 
 function onStartClick(serial: string): void {
   emit("start", serial)
+}
+
+/** A run the engine still owns. `startRun` rejects a second start for such a
+ * drive with a 409, so the button must not offer one — these are the same
+ * non-terminal statuses `reconcile()` picks up on restart. */
+function hasRunInFlight(drive: DriveView): boolean {
+  const status = drive.latestRun?.status
+  return status === "RUNNING" || status === "PENDING"
 }
 
 /** Makes each data row keyboard-openable, not just clickable: focusable via
@@ -83,7 +91,7 @@ function rowProps({ item }: { item: DriveView }): Record<string, unknown> {
       <span class="mono">{{ humanBytes(item.sizeBytes) }}</span>
     </template>
 
-    <template #item.health="{ item }">
+    <template #item.flags="{ item }">
       <div class="d-flex ga-1 flex-wrap">
         <v-chip v-if="!item.present" size="x-small" color="secondary" variant="tonal"
           >Absent</v-chip
@@ -107,7 +115,13 @@ function rowProps({ item }: { item: DriveView }): Record<string, unknown> {
     </template>
 
     <template #item.actions="{ item }">
-      <v-btn size="small" color="primary" variant="tonal" @click.stop="onStartClick(item.serial)">
+      <v-btn
+        size="small"
+        color="primary"
+        variant="tonal"
+        :disabled="hasRunInFlight(item)"
+        @click.stop="onStartClick(item.serial)"
+      >
         Start test
       </v-btn>
     </template>
