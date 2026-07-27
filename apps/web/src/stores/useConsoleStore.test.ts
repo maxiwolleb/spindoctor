@@ -7,35 +7,41 @@ import type {
   StageProgressEvent,
 } from "@spindoctor/shared"
 import { setConsoleDeps, useConsoleStore } from "./useConsoleStore"
-import type { EventSourceLike } from "./useConsoleStore"
+import type { RealtimeConnection } from "../api/realtime"
 
-/** Minimal `EventSource` double: records `addEventListener` callbacks per
- * event name and lets a test fire one via `emit`, which is exactly what a
- * real `EventSource` does when a frame arrives — construct a `MessageEvent`
- * -shaped object (`{ data: <json string> }`) and invoke every listener
- * registered for that event name. */
-class FakeEventSource implements EventSourceLike {
-  private readonly listeners = new Map<string, Array<(event: MessageEvent) => void>>()
+/** Minimal `RealtimeConnection` double: records the listener registered for
+ * each event and lets a test fire it via `emit`. Payloads are passed through
+ * as-is, exactly as socket.io-client delivers them (already decoded — no
+ * JSON string to unwrap, unlike the raw SSE frames this replaced). */
+class FakeRealtime implements RealtimeConnection {
+  private readonly listeners = new Map<string, Array<(payload?: unknown) => void>>()
   closed = false
 
-  addEventListener(type: string, listener: (event: MessageEvent) => void): void {
+  private add(type: string, listener: (payload?: unknown) => void): void {
     const list = this.listeners.get(type) ?? []
     list.push(listener)
     this.listeners.set(type, list)
   }
 
+  onConnect(listener: () => void): void {
+    this.add("connect", listener)
+  }
+  onDisconnect(listener: () => void): void {
+    this.add("disconnect", listener)
+  }
+  onRunUpdate(listener: (payload: RunUpdateEvent) => void): void {
+    this.add("run:update", listener as (payload?: unknown) => void)
+  }
+  onStageProgress(listener: (payload: StageProgressEvent) => void): void {
+    this.add("stage:progress", listener as (payload?: unknown) => void)
+  }
   close(): void {
     this.closed = true
   }
 
-  /** Test helper: dispatches a frame to every listener registered for
-   * `type`, JSON-encoding `dataObj` the way a real SSE frame's `data` field
-   * would arrive. Passing `undefined` (for `open`/`error`) emits an event
-   * with no `data` field, matching a real `Event`. */
-  emit(type: string, dataObj?: unknown): void {
-    const list = this.listeners.get(type) ?? []
-    const event = (dataObj === undefined ? {} : { data: JSON.stringify(dataObj) }) as MessageEvent
-    for (const listener of list) listener(event)
+  /** Test helper: dispatches `payload` to every listener registered for `type`. */
+  emit(type: string, payload?: unknown): void {
+    for (const listener of this.listeners.get(type) ?? []) listener(payload)
   }
 }
 
@@ -77,13 +83,13 @@ function fakeApi() {
 
 describe("useConsoleStore", () => {
   let api: ReturnType<typeof fakeApi>
-  let source: FakeEventSource
+  let source: FakeRealtime
 
   beforeEach(() => {
     setActivePinia(createPinia())
     api = fakeApi()
-    source = new FakeEventSource()
-    setConsoleDeps({ api, eventSourceFactory: () => source })
+    source = new FakeRealtime()
+    setConsoleDeps({ api, realtimeFactory: () => source })
   })
 
   it("refreshDrives populates drives from the api", async () => {
@@ -104,30 +110,30 @@ describe("useConsoleStore", () => {
     expect(store.settings).toEqual(settings)
   })
 
-  it("connectEvents flips connected true on open, false on error", () => {
+  it("connectEvents flips connected true on connect, false on disconnect", () => {
     const store = useConsoleStore()
 
     store.connectEvents()
     expect(store.connected).toBe(false)
 
-    source.emit("open")
+    source.emit("connect")
     expect(store.connected).toBe(true)
 
-    source.emit("error")
+    source.emit("disconnect")
     expect(store.connected).toBe(false)
   })
 
-  it("a second connectEvents() call closes the previous EventSource (no double-subscribe)", () => {
+  it("a second connectEvents() call closes the previous connection (no double-subscribe)", () => {
     const store = useConsoleStore()
 
     store.connectEvents()
     const first = source
-    first.emit("open")
+    first.emit("connect")
     expect(first.closed).toBe(false)
     expect(store.connected).toBe(true)
 
-    const second = new FakeEventSource()
-    setConsoleDeps({ eventSourceFactory: () => second })
+    const second = new FakeRealtime()
+    setConsoleDeps({ realtimeFactory: () => second })
     store.connectEvents()
 
     expect(first.closed).toBe(true)
@@ -135,14 +141,14 @@ describe("useConsoleStore", () => {
     // new source now, not a leftover "true" from the closed one.
     expect(store.connected).toBe(false)
 
-    second.emit("open")
+    second.emit("connect")
     expect(store.connected).toBe(true)
   })
 
   it("disconnectEvents closes the source and sets connected false", () => {
     const store = useConsoleStore()
     store.connectEvents()
-    source.emit("open")
+    source.emit("connect")
     expect(store.connected).toBe(true)
 
     store.disconnectEvents()

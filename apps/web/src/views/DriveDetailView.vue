@@ -1,17 +1,28 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue"
+import { computed, onMounted, ref, watch } from "vue"
 import type { DriveView, RunView } from "@spindoctor/shared"
 import { ApiError, createApiClient } from "../api/client"
 import type { RunDetail } from "../api/client"
 import { humanBytes, modeLabel } from "../lib/format"
+import { useConsoleStore } from "../stores/useConsoleStore"
 import VerdictBadge from "../components/VerdictBadge.vue"
 import SmartDiffTable from "../components/SmartDiffTable.vue"
 import SmartAttributesTable from "../components/SmartAttributesTable.vue"
 import StageTimeline from "../components/StageTimeline.vue"
+import RunProgress from "../components/RunProgress.vue"
 
 const props = defineProps<{ serial: string }>()
 
 const api = createApiClient()
+const store = useConsoleStore()
+
+/**
+ * This drive's in-flight run, straight off the shared live connection the app
+ * shell holds open. Before #21 this page fetched once and never updated, so a
+ * run's stage and percent sat frozen at whatever they were when the page
+ * loaded.
+ */
+const live = computed(() => store.liveForDrive(props.serial))
 
 const drive = ref<DriveView | null>(null)
 const runs = ref<RunView[]>([])
@@ -83,6 +94,49 @@ async function load(): Promise<void> {
   loading.value = false
 }
 
+/**
+ * The fetched stage rows with the live percent overlaid onto whichever stage is
+ * currently running, so the timeline advances instead of showing the percent
+ * from page-load time. Only the matching run's stages are touched, and only
+ * rows that already exist — a stage the backend hasn't persisted yet is picked
+ * up by the reload below rather than invented here.
+ */
+const stagesForTimeline = computed(() => {
+  const stages = latestRunDetail.value?.stages ?? []
+  const l = live.value
+  if (!l || l.runId !== latestRunDetail.value?.run.id) return stages
+  return stages.map((stage) =>
+    stage.stage === l.stage ? { ...stage, status: "RUNNING", progress: l.percent } : stage,
+  )
+})
+
+/** Stage names already reloaded for, so a transition triggers exactly one
+ * reload even if several events arrive for the same stage. */
+const reloadedStages = new Set<string>()
+
+// A stage transition adds a row (and finalizes the previous one), so pull the
+// authoritative detail rather than guessing at the new row's shape.
+watch(
+  () => live.value?.stage,
+  (stage) => {
+    if (!stage || reloadedStages.has(stage)) return
+    const known = latestRunDetail.value?.stages.some((s) => s.stage === stage)
+    if (known) return
+    reloadedStages.add(stage)
+    void load()
+  },
+)
+
+// The live entry is dropped the moment a run goes terminal, which is also when
+// everything on this page changes at once — verdict, after-SMART, captured logs
+// — so reload it all.
+watch(live, (now, before) => {
+  if (before && !now) {
+    reloadedStages.clear()
+    void load()
+  }
+})
+
 onMounted(load)
 </script>
 
@@ -109,6 +163,13 @@ onMounted(load)
           </p>
         </div>
         <VerdictBadge :verdict="drive.latestRun?.verdict ?? null" />
+      </div>
+
+      <!-- Live activity for an in-flight run: the same bar the dashboard row
+           shows, so this page stops being a stale snapshot mid-run. -->
+      <div v-if="live" class="mb-6" data-test="live-activity">
+        <h2 class="text-subtitle-1 mb-2">Live activity</h2>
+        <RunProgress :live="live" />
       </div>
 
       <template v-if="latestRunDetail">
@@ -151,7 +212,7 @@ onMounted(load)
             Download log
           </v-btn>
         </div>
-        <StageTimeline :stages="latestRunDetail.stages" class="mb-6" />
+        <StageTimeline :stages="stagesForTimeline" class="mb-6" />
       </template>
       <v-alert
         v-else-if="runDetailError"

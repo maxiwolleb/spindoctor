@@ -11,6 +11,8 @@ import type {
 } from "@spindoctor/shared"
 import { createApiClient } from "../api/client"
 import type { ApiClient } from "../api/client"
+import { createRealtimeConnection } from "../api/realtime"
+import type { RealtimeConnection } from "../api/realtime"
 
 /** Live progress for one drive's in-flight run, keyed by `driveSerial`. */
 export interface LiveProgress {
@@ -26,36 +28,27 @@ export interface LiveProgress {
   startedAt: string | null
 }
 
-/** The subset of `EventSource` the store actually uses. Narrower than the
- * DOM type so a test double doesn't have to implement the full interface
- * (readyState, onmessage, etc.) — a real `EventSource` satisfies this
- * structurally, so the default factory below needs no cast. */
-export interface EventSourceLike {
-  addEventListener(type: string, listener: (event: MessageEvent) => void): void
-  close(): void
-}
-
 export interface ConsoleDeps {
   api: ApiClient
-  eventSourceFactory: (url: string) => EventSourceLike
+  realtimeFactory: () => RealtimeConnection
 }
 
 function defaultDeps(): ConsoleDeps {
   return {
     api: createApiClient(),
-    eventSourceFactory: (url) => new EventSource(url),
+    realtimeFactory: createRealtimeConnection,
   }
 }
 
 let deps: ConsoleDeps = defaultDeps()
 
 /**
- * Overrides the store's collaborators (API client + `EventSource`
- * constructor). This is the store's only seam for dependency injection:
- * production code never calls it (so it always gets the real API client and
- * `EventSource`), while tests call it with fakes before exercising the
- * store. Actions read `deps.*` at call time rather than capturing it, so
- * overriding after a store instance already exists still takes effect.
+ * Overrides the store's collaborators (API client + realtime connection).
+ * This is the store's only seam for dependency injection: production code
+ * never calls it (so it always gets the real API client and a real Socket.IO
+ * connection), while tests call it with fakes before exercising the store.
+ * Actions read `deps.*` at call time rather than capturing it, so overriding
+ * after a store instance already exists still takes effect.
  *
  * Pass a partial object to override just one collaborator; call with no
  * arguments to restore both defaults (useful in test teardown).
@@ -77,7 +70,7 @@ export const useConsoleStore = defineStore("console", () => {
   const connected = ref(false)
   const error = ref<string | null>(null)
 
-  let source: EventSourceLike | null = null
+  let connection: RealtimeConnection | null = null
 
   function driveBySerial(serial: string): DriveView | undefined {
     return drives.value.find((d) => d.serial === serial)
@@ -144,8 +137,7 @@ export const useConsoleStore = defineStore("console", () => {
     }
   }
 
-  function handleStageProgress(event: MessageEvent): void {
-    const payload = JSON.parse(event.data as string) as StageProgressEvent
+  function handleStageProgress(payload: StageProgressEvent): void {
     const existing = liveByDrive[payload.driveSerial]
     liveByDrive[payload.driveSerial] = {
       runId: payload.runId,
@@ -157,8 +149,7 @@ export const useConsoleStore = defineStore("console", () => {
     }
   }
 
-  function handleRunUpdate(event: MessageEvent): void {
-    const payload = JSON.parse(event.data as string) as RunUpdateEvent
+  function handleRunUpdate(payload: RunUpdateEvent): void {
     const verdict = payload.verdict ?? null
 
     if (TERMINAL_STATUSES.has(payload.status)) {
@@ -196,28 +187,31 @@ export const useConsoleStore = defineStore("console", () => {
 
   function connectEvents(): void {
     // Idempotent: a re-mount (or any accidental double-call) tears down any
-    // existing connection first, so we never leak a stale EventSource or
-    // double-register its listeners.
+    // existing connection first, so we never leak a socket or double-register
+    // its listeners.
     disconnectEvents()
 
-    const es = deps.eventSourceFactory("/api/events")
+    const conn = deps.realtimeFactory()
 
-    es.addEventListener("open", () => {
+    // `connect` fires again after every successful reconnect, and the server
+    // replays in-flight run state on each connection, so the indicator and the
+    // live view both heal on their own.
+    conn.onConnect(() => {
       connected.value = true
       error.value = null
     })
-    es.addEventListener("error", () => {
+    conn.onDisconnect(() => {
       connected.value = false
     })
-    es.addEventListener("stage:progress", handleStageProgress)
-    es.addEventListener("run:update", handleRunUpdate)
+    conn.onStageProgress(handleStageProgress)
+    conn.onRunUpdate(handleRunUpdate)
 
-    source = es
+    connection = conn
   }
 
   function disconnectEvents(): void {
-    source?.close()
-    source = null
+    connection?.close()
+    connection = null
     connected.value = false
   }
 

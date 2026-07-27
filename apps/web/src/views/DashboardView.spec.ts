@@ -61,19 +61,21 @@ describe("DashboardView", () => {
     document.body.innerHTML = ""
   })
 
-  it("refreshes drives and connects live events on mount, and disconnects on unmount", async () => {
+  // The live connection is the app shell's (see App.spec.ts): if this view
+  // owned it, navigating away from the dashboard would tear the socket down and
+  // leave every other route unsubscribed — which is exactly the bug in #21.
+  it("refreshes drives on mount and leaves the live connection to the shell", async () => {
     const store = stubStore()
 
     const { wrapper, router } = mountDashboard()
     await router.isReady()
 
     expect(store.refreshDrives).toHaveBeenCalledTimes(1)
-    expect(store.connectEvents).toHaveBeenCalledTimes(1)
-    expect(store.disconnectEvents).not.toHaveBeenCalled()
+    expect(store.connectEvents).not.toHaveBeenCalled()
 
     wrapper.unmount()
 
-    expect(store.disconnectEvents).toHaveBeenCalledTimes(1)
+    expect(store.disconnectEvents).not.toHaveBeenCalled()
   })
 
   it("navigates to the drive-detail route when DriveTable emits open", async () => {

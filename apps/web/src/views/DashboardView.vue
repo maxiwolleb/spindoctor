@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from "vue"
+import { computed, onMounted, ref } from "vue"
 import { useRouter } from "vue-router"
 import type { RegimeMode } from "@spindoctor/shared"
 import { useConsoleStore } from "../stores/useConsoleStore"
@@ -17,13 +17,10 @@ const dialogDrive = computed(() =>
   dialogSerial.value ? (store.driveBySerial(dialogSerial.value) ?? null) : null,
 )
 
+// The live connection belongs to the app shell (see App.vue) so every route
+// gets it — this view only needs the drive list.
 onMounted(() => {
   store.refreshDrives()
-  store.connectEvents()
-})
-
-onUnmounted(() => {
-  store.disconnectEvents()
 })
 
 function onStart(serial: string): void {

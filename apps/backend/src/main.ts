@@ -10,6 +10,7 @@ import type { DeviceApi } from "./device/deviceApi"
 import { TestEngine } from "./engine/engine"
 import { AutoModePoller } from "./engine/autoMode"
 import { buildApp } from "./api/app"
+import { attachRealtime, type Realtime } from "./api/realtime"
 
 /** Built frontend location once `apps/web` is built (Phase 5): resolved
  * relative to this module so it works regardless of the process's cwd. Only
@@ -36,6 +37,8 @@ export interface Server {
   engine: TestEngine
   deviceApi: DeviceApi
   poller: AutoModePoller
+  /** Socket.IO server pushing live run state to the UI, attached to `app.server`. */
+  realtime: Realtime
   /** Reconciles interrupted runs, starts the auto-mode poller, then binds the port. */
   start(): Promise<void>
   /** Stops the poller, closes the HTTP server, then closes the sqlite handle. */
@@ -64,6 +67,10 @@ export function createServer(overrides: CreateServerOverrides = {}): Server {
   const deviceApi = overrides.deviceApi ?? new RealDeviceApi(execFileRunner)
   const engine = new TestEngine({ db, deviceApi })
   const app = buildApp({ db, deviceApi, engine, webRoot })
+  // Attached to Fastify's raw server: Socket.IO handles only its own path and
+  // delegates every other request back, so the REST routes and the SPA
+  // fallback are unaffected. Safe before `listen()` — it only adds listeners.
+  const realtime = attachRealtime({ httpServer: app.server, db, engine })
   const poller = new AutoModePoller({ db, deviceApi, engine })
 
   async function start(): Promise<void> {
@@ -77,11 +84,15 @@ export function createServer(overrides: CreateServerOverrides = {}): Server {
     // poll cycle, so we can't close the sqlite handle out from under a poll
     // that's still mid-DB-call.
     await poller.stop()
+    // Before app.close(): this drops the engine listeners and disconnects any
+    // client still attached, so nothing tries to read the DB (snapshot replay)
+    // after the sqlite handle below is gone.
+    await realtime.close()
     await app.close()
     sqlite.close()
   }
 
-  return { app, db, engine, deviceApi, poller, start, stop }
+  return { app, db, engine, deviceApi, poller, realtime, start, stop }
 }
 
 function isEntryModule(): boolean {
