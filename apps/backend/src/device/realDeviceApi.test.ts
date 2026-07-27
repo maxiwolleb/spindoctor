@@ -52,7 +52,10 @@ describe("RealDeviceApi", () => {
 
     expect(warnings.filter((w) => w.includes("/dev/sdc"))).toHaveLength(1)
     expect(warnings[0]).toMatch(/no serial/)
-    expect(warnings[0]).toMatch(/udev/)
+    // No udev hint here: this fixture discovers three drives, so the mount is
+    // evidently fine. Whether the hint is appended is covered both ways in
+    // discovery.test.ts.
+    expect(warnings[0]).not.toMatch(/udev/)
   })
 
   it("parses SMART even when smartctl exits non-zero (bitmask)", async () => {

@@ -38,7 +38,8 @@
     "vitepress",
     "vuetify",
     "wearout",
-    "wordmark"
+    "wordmark",
+    "zram"
   ],
   "ignorePaths": [
     "cspell.json",
