@@ -16,7 +16,12 @@ import type {
 import type { Db } from "../db/client"
 import { silentLogger, type Logger } from "../logger"
 import type { DeviceApi } from "../device/deviceApi"
-import { parseDeviceType, parseSmartMetrics, selfTestSupported } from "../device/smartParser"
+import {
+  parseDeviceType,
+  parseLongSelfTestMinutes,
+  parseSmartMetrics,
+  selfTestSupported,
+} from "../device/smartParser"
 import { evaluateVerdict } from "../verdict/evaluate"
 import { condemnedByBaseline } from "../verdict/baselineGate"
 import { checkDestructiveAllowed } from "../safety/guards"
@@ -110,6 +115,12 @@ interface RunState {
    * stage is recorded as unsupported rather than started and polled for a result
    * that will never come. `undefined` until SMART_BEFORE has run. */
   selfTestSupported?: boolean
+  /** Minutes the drive itself declares for its long self-test, read from the
+   * baseline SMART capture and stamped on every SELFTEST_LONG progress event so
+   * the UI can estimate the remaining time without extrapolating from a
+   * 10%-granular counter (issue #61). `null` when the drive declares nothing;
+   * `undefined` until SMART_BEFORE has run. */
+  longSelfTestMinutes?: number | null
   before?: SmartKeyMetrics
   after?: SmartKeyMetrics
   selfTest?: SelfTestResult
@@ -508,6 +519,7 @@ export class TestEngine extends EventEmitter {
           if (snapshot) {
             state.deviceType = parseDeviceType(snapshot.raw)
             state.selfTestSupported = selfTestSupported(snapshot.raw)
+            state.longSelfTestMinutes = parseLongSelfTestMinutes(snapshot.raw)
           }
           break
         }
@@ -833,6 +845,7 @@ export class TestEngine extends EventEmitter {
         state.before = metrics
         state.deviceType = deviceType
         state.selfTestSupported = before.selfTestSupported
+        state.longSelfTestMinutes = before.longSelfTestMinutes
         // Correct discovery's guess where SMART disagrees, so the dashboard and
         // the verdict tell the same story about what kind of drive this is.
         if (deviceType !== drive.type) {
@@ -859,6 +872,7 @@ export class TestEngine extends EventEmitter {
           stageId,
           drive.serial,
           drive.devicePath,
+          state.longSelfTestMinutes ?? null,
           controller,
           skipSelfTestStart,
         )
@@ -894,7 +908,12 @@ export class TestEngine extends EventEmitter {
     runId: number,
     devicePath: string,
     phase: "before" | "after",
-  ): Promise<{ metrics: SmartKeyMetrics; deviceType: DriveType; selfTestSupported: boolean }> {
+  ): Promise<{
+    metrics: SmartKeyMetrics
+    deviceType: DriveType
+    selfTestSupported: boolean
+    longSelfTestMinutes: number | null
+  }> {
     const raw = await this.deviceApi.readSmartRaw(devicePath)
     const metrics = parseSmartMetrics(raw)
     saveSnapshot(this.db, { runId, phase, raw, keyMetrics: metrics })
@@ -902,6 +921,7 @@ export class TestEngine extends EventEmitter {
       metrics,
       deviceType: parseDeviceType(raw),
       selfTestSupported: selfTestSupported(raw),
+      longSelfTestMinutes: parseLongSelfTestMinutes(raw),
     }
   }
 
@@ -910,6 +930,9 @@ export class TestEngine extends EventEmitter {
     stageId: number,
     driveSerial: string,
     devicePath: string,
+    /** The drive's own duration for the routine, stamped on every progress
+     * event so the UI never has to extrapolate one (issue #61). */
+    declaredTotalMinutes: number | null,
     controller: AbortController,
     skipStart = false,
   ): Promise<{ result: SelfTestResult; log: string }> {
@@ -945,7 +968,13 @@ export class TestEngine extends EventEmitter {
         `[${new Date().toISOString()}] poll: running=${progress.running} ` +
           `percentRemaining=${progress.percentRemaining ?? "unknown"} (${percent}% done)`,
       )
-      this.#emitStageProgress(stageId, { runId, driveSerial, stage: "SELFTEST_LONG", percent })
+      this.#emitStageProgress(stageId, {
+        runId,
+        driveSerial,
+        stage: "SELFTEST_LONG",
+        percent,
+        declaredTotalMinutes,
+      })
 
       if (!progress.running) {
         result = progress.result ?? { status: "UNKNOWN" }
@@ -1047,6 +1076,9 @@ export class TestEngine extends EventEmitter {
           driveSerial: currentDrive.serial,
           stage: "SURFACE",
           percent,
+          // badblocks reports progress finely enough to extrapolate from, and
+          // nothing declares how long it will take (issue #61).
+          declaredTotalMinutes: null,
         }),
       controller.signal,
       (log) => {

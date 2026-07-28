@@ -267,6 +267,12 @@ export interface StageProgressEvent {
    * without a separate `GET /api/runs/:id` round-trip. `null` only in the
    * pathological case where the stage row's start time couldn't be resolved. */
   startedAt: string | null
+  /** How long the device itself says this stage takes, start to finish, in
+   * minutes — same figure as `StageView.declaredTotalMinutes`, carried on the
+   * live frame because the dashboard's activity cell has no stage rows to read.
+   * `null` for every stage but SELFTEST_LONG, and for a drive that declares
+   * nothing. */
+  declaredTotalMinutes: number | null
 }
 
 /** API-facing view of a drive: DB-known fields plus live discovery state. */
@@ -351,6 +357,21 @@ export interface StageView {
    * one wasn't recorded for that stage kind, or it hasn't finished yet. */
   log: string | null
   metrics: unknown
+  /**
+   * How long the device itself says this stage takes, start to finish, in
+   * minutes — for SELFTEST_LONG, the drive's recommended polling time for the
+   * extended routine (`ata_smart_data.self_test.polling_minutes.extended`),
+   * taken from the run's baseline SMART capture. `null` for every other stage,
+   * and for a drive that doesn't report one (SAS/SCSI and NVMe declare
+   * self-test duration differently, if at all).
+   *
+   * Exists because a remaining-time estimate cannot be extrapolated from this
+   * stage's progress (issue #61): ATA drives report their remaining percentage
+   * in 10% steps and jump to "90% remaining" within seconds of starting, so
+   * elapsed-over-percent claimed "~6m left" for a 97-minute routine. Where the
+   * device declares a duration, the UI subtracts progress from it instead.
+   */
+  declaredTotalMinutes: number | null
   startedAt: string | null
   finishedAt: string | null
 }

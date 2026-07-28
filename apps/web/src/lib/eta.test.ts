@@ -69,6 +69,53 @@ describe("computeEta", () => {
   })
 })
 
+describe("computeEta with a duration the device declares (#61)", () => {
+  const nowMs = Date.parse("2026-07-25T10:00:00.000Z")
+
+  // The reported bug: an ATA drive jumps to "90% remaining" seconds in, so
+  // extrapolating 40s / 0.1 claimed ~6 minutes for a 97-minute routine.
+  it("uses the declared total instead of extrapolating from a 10%-granular counter", () => {
+    const startedAtMs = nowMs - 40_000
+
+    const extrapolated = computeEta(startedAtMs, 10, nowMs)
+    expect(extrapolated?.remainingMs).toBeCloseTo(360_000, -3) // ~6m — the wrong answer
+
+    const declared = computeEta(startedAtMs, 10, nowMs, 97)
+    // 97 min x 90% still to go = 87.3 min, and the ETA clock agrees.
+    expect(declared?.remainingMs).toBeCloseTo(87.3 * 60_000, -2)
+    expect(declared?.etaMs).toBe(nowMs + 87.3 * 60_000)
+  })
+
+  // The whole figure is available before the drive has reported any progress at
+  // all, so the extrapolation floor doesn't apply — "~1h 37m left" from the
+  // first frame beats "estimating…" followed by a wild number.
+  it("estimates from 0% too, where extrapolation has nothing to work with", () => {
+    expect(computeEta(nowMs - 5_000, 0, nowMs, 97)?.remainingMs).toBe(97 * 60_000)
+    expect(computeEta(nowMs - 5_000, 0, nowMs)).toBeNull()
+  })
+
+  it("needs no elapsed time: the figure is the drive's, not an extrapolation", () => {
+    expect(computeEta(null, 50, nowMs, 90)?.remainingMs).toBe(45 * 60_000)
+    expect(computeEta(nowMs + 60_000, 50, nowMs, 90)?.remainingMs).toBe(45 * 60_000)
+  })
+
+  it("falls back to extrapolation when the drive declares nothing usable", () => {
+    const startedAtMs = nowMs - 60 * 60_000 // 1h elapsed, 50% done -> 1h left
+    for (const declared of [null, undefined, 0, -97, Number.NaN]) {
+      expect(computeEta(startedAtMs, 50, nowMs, declared)?.remainingMs).toBe(60 * 60_000)
+    }
+  })
+
+  it("still returns null without a progress figure to subtract from the total", () => {
+    expect(computeEta(nowMs - 60_000, null, nowMs, 97)).toBeNull()
+  })
+
+  it("clamps progress outside 0..100 rather than over/under-reporting the remainder", () => {
+    expect(computeEta(nowMs - 60_000, 150, nowMs, 97)?.remainingMs).toBe(0)
+    expect(computeEta(nowMs - 60_000, -20, nowMs, 97)?.remainingMs).toBe(97 * 60_000)
+  })
+})
+
 describe("formatRemaining", () => {
   const cases: Array<[number, string]> = [
     [0, "<1m left"],

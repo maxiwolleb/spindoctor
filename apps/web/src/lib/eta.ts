@@ -10,32 +10,51 @@ export interface EtaEstimate {
 }
 
 /**
- * Extrapolates a running stage's remaining time from elapsed time and
- * percent done — `elapsed / (progress / 100)` gives the total time the
- * stage is projected to take, and remaining is whatever's left of that.
- * Works generically for any stage that reports `progress` (self-test,
- * surface scan), not just one hardcoded kind (issue #15).
+ * A running stage's remaining time, from the duration the device itself declares
+ * for the stage when there is one, and otherwise extrapolated from elapsed time
+ * and percent done — `elapsed / (progress / 100)` gives the projected total, and
+ * remaining is whatever's left of it. Works generically for any stage that
+ * reports `progress` (self-test, surface scan), not one hardcoded kind (#15).
  *
- * Returns `null` — "can't estimate yet" — when there isn't enough signal to
- * extrapolate from: no start time, no/invalid progress, progress still under
- * `MIN_MEANINGFUL_PROGRESS_PCT`, or a start time that isn't actually in the
- * past (clock skew, or a stage that hasn't really started). The caller shows
- * "estimating…" in every one of those cases rather than trying to
+ * `declaredTotalMinutes` wins wherever it's available because extrapolation is
+ * unusable for the ATA long self-test (issue #61): the drive reports its
+ * remaining percentage in 10% steps and jumps to "90% remaining" within seconds
+ * of starting, so `40s / 0.1` announced "~6m left" for a 97-minute routine —
+ * wrong by ~15x, and in the direction that invites someone to wait for it. Given
+ * the declared total, the remainder is simple subtraction, needs no elapsed time
+ * at all, and is right from the first frame.
+ *
+ * Returns `null` — "can't estimate yet" — when nothing supports an estimate:
+ * no/invalid progress, or, on the extrapolation path, no start time, progress
+ * still under `MIN_MEANINGFUL_PROGRESS_PCT`, or a start time that isn't actually
+ * in the past (clock skew, or a stage that hasn't really started). The caller
+ * shows "estimating…" in every one of those cases rather than trying to
  * distinguish them.
  */
 export function computeEta(
   startedAtMs: number | null | undefined,
   progress: number | null | undefined,
   nowMs: number,
+  declaredTotalMinutes?: number | null,
 ): EtaEstimate | null {
-  if (startedAtMs == null || !Number.isFinite(startedAtMs)) return null
   if (progress == null || !Number.isFinite(progress)) return null
+  const clampedProgress = Math.min(Math.max(progress, 0), 100)
+
+  if (
+    declaredTotalMinutes != null &&
+    Number.isFinite(declaredTotalMinutes) &&
+    declaredTotalMinutes > 0
+  ) {
+    const remainingMs = declaredTotalMinutes * 60_000 * ((100 - clampedProgress) / 100)
+    return { remainingMs, etaMs: nowMs + remainingMs }
+  }
+
+  if (startedAtMs == null || !Number.isFinite(startedAtMs)) return null
   if (progress < MIN_MEANINGFUL_PROGRESS_PCT) return null
 
   const elapsedMs = nowMs - startedAtMs
   if (elapsedMs <= 0) return null
 
-  const clampedProgress = Math.min(progress, 100)
   const totalEstimateMs = elapsedMs / (clampedProgress / 100)
   const remainingMs = Math.max(0, totalEstimateMs - elapsedMs)
   return { remainingMs, etaMs: nowMs + remainingMs }

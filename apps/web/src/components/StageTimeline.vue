@@ -32,14 +32,15 @@ function markerClass(status: string): string {
   return `stage-timeline__marker--${runStatusColor(status)}`
 }
 
-/** "~Xh Ym left (≈ HH:MM)" for a RUNNING stage, or "estimating…" once it's
- * running but `computeEta` doesn't have enough signal yet (issue #15) — a
- * stage that isn't RUNNING never reaches this (only called from behind
- * `v-if="stage.status === 'RUNNING'"` below), so there's no PENDING/DONE case
- * to handle here. */
+/** "~Xh Ym left (≈ HH:MM)" for a RUNNING stage — from the duration the drive
+ * declares for the stage where there is one (issue #61), otherwise extrapolated
+ * — or "estimating…" once it's running but `computeEta` doesn't have enough
+ * signal yet (issue #15). A stage that isn't RUNNING never reaches this (only
+ * called from behind `v-if="stage.status === 'RUNNING'"` below), so there's no
+ * PENDING/DONE case to handle here. */
 function stageEtaLine(stage: StageView): string {
   const startedAtMs = stage.startedAt ? new Date(stage.startedAt).getTime() : null
-  const eta = computeEta(startedAtMs, stage.progress, Date.now())
+  const eta = computeEta(startedAtMs, stage.progress, Date.now(), stage.declaredTotalMinutes)
   if (!eta) return "estimating…"
   return `${formatRemaining(eta.remainingMs)} (${formatEtaClock(eta.etaMs)})`
 }

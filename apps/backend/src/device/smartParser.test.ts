@@ -4,6 +4,7 @@ import {
   isScsiDevice,
   scsiSelfTestInProgress,
   parseDeviceType,
+  parseLongSelfTestMinutes,
   parseSmartAttributes,
   selfTestSupported,
   parseSmartMetrics,
@@ -19,6 +20,7 @@ import sasImpendingFailure from "./__fixtures__/sas-impending-failure.json"
 import sasUncorrectedErrors from "./__fixtures__/sas-uncorrected-errors.json"
 import sataSsdWorn from "./__fixtures__/sata-ssd-worn.json"
 import nvmeUsbBridgeReal from "./__fixtures__/nvme-usb-bridge-real.json"
+import ataSelfTestProgress from "./__fixtures__/ata-selftest-progress.json"
 
 describe("parseDeviceType", () => {
   it("detects HDD from rotation rate", () => {
@@ -693,5 +695,35 @@ describe("selfTestSupported", () => {
     expect(selfTestSupported({})).toBe(true)
     expect(selfTestSupported(null)).toBe(true)
     expect(selfTestSupported(sasImpendingFailure)).toBe(true)
+  })
+})
+
+describe("parseLongSelfTestMinutes (#61)", () => {
+  it("reads the drive's own polling time for the extended routine", () => {
+    expect(parseLongSelfTestMinutes(ataSelfTestProgress)).toBe(289)
+    // The test rig's Seagate ST9500423AS, whose 97 minutes the ETA got wrong by
+    // ~15x before this figure was available.
+    expect(
+      parseLongSelfTestMinutes({
+        ata_smart_data: { self_test: { polling_minutes: { short: 2, extended: 97 } } },
+      }),
+    ).toBe(97)
+  })
+
+  it("is null for a drive that doesn't report one", () => {
+    expect(parseLongSelfTestMinutes(ataHealthy)).toBeNull()
+    expect(parseLongSelfTestMinutes(nvmeHealthy)).toBeNull()
+    expect(parseLongSelfTestMinutes(sasImpendingFailure)).toBeNull()
+    expect(parseLongSelfTestMinutes({})).toBeNull()
+    expect(parseLongSelfTestMinutes(null)).toBeNull()
+  })
+
+  it("rejects a non-positive or non-numeric figure rather than passing it on", () => {
+    const withExtended = (extended: unknown): unknown => ({
+      ata_smart_data: { self_test: { polling_minutes: { extended } } },
+    })
+    expect(parseLongSelfTestMinutes(withExtended(0))).toBeNull()
+    expect(parseLongSelfTestMinutes(withExtended(-5))).toBeNull()
+    expect(parseLongSelfTestMinutes(withExtended("97"))).toBeNull()
   })
 })

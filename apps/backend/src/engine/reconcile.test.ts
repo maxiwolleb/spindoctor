@@ -5,6 +5,7 @@ import type {
   RunUpdateEvent,
   SelfTestProgress,
   SelfTestResult,
+  StageProgressEvent,
 } from "@spindoctor/shared"
 import { createDb, type Db } from "../db/client"
 import { stageResults } from "../db/schema"
@@ -69,13 +70,13 @@ function seedRunningRun(mode: "destructive" | "read-only", driveSerial: string):
 }
 
 /** Seeds a DONE SMART_BEFORE stage + its snapshot. */
-function seedSmartBefore(runId: number): void {
+function seedSmartBefore(runId: number, rawOver: Record<string, unknown> = {}): void {
   repo.addStage(db, { runId, stage: "SMART_BEFORE", status: "DONE" })
   repo.saveSnapshot(db, {
     runId,
     phase: "before",
-    raw: smartRaw(),
-    keyMetrics: parseSmartMetrics(smartRaw()),
+    raw: smartRaw(rawOver),
+    keyMetrics: parseSmartMetrics(smartRaw(rawOver)),
   })
 }
 
@@ -198,6 +199,40 @@ describe("TestEngine.reconcile", () => {
     expect(selfTestRows).toHaveLength(1)
     expect(selfTestRows[0]?.id).toBe(staleSelfTestId)
     expect(selfTestRows[0]?.status).toBe("DONE")
+  })
+
+  // #61: a restart is exactly when an hour-and-a-half ETA matters most, so the
+  // drive's declared duration has to survive it — re-read from the stored
+  // baseline SMART, since the in-memory run state died with the old process.
+  it("keeps stamping the declared self-test duration on a resumed run's progress events", async () => {
+    const d = drive()
+    repo.upsertDrive(db, d)
+    const runId = seedRunningRun("destructive", d.serial)
+    seedSmartBefore(runId, {
+      ata_smart_data: { self_test: { polling_minutes: { short: 2, extended: 97 } } },
+    })
+    repo.addStage(db, { runId, stage: "SELFTEST_LONG", status: "RUNNING" })
+
+    const api = new FakeDeviceApi({
+      drives: [d],
+      smartByPath: { [d.devicePath]: smartRaw() },
+      selfTestByPath: {
+        [d.devicePath]: { running: false, percentRemaining: 0, result: PASSED_SELFTEST_RESULT },
+      },
+      surface: { plan: [100], result: { mode: "write", badBlocks: 0, completed: true } },
+    })
+    const engine = new TestEngine({ db, deviceApi: api, sleep: async () => {} })
+
+    const events: StageProgressEvent[] = []
+    engine.on("stage:progress", (evt: StageProgressEvent) => events.push(evt))
+
+    const settled = waitForSettled(engine, runId)
+    await engine.reconcile()
+    expect((await settled).status).toBe("DONE")
+
+    const selfTest = events.filter((e) => e.stage === "SELFTEST_LONG")
+    expect(selfTest.length).toBeGreaterThan(0)
+    expect(selfTest.every((e) => e.declaredTotalMinutes === 97)).toBe(true)
   })
 
   it("fails a run with TOO_MANY_RESTARTS instead of restarting SURFACE again once restartCount hits the cap", async () => {

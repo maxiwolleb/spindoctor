@@ -368,6 +368,57 @@ describe("TestEngine full-run behavior", () => {
     expect(selfTestPercents).toEqual([40, 70, 100])
   })
 
+  // #61: the drive's own polling time is the only usable basis for a self-test
+  // ETA, since ATA reports remaining progress in 10% steps.
+  it("stamps the drive's declared self-test duration on every SELFTEST_LONG progress event", async () => {
+    const d = drive()
+    const api = new FakeDeviceApi({
+      drives: [d],
+      smartByPath: {
+        [d.devicePath]: smartRaw({
+          ata_smart_data: { self_test: { polling_minutes: { short: 2, extended: 97 } } },
+        }),
+      },
+      selfTestByPath: { [d.devicePath]: PASSED_SELFTEST },
+      surface: { plan: [100], result: { mode: "write", badBlocks: 0, completed: true } },
+    })
+    const engine = new TestEngine({ db, deviceApi: api, sleep: async () => {} })
+
+    const events: StageProgressEvent[] = []
+    engine.on("stage:progress", (evt: StageProgressEvent) => events.push(evt))
+
+    const runId = await engine.startRun({ serial: d.serial, mode: "destructive" })
+    expect((await waitForSettled(engine, runId)).status).toBe("DONE")
+
+    const selfTest = events.filter((e) => e.stage === "SELFTEST_LONG")
+    expect(selfTest.length).toBeGreaterThan(0)
+    expect(selfTest.every((e) => e.declaredTotalMinutes === 97)).toBe(true)
+    // Only the self-test has a declared duration; badblocks progress is
+    // fine-grained enough to extrapolate from.
+    expect(
+      events.filter((e) => e.stage === "SURFACE").every((e) => e.declaredTotalMinutes === null),
+    ).toBe(true)
+  })
+
+  it("leaves the declared duration null for a drive that doesn't report one", async () => {
+    const d = drive()
+    const api = new FakeDeviceApi({
+      drives: [d],
+      smartByPath: { [d.devicePath]: smartRaw() },
+      selfTestByPath: { [d.devicePath]: PASSED_SELFTEST },
+      surface: { plan: [100], result: { mode: "write", badBlocks: 0, completed: true } },
+    })
+    const engine = new TestEngine({ db, deviceApi: api, sleep: async () => {} })
+
+    const events: StageProgressEvent[] = []
+    engine.on("stage:progress", (evt: StageProgressEvent) => events.push(evt))
+
+    const runId = await engine.startRun({ serial: d.serial, mode: "destructive" })
+    expect((await waitForSettled(engine, runId)).status).toBe("DONE")
+
+    expect(events.every((e) => e.declaredTotalMinutes === null)).toBe(true)
+  })
+
   it("runs SURFACE in read-only mode for a read-only regime", async () => {
     const d = drive()
     const api = new FakeDeviceApi({
