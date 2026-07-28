@@ -141,6 +141,8 @@ describe("createApiClient", () => {
       autoModeEnabled: false,
       protectList: [],
       skipCondemnedDrives: true,
+      diagnosticsEnabled: false,
+      diagnosticsIncludeSerials: false,
     }
     fetchMock.mockResolvedValueOnce(jsonResponse(settings))
 
@@ -163,6 +165,8 @@ describe("createApiClient", () => {
         autoModeEnabled: false,
         protectList: [],
         skipCondemnedDrives: true,
+        diagnosticsEnabled: false,
+        diagnosticsIncludeSerials: false,
       }),
     )
 

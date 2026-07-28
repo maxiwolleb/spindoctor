@@ -70,7 +70,10 @@ export function createServer(overrides: CreateServerOverrides = {}): Server {
   const logger = overrides.logger ?? createLogger()
   const deviceApi = overrides.deviceApi ?? new RealDeviceApi(execFileRunner, { logger })
   const engine = new TestEngine({ db, deviceApi, logger })
-  const app = buildApp({ db, deviceApi, engine, webRoot, logger })
+  // Recorded in a diagnostics bundle so a finding can be tied to the code that
+  // produced it. Set at deploy time; null when nobody bothered, which is fine.
+  const spindoctorVersion = process.env.SPINDOCTOR_VERSION ?? null
+  const app = buildApp({ db, deviceApi, engine, webRoot, logger, spindoctorVersion })
   // Attached to Fastify's raw server: Socket.IO handles only its own path and
   // delegates every other request back, so the REST routes and the SPA
   // fallback are unaffected. Safe before `listen()` — it only adds listeners.

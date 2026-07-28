@@ -43,6 +43,27 @@ persisted in the database (so it survives a restart):
   [How it works](/guide/how-it-works#already-failed-drives-stop-early)). A
   single destructive run can opt out from the start dialog when the write is
   wanted as a wipe.
+- **Diagnostics** — off by default. Enables a downloadable bundle containing
+  what spindoctor could not explain about the drives it graded: the raw
+  `smartctl` payloads it read, the verdicts it reached, the versions of the CLI
+  tools in use, and a report of attributes it has no description for, drives it
+  may have mis-typed, and runs where its verdict disagreed with the drive's own
+  health claim. Intended for handing to someone improving the parsers and
+  thresholds.
+
+  **Nothing is transmitted anywhere.** spindoctor has no telemetry and makes no
+  outbound requests; this only adds `GET /api/diagnostics/bundle`, a file you
+  download and choose to share. With the flag off the route returns 404.
+
+  Drive serials are replaced by per-instance pseudonyms by default — stable
+  enough to tie findings to one drive and follow it across runs, without the
+  bundle being a readable inventory. The salt that produces them is never
+  exported, so the pseudonyms cannot be reversed, and two instances testing the
+  same drive produce unrelated identifiers. A sub-toggle switches to verbatim
+  serials. Model and firmware are always included: they are what parser fixes are
+  keyed on, and they identify a product rather than your fleet. The protect list
+  is excluded outright, being a list of serials.
+
 - **Auto-mode** — off by default; requires the acknowledgment checkbox
   before the toggle can be enabled (see
   [How it works](/guide/how-it-works#auto-mode)).
