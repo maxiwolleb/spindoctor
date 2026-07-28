@@ -77,7 +77,14 @@ export function upsertDrive(db: Db, d: DiscoveredDrive): void {
       set: {
         model: d.model,
         sizeBytes: d.sizeBytes,
-        type: d.type,
+        // `type` is deliberately NOT refreshed here. Discovery infers it from
+        // `lsblk`'s rotational flag, which a USB bridge need not pass through, so
+        // a bridged NVMe arrives as "HDD" and is corrected from its SMART data by
+        // `setDriveType` once a run reads it. `GET /api/drives` upserts every
+        // device it sees, so refreshing the column here undid that correction on
+        // every dashboard refresh — seconds after it was made. The insert above
+        // still records discovery's guess for a drive seen for the first time,
+        // and a drive's type doesn't change under a fixed serial.
         transport: d.transport,
         wwn: d.wwn,
         lastSeen: now,
