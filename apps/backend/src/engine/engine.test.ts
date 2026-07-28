@@ -419,6 +419,48 @@ describe("TestEngine full-run behavior", () => {
     expect(api.selfTestAborts).toEqual([d.devicePath])
   })
 
+  // Latency, not correctness: the abort above lands while the loop is between
+  // polls, so it never exercises the wait. In production the loop spends
+  // essentially all its time parked in the 60s poll-interval sleep, and an
+  // abort it cannot interrupt leaves the drive grinding for up to that long
+  // after the operator cancelled (issue #60). The sleep here never resolves on
+  // its own, so only an abort-aware wait gets the run out of the stage.
+  it("wakes from the poll-interval sleep as soon as abortRun is called", async () => {
+    const d = drive()
+    const api = new FakeDeviceApi({
+      drives: [d],
+      smartByPath: { [d.devicePath]: smartRaw() },
+      selfTestByPath: {
+        [d.devicePath]: { running: true, percentRemaining: 90, result: { status: "UNKNOWN" } },
+      },
+    })
+    let sleepCalls = 0
+    const engine = new TestEngine({
+      db,
+      deviceApi: api,
+      sleep: () => {
+        sleepCalls++
+        return new Promise<void>(() => {})
+      },
+      selfTestPollIntervalMs: 60_000,
+    })
+
+    const runId = await engine.startRun({ serial: d.serial, mode: "destructive" })
+    // Let SMART_BEFORE finish and the self-test loop park in the poll-interval
+    // sleep — the premise of the test, so assert it rather than assume it.
+    await flushMicrotasks()
+    expect(sleepCalls).toBe(1)
+
+    const settled = waitForSettled(engine, runId)
+    engine.abortRun(runId)
+    await flushMicrotasks()
+
+    expect(api.selfTestAborts).toEqual([d.devicePath])
+    expect((await settled).status).toBe("ABORTED")
+    // Nothing re-entered the wait after the abort.
+    expect(sleepCalls).toBe(1)
+  })
+
   it("does not tell the drive to stop when the self-test finishes on its own", async () => {
     const d = drive()
     const api = new FakeDeviceApi({

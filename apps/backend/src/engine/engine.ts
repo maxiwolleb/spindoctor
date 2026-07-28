@@ -956,7 +956,7 @@ export class TestEngine extends EventEmitter {
         break
       }
       if (controller.signal.aborted) break
-      await this.sleep(this.selfTestPollIntervalMs)
+      await this.#waitForNextPoll(controller.signal)
     }
 
     // Leaving the loop is not enough: the drive runs the routine on its own
@@ -978,6 +978,29 @@ export class TestEngine extends EventEmitter {
     }
 
     return { result, log: logLines.join("\n") }
+  }
+
+  /**
+   * Waits out one self-test poll interval, or returns early the moment the run
+   * is cancelled. A plain sleep bounds abort latency by the poll interval — 60s
+   * in production, measured at 41s on real hardware — during which the UI still
+   * says RUNNING and the drive keeps grinding because `smartctl -X` is only
+   * issued after the loop wakes (issue #60).
+   */
+  async #waitForNextPoll(signal: AbortSignal): Promise<void> {
+    if (signal.aborted) return
+    let onAbort!: () => void
+    const aborted = new Promise<void>((resolve) => {
+      onAbort = resolve
+      signal.addEventListener("abort", onAbort, { once: true })
+    })
+    try {
+      await Promise.race([this.sleep(this.selfTestPollIntervalMs), aborted])
+    } finally {
+      // A ~90-minute self-test polls ~90 times, so the listener has to go on the
+      // normal path too — `once` only removes it when the abort actually fires.
+      signal.removeEventListener("abort", onAbort)
+    }
   }
 
   async #runSurfaceStage(
