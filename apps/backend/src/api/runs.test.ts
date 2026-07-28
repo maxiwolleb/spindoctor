@@ -447,6 +447,46 @@ describe("GET /api/runs/:id", () => {
     expect(body.snapshots.after).toBeNull()
   })
 
+  // #61: the stage timeline's ETA needs the drive's own self-test duration, and
+  // the stage row itself has nowhere to keep it — its `metrics` column holds the
+  // routine's *result*, written only once the routine ends.
+  it("stamps the SELFTEST_LONG stage with the duration the drive declared at SMART_BEFORE", async () => {
+    const { app } = build()
+    repo.upsertDrive(db, cleanDrive)
+    const runId = repo.createRun(db, {
+      driveSerial: cleanDrive.serial,
+      regime: { mode: "destructive" },
+    })
+    repo.saveSnapshot(db, {
+      runId,
+      phase: "before",
+      raw: { ata_smart_data: { self_test: { polling_minutes: { short: 2, extended: 97 } } } },
+      keyMetrics: { reallocatedSectors: 0 } as any,
+    })
+    repo.addStage(db, { runId, stage: "SELFTEST_LONG", status: "RUNNING" })
+    repo.addStage(db, { runId, stage: "SURFACE", status: "PENDING" })
+
+    const res = await app.inject({ method: "GET", url: `/api/runs/${runId}` })
+    const body = res.json<{ stages: { stage: string; declaredTotalMinutes: number | null }[] }>()
+    expect(body.stages.find((s) => s.stage === "SELFTEST_LONG")?.declaredTotalMinutes).toBe(97)
+    expect(body.stages.find((s) => s.stage === "SURFACE")?.declaredTotalMinutes).toBeNull()
+  })
+
+  it("leaves declaredTotalMinutes null when the drive reports no polling time (#61)", async () => {
+    const { app } = build()
+    repo.upsertDrive(db, cleanDrive)
+    const runId = repo.createRun(db, {
+      driveSerial: cleanDrive.serial,
+      regime: { mode: "destructive" },
+    })
+    repo.saveSnapshot(db, { runId, phase: "before", raw: smartRaw(), keyMetrics: {} as any })
+    repo.addStage(db, { runId, stage: "SELFTEST_LONG", status: "RUNNING" })
+
+    const res = await app.inject({ method: "GET", url: `/api/runs/${runId}` })
+    const body = res.json<{ stages: { declaredTotalMinutes: number | null }[] }>()
+    expect(body.stages[0]?.declaredTotalMinutes).toBeNull()
+  })
+
   it("includes the full before/after SMART attribute tables, [] for a phase not yet captured (#14)", async () => {
     const { app } = build()
     repo.upsertDrive(db, cleanDrive)

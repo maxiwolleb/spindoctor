@@ -103,6 +103,25 @@ export function selfTestSupported(json: unknown): boolean {
   return true
 }
 
+/**
+ * How many minutes the drive says its extended (long) self-test takes — ATA's
+ * `ata_smart_data.self_test.polling_minutes.extended`, the same figure
+ * `smartctl -c` prints as "recommended polling time". The test rig's Seagate
+ * ST9500423AS declares 97 and finishes in ~90, so it is a good estimate and far
+ * better than extrapolating from the drive's 10%-granular progress counter,
+ * which reported "~6m left" for that same routine (issue #61).
+ *
+ * `null` when the drive doesn't report it — SAS/SCSI and NVMe describe self-test
+ * duration differently, if at all, and the caller falls back to extrapolation.
+ * A non-positive figure is treated as no answer too: a declared 0 would render
+ * as "<1m left" for the whole 90 minutes, which is the same lie inverted.
+ */
+export function parseLongSelfTestMinutes(json: unknown): number | null {
+  const selfTest = asRecord(asRecord(asRecord(json).ata_smart_data).self_test)
+  const minutes = num(asRecord(selfTest.polling_minutes).extended)
+  return minutes != null && minutes > 0 ? minutes : null
+}
+
 /** True for a SAS/SCSI device, which reports health via SCSI log pages rather
  * than an ATA attribute table (see `parseScsiMetrics`). */
 export function isScsiDevice(json: unknown): boolean {

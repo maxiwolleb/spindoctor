@@ -52,6 +52,7 @@ const stages: StageView[] = [
     logPath: null,
     log: null,
     metrics: null,
+    declaredTotalMinutes: null,
     startedAt: null,
     finishedAt: null,
   },
@@ -64,6 +65,7 @@ const stages: StageView[] = [
     logPath: null,
     log: null,
     metrics: null,
+    declaredTotalMinutes: null,
     startedAt: null,
     finishedAt: null,
   },
@@ -336,6 +338,7 @@ describe("DriveDetailView live updates (#21)", () => {
       status: "RUNNING",
       verdict: null,
       startedAt: "2026-01-01T00:00:00.000Z",
+      declaredTotalMinutes: null,
     }
     await flushPromises()
 
@@ -367,6 +370,7 @@ describe("DriveDetailView live updates (#21)", () => {
       status: "RUNNING",
       verdict: null,
       startedAt: null,
+      declaredTotalMinutes: null,
     }
     await flushPromises()
     const callsBefore = fetchMock.mock.calls.length

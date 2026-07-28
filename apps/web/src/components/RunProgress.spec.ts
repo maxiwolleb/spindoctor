@@ -93,6 +93,43 @@ describe("RunProgress", () => {
       expect(wrapper.text()).toContain("estimating…")
     })
 
+    // #61: this is the cell that read "Self-test · ~6m left" 40 seconds into a
+    // 97-minute routine.
+    it("uses the self-test duration the drive declares instead of extrapolating", () => {
+      const wrapper = mount(RunProgress, {
+        props: {
+          live: {
+            stage: "SELFTEST_LONG",
+            percent: 10,
+            status: "RUNNING",
+            startedAt: "2026-07-25T09:59:20.000Z", // 40s in
+            declaredTotalMinutes: 97,
+          },
+        },
+        global: { plugins: [vuetify] },
+      })
+
+      expect(wrapper.text()).toContain("~1h 27m left")
+      expect(wrapper.text()).not.toContain("~6m left")
+    })
+
+    it("keeps extrapolating for a drive that declares no duration", () => {
+      const wrapper = mount(RunProgress, {
+        props: {
+          live: {
+            stage: "SELFTEST_LONG",
+            percent: 50,
+            status: "RUNNING",
+            startedAt: "2026-07-25T09:00:00.000Z", // 1h elapsed, 50% done
+            declaredTotalMinutes: null,
+          },
+        },
+        global: { plugins: [vuetify] },
+      })
+
+      expect(wrapper.text()).toContain("~1h 0m left")
+    })
+
     it("shows no ETA line at all when there's no live progress", () => {
       const wrapper = mount(RunProgress, {
         props: { live: null },

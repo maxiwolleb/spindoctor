@@ -15,6 +15,7 @@ function stage(over: Partial<StageView>): StageView {
     logPath: null,
     log: null,
     metrics: null,
+    declaredTotalMinutes: null,
     startedAt: null,
     finishedAt: null,
     ...over,
@@ -258,6 +259,49 @@ describe("StageTimeline", () => {
       })
 
       expect(wrapper.find(".stage-timeline__eta").exists()).toBe(false)
+    })
+
+    // #61: an ATA self-test reports "90% remaining" seconds in, so
+    // extrapolating told the operator ~6m for a 97-minute routine.
+    it("prefers the duration the drive declares for a self-test over extrapolation", () => {
+      const wrapper = mount(StageTimeline, {
+        props: {
+          stages: [
+            stage({
+              stage: "SELFTEST_LONG",
+              status: "RUNNING",
+              progress: 10,
+              declaredTotalMinutes: 97,
+              startedAt: "2026-07-25T09:59:20.000Z", // 40s in
+            }),
+          ],
+        },
+        global: { plugins: [vuetify] },
+      })
+
+      const expectedEtaMs = Date.parse("2026-07-25T10:00:00.000Z") + 87.3 * 60_000
+      const eta = wrapper.find(".stage-timeline__eta")
+      expect(eta.text()).toBe(`~1h 27m left (${formatEtaClock(expectedEtaMs)})`)
+      expect(eta.text()).not.toContain("~6m")
+    })
+
+    it("estimates a self-test at 0% from the declared duration, not 'estimating…'", () => {
+      const wrapper = mount(StageTimeline, {
+        props: {
+          stages: [
+            stage({
+              stage: "SELFTEST_LONG",
+              status: "RUNNING",
+              progress: 0,
+              declaredTotalMinutes: 97,
+              startedAt: "2026-07-25T09:59:55.000Z",
+            }),
+          ],
+        },
+        global: { plugins: [vuetify] },
+      })
+
+      expect(wrapper.find(".stage-timeline__eta").text()).toContain("~1h 37m left")
     })
 
     it("shows no ETA line for a PENDING stage", () => {

@@ -26,6 +26,11 @@ export interface LiveProgress {
    * extrapolates from. `null` until the stage's first `stage:progress` frame
    * arrives, same lag `percent` already has. */
   startedAt: string | null
+  /** How long the drive itself says the current stage takes, in minutes — see
+   * `StageProgressEvent.declaredTotalMinutes`. The dashboard's activity cell has
+   * no stage rows to read, so this frame is its only source for the self-test
+   * ETA (issue #61). `null` for every stage but SELFTEST_LONG. */
+  declaredTotalMinutes: number | null
 }
 
 export interface ConsoleDeps {
@@ -146,6 +151,7 @@ export const useConsoleStore = defineStore("console", () => {
       status: existing?.status ?? "RUNNING",
       verdict: existing?.verdict ?? null,
       startedAt: payload.startedAt,
+      declaredTotalMinutes: payload.declaredTotalMinutes,
     }
   }
 
@@ -173,7 +179,8 @@ export const useConsoleStore = defineStore("console", () => {
     // A genuine stage transition invalidates any percent/startedAt carried
     // from the *previous* stage — showing 0%/no ETA until the new stage's
     // own stage:progress frame arrives is safer than showing stale numbers
-    // under the new stage's name.
+    // under the new stage's name. The declared duration goes with them: it
+    // described the self-test, not the surface scan that follows it (#61).
     const stageChanged = stage !== existing?.stage
     liveByDrive[payload.driveSerial] = {
       runId: payload.runId,
@@ -182,6 +189,7 @@ export const useConsoleStore = defineStore("console", () => {
       status: payload.status,
       verdict,
       startedAt: stageChanged ? null : (existing?.startedAt ?? null),
+      declaredTotalMinutes: stageChanged ? null : (existing?.declaredTotalMinutes ?? null),
     }
   }
 

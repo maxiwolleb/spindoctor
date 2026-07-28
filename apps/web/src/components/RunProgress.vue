@@ -14,6 +14,10 @@ export interface RunProgressLive {
    * Optional because a few tests/callers only care about the stage/percent
    * bar itself; `undefined` is treated exactly like `null` (no ETA yet). */
   startedAt?: string | null
+  /** Minutes the drive itself declares for the current stage — see
+   * `LiveProgress.declaredTotalMinutes`. Optional on the same terms as
+   * `startedAt`; absent means "extrapolate as before". */
+  declaredTotalMinutes?: number | null
 }
 
 const props = defineProps<{
@@ -39,11 +43,17 @@ const variant = computed<Variant | null>(() => {
  * shows; the wall-clock half isn't worth the extra width in a table row.
  * `null` while there's no live stage at all; "estimating…" once there is one
  * but `computeEta` doesn't have enough signal yet (missing `startedAt`, or
- * progress still too low to extrapolate from). */
+ * progress still too low to extrapolate from — neither of which applies to a
+ * stage whose duration the drive declares, see `computeEta`). */
 const etaLabel = computed<string | null>(() => {
   if (!props.live) return null
   const startedAtMs = props.live.startedAt ? new Date(props.live.startedAt).getTime() : null
-  const eta = computeEta(startedAtMs, props.live.percent, Date.now())
+  const eta = computeEta(
+    startedAtMs,
+    props.live.percent,
+    Date.now(),
+    props.live.declaredTotalMinutes,
+  )
   return eta ? formatRemaining(eta.remainingMs) : "estimating…"
 })
 </script>

@@ -16,7 +16,7 @@ import { getConfig, getRun, getSnapshotRaws, getSnapshots, listRuns } from "../.
 import type { RunRow, StageRow } from "../../db/repositories"
 import { stageResults } from "../../db/schema"
 import type { DeviceApi } from "../../device/deviceApi"
-import { parseSmartAttributes } from "../../device/smartParser"
+import { parseLongSelfTestMinutes, parseSmartAttributes } from "../../device/smartParser"
 import {
   DriveNotFoundError,
   RunInProgressError,
@@ -54,7 +54,7 @@ function toRunView(row: RunRow): RunView {
   }
 }
 
-function toStageView(row: StageRow): StageView {
+function toStageView(row: StageRow, declaredTotalMinutes: number | null): StageView {
   return {
     id: row.id,
     runId: row.runId,
@@ -64,6 +64,7 @@ function toStageView(row: StageRow): StageView {
     logPath: row.logPath,
     log: row.log,
     metrics: row.metrics,
+    declaredTotalMinutes,
     startedAt: isoOrNull(row.startedAt),
     finishedAt: isoOrNull(row.finishedAt),
   }
@@ -71,13 +72,18 @@ function toStageView(row: StageRow): StageView {
 
 /** All persisted stage rows for a run, oldest first, mapped to the wire-honest `StageView`. */
 function listStageRows(db: Db, runId: number): StageView[] {
+  // Read from the run's baseline SMART capture, once per run rather than per
+  // row: the drive's declared self-test duration is a property of the drive, and
+  // the stage row's own `metrics` column holds the routine's result, written
+  // only when the routine ends — far too late for an ETA (issue #61).
+  const selfTestMinutes = parseLongSelfTestMinutes(getSnapshotRaws(db, runId).before)
   return db
     .select()
     .from(stageResults)
     .where(eq(stageResults.runId, runId))
     .orderBy(stageResults.id)
     .all()
-    .map(toStageView)
+    .map((row) => toStageView(row, row.stage === "SELFTEST_LONG" ? selfTestMinutes : null))
 }
 
 /** Concatenates every stage's captured log into one plain-text document for

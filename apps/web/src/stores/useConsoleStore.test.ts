@@ -173,6 +173,7 @@ describe("useConsoleStore", () => {
       stage: "SURFACE",
       percent: 42,
       startedAt: "2026-07-25T09:00:00.000Z",
+      declaredTotalMinutes: null,
     }
     source.emit("stage:progress", frame)
 
@@ -181,8 +182,27 @@ describe("useConsoleStore", () => {
       stage: "SURFACE",
       percent: 42,
       startedAt: "2026-07-25T09:00:00.000Z",
+      declaredTotalMinutes: null,
     })
     expect(store.liveForDrive("SERA")).toMatchObject({ stage: "SURFACE", percent: 42 })
+  })
+
+  // #61: the dashboard's ETA cell has no access to stage rows, so the drive's
+  // own self-test duration has to ride along on the live frame.
+  it("threads a stage:progress frame's declared duration into liveByDrive", () => {
+    const store = useConsoleStore()
+    store.connectEvents()
+
+    source.emit("stage:progress", {
+      runId: 1,
+      driveSerial: "SERA",
+      stage: "SELFTEST_LONG",
+      percent: 10,
+      startedAt: "2026-07-25T09:00:00.000Z",
+      declaredTotalMinutes: 97,
+    } satisfies StageProgressEvent)
+
+    expect(store.liveByDrive.SERA).toMatchObject({ declaredTotalMinutes: 97 })
   })
 
   it("a non-terminal run:update frame updates liveByDrive without touching drives", async () => {
@@ -216,12 +236,15 @@ describe("useConsoleStore", () => {
       stage: "SELFTEST_LONG",
       percent: 80,
       startedAt: "2026-07-25T08:00:00.000Z",
+      declaredTotalMinutes: 97,
     } satisfies StageProgressEvent)
     expect(store.liveByDrive.SERA).toMatchObject({ stage: "SELFTEST_LONG", percent: 80 })
 
     // SELFTEST_LONG finished; the run moves on to SURFACE. Until SURFACE's
     // own stage:progress frame arrives, percent/startedAt must reset rather
-    // than keep showing SELFTEST_LONG's 80%/08:00 under the SURFACE label.
+    // than keep showing SELFTEST_LONG's 80%/08:00 under the SURFACE label —
+    // and the self-test's declared duration must go with them, or the surface
+    // scan would be estimated from the self-test's clock (#61).
     source.emit("run:update", {
       runId: 1,
       driveSerial: "SERA",
@@ -233,6 +256,7 @@ describe("useConsoleStore", () => {
       stage: "SURFACE",
       percent: 0,
       startedAt: null,
+      declaredTotalMinutes: null,
     })
   })
 
@@ -247,6 +271,7 @@ describe("useConsoleStore", () => {
       stage: "SURFACE",
       percent: 90,
       startedAt: "2026-07-25T09:00:00.000Z",
+      declaredTotalMinutes: null,
     } satisfies StageProgressEvent)
     expect(store.liveByDrive.SERA).toBeDefined()
 

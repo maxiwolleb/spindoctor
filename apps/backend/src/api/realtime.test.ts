@@ -10,6 +10,7 @@ import {
   addStage,
   createRun,
   ensureConfig,
+  saveSnapshot,
   updateRun,
   updateStage,
   upsertDrive,
@@ -92,9 +93,35 @@ describe("snapshotEvents", () => {
           stage: "SURFACE",
           percent: 42,
           startedAt: stageRow?.startedAt?.toISOString(),
+          declaredTotalMinutes: null,
         },
       },
     ])
+  })
+
+  // #61: on a fresh page load this replay is the only frame for up to a poll
+  // interval, so it has to carry the drive's own self-test duration too — or the
+  // ETA falls back to extrapolating "~6m left" for a 97-minute routine.
+  it("replays a running self-test with the duration the drive declared at SMART_BEFORE", () => {
+    const { db } = createDb(":memory:")
+    ensureConfig(db)
+    seedDrive(db, "SER1")
+    const runId = createRun(db, {
+      driveSerial: "SER1",
+      regime: { mode: "destructive", stages: [] },
+    })
+    saveSnapshot(db, {
+      runId,
+      phase: "before",
+      raw: { ata_smart_data: { self_test: { polling_minutes: { short: 2, extended: 97 } } } },
+      keyMetrics: { reallocatedSectors: 0 } as any,
+    })
+    updateRun(db, runId, { status: "RUNNING", currentStage: "SELFTEST_LONG" })
+    const stageId = addStage(db, { runId, stage: "SELFTEST_LONG", status: "RUNNING" })
+    updateStage(db, stageId, { progress: 10 })
+
+    const progress = snapshotEvents(db).find((e) => e.name === "stage:progress")
+    expect(progress?.payload).toMatchObject({ stage: "SELFTEST_LONG", declaredTotalMinutes: 97 })
   })
 
   it("replays nothing when no run is RUNNING", () => {
