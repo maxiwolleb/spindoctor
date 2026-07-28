@@ -1,4 +1,4 @@
-import type { SmartAttributeRow } from "@spindoctor/shared"
+import type { SmartAttributeRow } from "./index"
 
 export interface SmartAttributeInfo {
   /** Short display label — usually a cleaned-up version of the raw name. */
@@ -390,6 +390,16 @@ const ATA_BY_NORMALIZED_NAME: Record<string, SmartAttributeInfo> = Object.fromEn
  * are looked up by field name across both tables — the two vocabularies don't
  * collide, and `power_on_hours` is deliberately shared. Anything unrecognized
  * still renders — with a generic fallback message — rather than being hidden. */
+/**
+ * True when this file has nothing to say about a row beyond the generic fallback.
+ * The backend's diagnostics use it to report attributes real drives carry that we
+ * cannot explain — the gap that let a hyphenated `G-Sense_Error_Rate` render as
+ * "no plain-language explanation yet" for text that was already written.
+ */
+export function isAttributeUnexplained(row: SmartAttributeRow): boolean {
+  return describeAttribute(row).description === FALLBACK(row.name).description
+}
+
 export function describeAttribute(row: SmartAttributeRow): SmartAttributeInfo {
   if (row.id != null) {
     return (

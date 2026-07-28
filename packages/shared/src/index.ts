@@ -1,3 +1,9 @@
+export {
+  describeAttribute,
+  isAttributeUnexplained,
+  type SmartAttributeInfo,
+} from "./smartAttributeInfo"
+
 export type DriveType = "HDD" | "SSD" | "NVMe"
 export type Transport = "SATA" | "SAS" | "USB" | "NVMe" | "UNKNOWN"
 export type Verdict = "PASS" | "WARN" | "FAIL"
@@ -321,6 +327,14 @@ export interface SettingsView {
   /** Stop a run at the verdict when the baseline SMART read already condemns the
    * drive, rather than spending hours to reach the same FAIL (issue #49). */
   skipCondemnedDrives: boolean
+  /** Off by default. Reveals the diagnostics-bundle download — everything needed
+   * to audit spindoctor's own grading offline. Nothing is transmitted anywhere;
+   * the bundle is a file the operator chooses to share. */
+  diagnosticsEnabled: boolean
+  /** Put verbatim drive serials in that bundle instead of per-instance
+   * pseudonyms. Off by default, since a fleet inventory can be commercially
+   * sensitive and the pseudonyms already correlate findings per drive. */
+  diagnosticsIncludeSerials: boolean
 }
 
 /** API-facing view of a test run — mirrors the `test_runs` row shape the UI needs.

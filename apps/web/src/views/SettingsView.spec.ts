@@ -18,6 +18,8 @@ const baseSettings: SettingsViewDto = {
   autoModeEnabled: false,
   protectList: ["EXISTING1"],
   skipCondemnedDrives: true,
+  diagnosticsEnabled: false,
+  diagnosticsIncludeSerials: false,
 }
 
 function fakeApi(settings: SettingsViewDto = baseSettings) {
@@ -171,6 +173,8 @@ describe("SettingsView", () => {
       concurrency: 6,
       autoModeEnabled: false,
       skipCondemnedDrives: true,
+      diagnosticsEnabled: false,
+      diagnosticsIncludeSerials: false,
       protectList: ["EXISTING1"],
     })
     // v-snackbar teleports its content to the shared overlay container under
@@ -243,6 +247,81 @@ describe("SettingsView", () => {
     )
 
     wrapper.unmount()
+  })
+
+  // Diagnostics is opt-in, and the download follows what the SERVER has saved —
+  // not the unsaved form — because the route 404s while the flag is off.
+  describe("diagnostics", () => {
+    it("hides the serials sub-toggle and the download until it is enabled", async () => {
+      const api = fakeApi()
+      setConsoleDeps({ api: api as unknown as ApiClient })
+      const wrapper = mount(SettingsView, {
+        global: { plugins: [vuetify] },
+        attachTo: document.body,
+      })
+      await flushPromises()
+
+      expect(wrapper.find("#diagnostics-toggle").exists()).toBe(true)
+      expect(wrapper.find("#diagnostics-serials-toggle").exists()).toBe(false)
+      expect(wrapper.find('a[href="/api/diagnostics/bundle"]').exists()).toBe(false)
+      expect(wrapper.text()).toContain("Save settings to enable the download")
+
+      wrapper.unmount()
+    })
+
+    it("reveals the sub-toggle as soon as it is switched on, before saving", async () => {
+      const api = fakeApi()
+      setConsoleDeps({ api: api as unknown as ApiClient })
+      const wrapper = mount(SettingsView, {
+        global: { plugins: [vuetify] },
+        attachTo: document.body,
+      })
+      await flushPromises()
+
+      await wrapper.find("#diagnostics-toggle").setValue(true)
+      expect(wrapper.find("#diagnostics-serials-toggle").exists()).toBe(true)
+      // Still no download: the server hasn't been told yet, so the route would 404.
+      expect(wrapper.find('a[href="/api/diagnostics/bundle"]').exists()).toBe(false)
+
+      wrapper.unmount()
+    })
+
+    it("offers the download once the server reports it enabled", async () => {
+      const api = fakeApi({ ...baseSettings, diagnosticsEnabled: true })
+      setConsoleDeps({ api: api as unknown as ApiClient })
+      const wrapper = mount(SettingsView, {
+        global: { plugins: [vuetify] },
+        attachTo: document.body,
+      })
+      await flushPromises()
+
+      const link = wrapper.find('a[href="/api/diagnostics/bundle"]')
+      expect(link.exists()).toBe(true)
+      expect(link.attributes("download")).toBeDefined()
+
+      wrapper.unmount()
+    })
+
+    it("saves both flags", async () => {
+      const api = fakeApi()
+      setConsoleDeps({ api: api as unknown as ApiClient })
+      const wrapper = mount(SettingsView, {
+        global: { plugins: [vuetify] },
+        attachTo: document.body,
+      })
+      await flushPromises()
+
+      await wrapper.find("#diagnostics-toggle").setValue(true)
+      await wrapper.find("#diagnostics-serials-toggle").setValue(true)
+      clickButton(document.body, "Save settings")
+      await flushPromises()
+
+      expect(api.putSettings).toHaveBeenCalledWith(
+        expect.objectContaining({ diagnosticsEnabled: true, diagnosticsIncludeSerials: true }),
+      )
+
+      wrapper.unmount()
+    })
   })
 
   it("adds and removes protect-list entries", async () => {

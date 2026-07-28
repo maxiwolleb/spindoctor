@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref, watch } from "vue"
+import { computed, onMounted, reactive, ref, watch } from "vue"
 import type { SettingsView as SettingsDto } from "@spindoctor/shared"
 import { useConsoleStore } from "../stores/useConsoleStore"
 
@@ -18,6 +18,8 @@ const form = reactive({
   concurrency: 1,
   autoModeEnabled: false,
   skipCondemnedDrives: true,
+  diagnosticsEnabled: false,
+  diagnosticsIncludeSerials: false,
 })
 
 const protectList = ref<string[]>([])
@@ -28,6 +30,11 @@ const newSerial = ref("")
  * otherwise locked until the user checks the box. Unchecking always forces
  * the switch back off — the toggle can never sit "on" while unacknowledged. */
 const autoModeAck = ref(false)
+
+/** The bundle route 404s unless the server-side flag is on, so the button follows
+ * what has actually been saved rather than the unsaved form state. */
+const savedDiagnosticsEnabled = computed<boolean>(() => store.settings?.diagnosticsEnabled === true)
+const diagnosticsBundleUrl = "/api/diagnostics/bundle"
 
 const validationError = ref<string | null>(null)
 const snackbar = reactive<{ show: boolean; text: string; color: "success" | "error" }>({
@@ -52,6 +59,8 @@ async function load(): Promise<void> {
     form.concurrency = settings.concurrency
     form.autoModeEnabled = settings.autoModeEnabled
     form.skipCondemnedDrives = settings.skipCondemnedDrives
+    form.diagnosticsEnabled = settings.diagnosticsEnabled
+    form.diagnosticsIncludeSerials = settings.diagnosticsIncludeSerials
     protectList.value = [...settings.protectList]
     autoModeAck.value = settings.autoModeEnabled
   }
@@ -126,6 +135,8 @@ async function onSave(): Promise<void> {
     concurrency: form.concurrency,
     autoModeEnabled: form.autoModeEnabled,
     skipCondemnedDrives: form.skipCondemnedDrives,
+    diagnosticsEnabled: form.diagnosticsEnabled,
+    diagnosticsIncludeSerials: form.diagnosticsIncludeSerials,
     protectList: [...protectList.value],
   }
 
@@ -272,6 +283,57 @@ async function onSave(): Promise<void> {
         label="Automatically test newly attached drives"
         class="mb-6"
       />
+
+      <h2 class="text-subtitle-1 mb-2">Diagnostics</h2>
+      <p class="text-medium-emphasis mb-2">
+        Collects what spindoctor could not explain about the drives it graded — raw SMART payloads,
+        the verdicts reached, the tool versions in use, and a report of attributes it has no
+        description for or drives it may have mis-typed. Off by default. Nothing is transmitted
+        anywhere: this only adds a download you can choose to share.
+      </p>
+      <v-switch
+        id="diagnostics-toggle"
+        v-model="form.diagnosticsEnabled"
+        color="primary"
+        density="comfortable"
+        hide-details
+        label="Allow exporting a diagnostics bundle"
+      />
+      <v-switch
+        v-if="form.diagnosticsEnabled"
+        id="diagnostics-serials-toggle"
+        v-model="form.diagnosticsIncludeSerials"
+        color="warning"
+        density="comfortable"
+        hide-details
+        label="Include real drive serials instead of per-instance pseudonyms"
+      />
+      <p
+        v-if="form.diagnosticsEnabled"
+        class="text-caption text-medium-emphasis ma-0 mb-3"
+        style="max-width: 720px"
+      >
+        Pseudonyms still let findings be tied to one drive and followed across its runs, without the
+        bundle being a readable inventory. Model and firmware are always included — they are what
+        parser fixes are keyed on.
+      </p>
+      <!-- Wrapped so it sits on its own line: buttons are inline, so a margin
+           on the button alone leaves it crowded against Save. -->
+      <div class="mb-6">
+        <v-btn
+          v-if="savedDiagnosticsEnabled"
+          :href="diagnosticsBundleUrl"
+          download
+          variant="tonal"
+          size="small"
+          color="primary"
+        >
+          Download diagnostics bundle
+        </v-btn>
+        <p v-else class="text-caption text-medium-emphasis ma-0">
+          Save settings to enable the download.
+        </p>
+      </div>
 
       <v-btn color="primary" variant="flat" @click="onSave">Save settings</v-btn>
 

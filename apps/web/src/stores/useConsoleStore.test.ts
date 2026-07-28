@@ -69,6 +69,8 @@ const settings: SettingsView = {
   autoModeEnabled: false,
   protectList: [],
   skipCondemnedDrives: true,
+  diagnosticsEnabled: false,
+  diagnosticsIncludeSerials: false,
 }
 
 function fakeApi() {

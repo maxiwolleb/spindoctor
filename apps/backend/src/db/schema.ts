@@ -70,6 +70,22 @@ export const config = sqliteTable("config", {
   skipCondemnedDrives: integer("skip_condemned_drives", { mode: "boolean" })
     .notNull()
     .default(true),
+  /** Off by default. Gates the diagnostics-bundle export surface entirely: with
+   * this false there is no route and no button, so a bundle of drive data cannot
+   * be produced by accident. Nothing leaves the machine either way — the bundle
+   * is a download the operator chooses to share. */
+  diagnosticsEnabled: integer("diagnostics_enabled", { mode: "boolean" }).notNull().default(false),
+  /** Put verbatim drive serials in the bundle instead of per-instance
+   * pseudonyms. Off by default: a fleet inventory can be commercially sensitive,
+   * and the pseudonyms already let findings be correlated to one drive and across
+   * its runs. */
+  diagnosticsIncludeSerials: integer("diagnostics_include_serials", { mode: "boolean" })
+    .notNull()
+    .default(false),
+  /** Random per-instance salt for those pseudonyms. Generated on first use and
+   * NEVER exported — without it a `driveRef` cannot be walked back to a serial,
+   * and two instances testing the same drive produce unrelated refs. */
+  diagnosticsSalt: text("diagnostics_salt"),
 })
 
 export const auditLog = sqliteTable("audit_log", {

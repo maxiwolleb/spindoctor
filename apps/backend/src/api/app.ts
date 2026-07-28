@@ -16,6 +16,8 @@ import { auditRoutes } from "./routes/audit"
 import { drivesRoutes } from "./routes/drives"
 import { runsRoutes } from "./routes/runs"
 import { settingsRoutes } from "./routes/settings"
+import { diagnosticsRoutes } from "./routes/diagnostics"
+import { execFileRunner, type CommandRunner } from "../device/runner"
 
 export interface AppDeps {
   db: Db
@@ -31,6 +33,12 @@ export interface AppDeps {
   /** Structured logger. Given to Fastify so request/response and its own
    * lifecycle lines share one destination with the engine's. */
   logger?: Logger
+  /** Used only to read CLI tool versions for the diagnostics bundle; injectable
+   * so tests don't shell out. Defaults to the real one. */
+  runner?: CommandRunner
+  /** Build identifier recorded in a diagnostics bundle, so a finding can be tied
+   * to the code that produced it. */
+  spindoctorVersion?: string | null
 }
 
 /** Builds the Fastify instance with all `/api` routes registered. Does not `.listen()`. */
@@ -42,6 +50,14 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   void app.register(runsRoutes(deps), { prefix: "/api" })
   void app.register(settingsRoutes(deps), { prefix: "/api" })
   void app.register(auditRoutes(deps), { prefix: "/api" })
+  void app.register(
+    diagnosticsRoutes({
+      db: deps.db,
+      runner: deps.runner ?? execFileRunner,
+      spindoctorVersion: deps.spindoctorVersion ?? null,
+    }),
+    { prefix: "/api" },
+  )
 
   // Catch-all for any error a route handler doesn't already turn into its own
   // coded JSON body (e.g. an unexpected throw from deviceApi.listDevices()).

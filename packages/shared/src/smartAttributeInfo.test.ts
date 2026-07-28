@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import type { SmartAttributeRow } from "@spindoctor/shared"
+import type { SmartAttributeRow } from "./index"
 import { describeAttribute } from "./smartAttributeInfo"
 
 const row = (over: Partial<SmartAttributeRow> = {}): SmartAttributeRow => ({

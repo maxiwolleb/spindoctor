@@ -32,6 +32,8 @@ describe("GET /api/settings", () => {
       autoModeEnabled: false,
       protectList: [],
       skipCondemnedDrives: true,
+      diagnosticsEnabled: false,
+      diagnosticsIncludeSerials: false,
     })
   })
 })
@@ -52,6 +54,8 @@ describe("PUT /api/settings", () => {
       autoModeEnabled: true,
       protectList: ["X"],
       skipCondemnedDrives: true,
+      diagnosticsEnabled: false,
+      diagnosticsIncludeSerials: false,
     })
 
     const follow = await app.inject({ method: "GET", url: "/api/settings" })
@@ -92,6 +96,8 @@ describe("PUT /api/settings", () => {
       autoModeEnabled: false,
       protectList: [],
       skipCondemnedDrives: true,
+      diagnosticsEnabled: false,
+      diagnosticsIncludeSerials: false,
     })
   })
 

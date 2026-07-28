@@ -25,6 +25,8 @@ function toSettingsView(row: ConfigRow): SettingsView {
     autoModeEnabled: row.autoModeEnabled,
     protectList: Array.isArray(protectList) ? (protectList as string[]) : [],
     skipCondemnedDrives: row.skipCondemnedDrives,
+    diagnosticsEnabled: row.diagnosticsEnabled,
+    diagnosticsIncludeSerials: row.diagnosticsIncludeSerials,
   }
 }
 
@@ -77,6 +79,13 @@ function validatePatch(body: unknown): { patch: Partial<ConfigUpdate> } | { erro
       return { error: "skipCondemnedDrives must be a boolean" }
     }
     patch.skipCondemnedDrives = input.skipCondemnedDrives
+  }
+
+  for (const key of ["diagnosticsEnabled", "diagnosticsIncludeSerials"] as const) {
+    if (key in input) {
+      if (typeof input[key] !== "boolean") return { error: `${key} must be a boolean` }
+      patch[key] = input[key]
+    }
   }
 
   if ("protectList" in input) {

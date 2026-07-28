@@ -25,6 +25,9 @@ export interface ConfigUpdate {
   autoModeEnabled: boolean
   protectList: string[]
   skipCondemnedDrives: boolean
+  diagnosticsEnabled: boolean
+  diagnosticsIncludeSerials: boolean
+  diagnosticsSalt: string
 }
 
 // ---- config ----
@@ -40,6 +43,8 @@ export function ensureConfig(db: Db): void {
       autoModeEnabled: false,
       protectList: [],
       skipCondemnedDrives: true,
+      diagnosticsEnabled: false,
+      diagnosticsIncludeSerials: false,
     })
     .run()
 }

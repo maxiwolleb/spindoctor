@@ -2,7 +2,7 @@
 import { computed } from "vue"
 import type { SmartAttributeRow } from "@spindoctor/shared"
 import { attributeHealthColor, attributeHealthLabel } from "../lib/format"
-import { describeAttribute } from "../lib/smartAttributeInfo"
+import { describeAttribute } from "@spindoctor/shared"
 
 const props = defineProps<{
   attributes: SmartAttributeRow[]

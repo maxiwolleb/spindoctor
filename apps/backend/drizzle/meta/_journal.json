@@ -22,6 +22,13 @@
       "when": 1785177648846,
       "tag": "0002_nosy_northstar",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1785227476794,
+      "tag": "0003_marvelous_kronos",
+      "breakpoints": true
     }
   ]
 }
