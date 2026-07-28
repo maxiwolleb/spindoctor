@@ -233,3 +233,50 @@ describe("audit ordering", () => {
     expect(rows.map((r) => r.action)).toEqual(["B", "A"])
   })
 })
+
+// #14 follow-up: the SMART-derived type correction was being undone by the very
+// next discovery. `GET /api/drives` upserts every device it sees, so a bridged
+// NVMe reverted to lsblk's "HDD" within seconds of a run correcting it.
+describe("upsertDrive vs setDriveType", () => {
+  const bridged: DiscoveredDrive = {
+    devicePath: "/dev/sdb",
+    serial: "MLK136D003912",
+    wwn: null,
+    model: "E2M2 64GB",
+    sizeBytes: 61_900_000_000,
+    // What lsblk reports for a USB-NVMe bridge: rotational, hence HDD.
+    type: "HDD",
+    transport: "USB",
+    mounted: false,
+    isSystemDisk: false,
+  }
+
+  it("keeps a SMART-corrected type across later discoveries", () => {
+    repo.upsertDrive(db, bridged)
+    expect(repo.getDrive(db, bridged.serial)?.type).toBe("HDD")
+
+    repo.setDriveType(db, bridged.serial, "NVMe")
+    expect(repo.getDrive(db, bridged.serial)?.type).toBe("NVMe")
+
+    // The dashboard re-discovers constantly; this must not undo the correction.
+    repo.upsertDrive(db, bridged)
+    repo.upsertDrive(db, bridged)
+    expect(repo.getDrive(db, bridged.serial)?.type).toBe("NVMe")
+  })
+
+  it("still refreshes the fields discovery is authoritative for", () => {
+    repo.upsertDrive(db, bridged)
+    repo.setDriveType(db, bridged.serial, "NVMe")
+
+    repo.upsertDrive(db, { ...bridged, model: "E2M2 64GB v2", sizeBytes: 62_000_000_000 })
+    const row = repo.getDrive(db, bridged.serial)
+    expect(row?.model).toBe("E2M2 64GB v2")
+    expect(row?.sizeBytes).toBe(62_000_000_000)
+    expect(row?.type).toBe("NVMe")
+  })
+
+  it("records the discovery-time type for a drive seen for the first time", () => {
+    repo.upsertDrive(db, { ...bridged, serial: "NEW1" })
+    expect(repo.getDrive(db, "NEW1")?.type).toBe("HDD")
+  })
+})
