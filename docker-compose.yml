@@ -20,6 +20,23 @@ services:
     restart: unless-stopped
 
     # ---------------------------------------------------------------------
+    # Serials spindoctor must ALWAYS refuse — put the host's own system disk
+    # here. Strongly recommended once you pass any device through.
+    #
+    # Why it is worth setting: inside a container, `lsblk` reports the
+    # mountpoints of the *container's* mount namespace, so the host's `/` and
+    # `/boot` are invisible and a mounted-drive check built on them cannot
+    # fire. spindoctor's exclusive-access check does catch a live system disk
+    # (a mounted disk is a claimed disk), but a serial is deterministic,
+    # namespace-proof, and survives `/dev/sdX` renumbering across reboots.
+    #
+    # Read the serials off the drives, or on the host with:
+    #   lsblk -o NAME,SERIAL,MOUNTPOINTS
+    # ---------------------------------------------------------------------
+    # environment:
+    #   - SPINDOCTOR_SYSTEM_DISK_SERIALS=YOUR-SYSTEM-DISK-SERIAL
+
+    # ---------------------------------------------------------------------
     # Device passthrough — REQUIRED for real SMART/badblocks/hdparm access,
     # OFF by default so a plain `docker compose up` never touches host disks.
     #

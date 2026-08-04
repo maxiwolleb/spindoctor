@@ -15,6 +15,8 @@ import { parseLsblk } from "./lsblkParser"
 import { parseSmartctlScan } from "./scanParser"
 import { mergeDiscovery } from "./discovery"
 import { buildSurfaceArgs } from "./surfaceArgs"
+import { probeDeviceClaim, type ExclusiveOpener } from "./deviceClaim"
+import { normalizeSerial } from "../safety/guards"
 import { parseSelfTest, scsiSelfTestInProgress } from "./smartParser"
 import { silentLogger, type Logger } from "../logger"
 import {
@@ -61,6 +63,11 @@ export interface RealDeviceApiOpts {
   surfaceAbandonMs?: number
   /** Test seam: delivers a signal to the surface child. Defaults to `child.kill`. */
   killer?: (child: ChildProcess, signal: NodeJS.Signals) => void
+  /** Test seam: performs the exclusive-open claim probe (see `deviceClaim.ts`). */
+  exclusiveOpener?: ExclusiveOpener
+  /** Serials to treat as system disks, comma-separated. Defaults to
+   * `process.env.SPINDOCTOR_SYSTEM_DISK_SERIALS`. */
+  systemDiskSerials?: string
   /** Structured logger; silent by default. */
   logger?: Logger
 }
@@ -99,12 +106,69 @@ export class RealDeviceApi implements DeviceApi {
     ])
     const lsblk = parseLsblk(JSON.parse(lsblkResult.stdout))
     const scan = parseSmartctlScan(JSON.parse(scanResult.stdout))
-    return mergeDiscovery(lsblk, scan, ({ devicePath, reason }) => {
+    const merged = mergeDiscovery(lsblk, scan, ({ devicePath, reason }) => {
       const key = `${devicePath}\t${reason}`
       if (this.reportedSkips.has(key)) return
       this.reportedSkips.add(key)
       this.log.warn({ devicePath, reason }, "ignoring block device during discovery")
     })
+
+    // Ask the kernel who else is using each drive. `lsblk`'s mountpoints only
+    // describe this process's mount namespace, so in the container they are
+    // empty for every host drive — the host's system disk included (issue #83).
+    //
+    // There is a theoretical race with our own badblocks: the probe holds an
+    // exclusive claim for a few microseconds, so a surface stage opening the same
+    // device in that instant could fail. It is a microsecond against a poll
+    // interval measured in seconds, and since #84 such a failure is loud rather
+    // than silently graded as a WARN — worth it for a guard that otherwise cannot
+    // fire at all.
+    const systemSerials = this.systemDiskSerials()
+    return Promise.all(
+      merged.map(async (drive) => {
+        const claim = await probeDeviceClaim(drive.devicePath, this.opts.exclusiveOpener)
+        if (claim === "unknown") this.reportClaimUnknown(drive.devicePath)
+        return {
+          ...drive,
+          claim,
+          // An operator-declared system disk stays refused whatever any probe
+          // says: serials survive namespace differences, device renumbering and
+          // reboots, which is what makes this worth having in addition.
+          isSystemDisk: drive.isSystemDisk || systemSerials.has(normalizeSerial(drive.serial)),
+        }
+      }),
+    )
+  }
+
+  /**
+   * Serials the operator has declared to be system disks, via
+   * `SPINDOCTOR_SYSTEM_DISK_SERIALS` (comma-separated).
+   *
+   * The container cannot work out which disk the host booted from, so this is the
+   * one way to state it that does not depend on the container's own view of the
+   * world.
+   */
+  private systemDiskSerials(): Set<string> {
+    const raw = this.opts.systemDiskSerials ?? process.env.SPINDOCTOR_SYSTEM_DISK_SERIALS ?? ""
+    return new Set(
+      raw
+        .split(",")
+        .map((entry) => normalizeSerial(entry))
+        .filter((entry) => entry !== ""),
+    )
+  }
+
+  /** Logged once per device: `listDevices` runs on every auto-mode poll, and a
+   * guard whose input is missing is worth saying out loud but not every minute. */
+  private reportClaimUnknown(devicePath: string): void {
+    const key = `${devicePath}\tclaim-unknown`
+    if (this.reportedSkips.has(key)) return
+    this.reportedSkips.add(key)
+    this.log.warn(
+      { devicePath },
+      "could not determine whether the drive is in use (exclusive-open probe unavailable) — " +
+        "the mounted/system-disk guards cannot vouch for this device",
+    )
   }
 
   async readSmartRaw(devicePath: string): Promise<unknown> {

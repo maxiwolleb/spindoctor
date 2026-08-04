@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyPluginAsync, FastifyRequest } from "fastify"
-import type { DriveType, DriveView, Transport, Verdict } from "@spindoctor/shared"
+import type { DeviceClaimState, DriveType, DriveView, Transport, Verdict } from "@spindoctor/shared"
 import type { Db } from "../../db/client"
 import type { DriveRow } from "../../db/repositories"
 import { getConfig, getDrive, listDrives, listRuns, upsertDrive } from "../../db/repositories"
@@ -17,8 +17,11 @@ interface RuntimeFlags {
   present: boolean
   mounted: boolean
   isSystemDisk: boolean
+  claim?: DeviceClaimState
 }
 
+/** A drive nobody can see says nothing about who is using it — `claim` stays
+ * absent rather than claiming "free" for a device that isn't there (issue #83). */
 const ABSENT: RuntimeFlags = { present: false, mounted: false, isSystemDisk: false }
 
 /** Newest run for a drive (by highest id), mapped to the `DriveView.latestRun` shape. */
@@ -50,6 +53,7 @@ function toDriveView(db: Db, row: DriveRow, flags: RuntimeFlags, protect: string
     present: flags.present,
     mounted: flags.mounted,
     isSystemDisk: flags.isSystemDisk,
+    ...(flags.claim !== undefined ? { claim: flags.claim } : {}),
     // Read from the protect list, the same source `checkRunAllowed` consults —
     // not the `protected` column, which nothing ever wrote (`setProtected` had no
     // callers). A drive the engine was correctly refusing came back
@@ -74,6 +78,7 @@ export function drivesRoutes(deps: DrivesRouteDeps): FastifyPluginAsync {
           present: true,
           mounted: d.mounted,
           isSystemDisk: d.isSystemDisk,
+          ...(d.claim !== undefined ? { claim: d.claim } : {}),
         })
       }
 
@@ -98,7 +103,12 @@ export function drivesRoutes(deps: DrivesRouteDeps): FastifyPluginAsync {
         }
 
         const flags: RuntimeFlags = match
-          ? { present: true, mounted: match.mounted, isSystemDisk: match.isSystemDisk }
+          ? {
+              present: true,
+              mounted: match.mounted,
+              isSystemDisk: match.isSystemDisk,
+              ...(match.claim !== undefined ? { claim: match.claim } : {}),
+            }
           : ABSENT
         const drive = toDriveView(db, row, flags, protectList(db))
         const runs = listRuns(db, { driveSerial: serial })

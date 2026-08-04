@@ -19,22 +19,53 @@ protected list is one spindoctor leaves alone entirely.
 
 ## Always-on guards
 
-These checks run for every destructive start — manual or auto-mode — and
-cannot be bypassed from the UI:
+These checks run for every start — destructive or read-only, manual or
+auto-mode — and cannot be bypassed from the UI:
 
-- **Mounted drives are never eligible.** A drive that is currently
-  mounted is refused.
-- **The system disk is never eligible.** The host's own boot/system disk
-  is refused outright.
+- **Drives something else is using are never eligible.** spindoctor asks the
+  kernel for exclusive access to the device and refuses it if that is denied.
+  This covers a mounted filesystem, an LVM or md member, swap, and another
+  container — and unlike a mount table, the answer does not depend on which
+  mount namespace spindoctor is running in, so it holds inside the container.
+- **Mounted drives are never eligible.** A drive mounted in spindoctor's own
+  mount namespace is refused. This is the check that fires when spindoctor
+  runs directly on the host.
+- **The system disk is never eligible**, as far as spindoctor can identify it.
+  See [the namespace caveat](#what-the-container-cannot-see) — in a container
+  it is the exclusive-access check above that protects a live system disk, and
+  you can also name it outright.
 - **Drives with no serial number are refused.** A drive spindoctor can't
   key by serial is refused rather than risking mis-identifying it later.
 - **The protected-serial list is always honored.** Any serial you add to
-  the protect list in Settings is refused, including in auto-mode.
+  the protect list in Settings is refused, including in auto-mode. Entries are
+  matched ignoring case and surrounding whitespace.
 
 These same checks are enforced twice: once in the browser UI (so an
 ineligible drive is visibly blocked before you even try), and again,
 independently, on the server for every `POST /api/runs` — so they hold
 even if a client bypasses the UI.
+
+## What the container cannot see
+
+`lsblk` reports the mountpoints of the _calling process's_ mount namespace. In
+the container the host's `/` and `/boot` are not mounted, so no host drive
+reports a mountpoint there — a mounted-drive check built only on `lsblk` cannot
+fire inside the deployment spindoctor ships as.
+
+That is why the exclusive-access check exists: a claim on a block device lives
+in the kernel, not in a mount table, so it answers the same question from any
+namespace. If the check itself cannot run, spindoctor logs that it could not
+establish who is using the drive rather than reporting the drive as free.
+
+For a deterministic, namespace-proof refusal, name the system disk by serial:
+
+```yaml
+environment:
+  - SPINDOCTOR_SYSTEM_DISK_SERIALS=YOUR-SYSTEM-DISK-SERIAL
+```
+
+Serials survive namespace differences, device renumbering (`/dev/sdb` today,
+`/dev/sdc` after a reboot) and restarts, which device paths do not.
 
 ## The pre-write safety re-check
 
