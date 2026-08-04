@@ -24,7 +24,7 @@ import {
 } from "../device/smartParser"
 import { evaluateVerdict } from "../verdict/evaluate"
 import { condemnedByBaseline } from "../verdict/baselineGate"
-import { checkDestructiveAllowed } from "../safety/guards"
+import { checkRunAllowed } from "../safety/guards"
 import { smartSnapshots, stageResults } from "../db/schema"
 import {
   addStage,
@@ -243,16 +243,17 @@ export class TestEngine extends EventEmitter {
       const drive = drives.find((d) => d.serial === serial)
       if (!drive) throw new DriveNotFoundError(serial)
 
-      if (mode === "destructive") {
-        const decision = checkDestructiveAllowed(drive, { protectList: this.#protectList() })
-        if (!decision.allowed) {
-          appendAudit(this.db, {
-            action: "DESTRUCTIVE_DENIED",
-            driveSerial: serial,
-            detail: decision.code,
-          })
-          throw new SafetyError(decision.code, decision.reason)
-        }
+      // Every mode, not only the destructive one (issue #85). A read-only regime
+      // still runs a full-surface pass over the drive for hours, and PROTECTED
+      // means "leave this drive alone" rather than "don't write to it".
+      const decision = checkRunAllowed(drive, { protectList: this.#protectList() })
+      if (!decision.allowed) {
+        appendAudit(this.db, {
+          action: mode === "destructive" ? "DESTRUCTIVE_DENIED" : "READONLY_DENIED",
+          driveSerial: serial,
+          detail: decision.code,
+        })
+        throw new SafetyError(decision.code, decision.reason)
       }
 
       upsertDrive(this.db, drive)
@@ -1053,32 +1054,32 @@ export class TestEngine extends EventEmitter {
     drive: DiscoveredDrive,
     controller: AbortController,
   ): Promise<{ surface: SurfaceResult; drive: DiscoveredDrive }> {
-    let devicePath = drive.devicePath
-    let currentDrive = drive
-
     // TOCTOU guard: startRun's safety check ran before the (possibly
     // hours-long) self-test stage. A drive can become mounted/system/
     // protected — or vanish entirely — in that window, so re-resolve and
-    // re-check immediately before the destructive write, never trusting
-    // the drive snapshot the run started with. Read-only surface scans
-    // don't write anything, so they don't need this.
-    if (mode === "destructive") {
-      const recheck = await this.#recheckDestructiveSafety(drive.serial)
-      if (!recheck.allowed) {
-        appendAudit(this.db, {
-          action: "DESTRUCTIVE_RECHECK_DENIED",
-          driveSerial: drive.serial,
-          detail: recheck.code,
-        })
-        throw new SafetyError(recheck.code, `safety re-check failed: ${recheck.code}`)
-      }
-      // Device paths are transient — use the freshly-resolved one, not the
-      // possibly-stale path captured at startRun time. Thread it forward so
-      // later stages (SMART_AFTER's own re-resolve, VERDICT) start from it
-      // too instead of falling back to the startRun-time snapshot.
-      devicePath = recheck.drive.devicePath
-      currentDrive = recheck.drive
+    // re-check immediately before the surface pass, never trusting the drive
+    // snapshot the run started with.
+    //
+    // Runs for every mode as of issue #85. Two reasons it can't be
+    // destructive-only: the safety checks now apply to read-only runs as well,
+    // and — independent of any of that — device paths are transient, so a
+    // read-only scan that skipped this could spend hours reading whatever drive
+    // had inherited /dev/sdX while the self-test ran.
+    const recheck = await this.#recheckRunSafety(drive.serial)
+    if (!recheck.allowed) {
+      appendAudit(this.db, {
+        action: mode === "destructive" ? "DESTRUCTIVE_RECHECK_DENIED" : "READONLY_RECHECK_DENIED",
+        driveSerial: drive.serial,
+        detail: recheck.code,
+      })
+      throw new SafetyError(recheck.code, `safety re-check failed: ${recheck.code}`)
     }
+    // Thread the freshly-resolved path forward so later stages (SMART_AFTER's own
+    // re-resolve, VERDICT) start from it too rather than the startRun snapshot.
+    // The `drive` argument is deliberately not read past this point: it is the
+    // startRun-time snapshot, and trusting it is the bug this guard exists for.
+    const devicePath = recheck.drive.devicePath
+    const currentDrive = recheck.drive
 
     let capturedLog: string | undefined
     const surfaceResult = await this.deviceApi.runSurfaceTest(
@@ -1133,13 +1134,13 @@ export class TestEngine extends EventEmitter {
   }
 
   /** Re-resolves the drive by serial and re-runs the destructive safety check. */
-  async #recheckDestructiveSafety(
+  async #recheckRunSafety(
     serial: string,
   ): Promise<{ allowed: true; drive: DiscoveredDrive } | { allowed: false; code: string }> {
     const fresh = await this.#resolveDriveBySerial(serial)
     if (!fresh) return { allowed: false, code: "DRIVE_GONE" }
 
-    const decision = checkDestructiveAllowed(fresh, { protectList: this.#protectList() })
+    const decision = checkRunAllowed(fresh, { protectList: this.#protectList() })
     if (!decision.allowed) return { allowed: false, code: decision.code }
     return { allowed: true, drive: fresh }
   }

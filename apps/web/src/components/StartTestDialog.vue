@@ -104,7 +104,7 @@ function onSubmit(): void {
             value="destructive"
             :disabled="destructiveDisabled"
           />
-          <v-radio label="Read-only scan" value="read-only" />
+          <v-radio label="Read-only scan — reads every sector, writes none" value="read-only" />
         </v-radio-group>
 
         <v-text-field

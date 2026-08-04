@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest"
 import type { DiscoveredDrive } from "@spindoctor/shared"
-import { checkDestructiveAllowed } from "./guards"
+import { checkRunAllowed } from "./guards"
 
 const base: DiscoveredDrive = {
   devicePath: "/dev/sdb",
@@ -14,28 +14,28 @@ const base: DiscoveredDrive = {
   isSystemDisk: false,
 }
 
-describe("checkDestructiveAllowed", () => {
+describe("checkRunAllowed", () => {
   it("allows a clean, unprotected, unmounted, non-system drive", () => {
-    expect(checkDestructiveAllowed(base, { protectList: [] })).toEqual({ allowed: true })
+    expect(checkRunAllowed(base, { protectList: [] })).toEqual({ allowed: true })
   })
   it("denies a system disk", () => {
-    const r = checkDestructiveAllowed({ ...base, isSystemDisk: true }, { protectList: [] })
+    const r = checkRunAllowed({ ...base, isSystemDisk: true }, { protectList: [] })
     expect(r).toMatchObject({ allowed: false, code: "SYSTEM_DISK" })
   })
   it("denies a mounted disk", () => {
-    const r = checkDestructiveAllowed({ ...base, mounted: true }, { protectList: [] })
+    const r = checkRunAllowed({ ...base, mounted: true }, { protectList: [] })
     expect(r).toMatchObject({ allowed: false, code: "MOUNTED" })
   })
   it("denies a protected drive by serial", () => {
-    const r = checkDestructiveAllowed(base, { protectList: ["OK1"] })
+    const r = checkRunAllowed(base, { protectList: ["OK1"] })
     expect(r).toMatchObject({ allowed: false, code: "PROTECTED" })
   })
   it("denies a drive with no serial", () => {
-    const r = checkDestructiveAllowed({ ...base, serial: "" }, { protectList: [] })
+    const r = checkRunAllowed({ ...base, serial: "" }, { protectList: [] })
     expect(r).toMatchObject({ allowed: false, code: "NO_SERIAL" })
   })
   it("system-disk check wins over protected", () => {
-    const r = checkDestructiveAllowed({ ...base, isSystemDisk: true }, { protectList: ["OK1"] })
+    const r = checkRunAllowed({ ...base, isSystemDisk: true }, { protectList: ["OK1"] })
     expect(r).toMatchObject({ allowed: false, code: "SYSTEM_DISK" })
   })
 })

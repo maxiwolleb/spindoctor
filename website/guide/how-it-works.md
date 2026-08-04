@@ -15,9 +15,10 @@ SMART_BEFORE → SELFTEST_LONG → SURFACE → SMART_AFTER → VERDICT
   alongside the raw output.
 - **SELFTEST_LONG** — starts the drive's own firmware long self-test
   (`smartctl -t long`) and polls it to completion.
-- **SURFACE** — a full-surface `badblocks` pass: `-w` (destructive,
-  writes and verifies every sector) for a destructive run, `-n`
-  (non-destructive, read-only-safe) for a read-only scan.
+- **SURFACE** — a full-surface `badblocks` pass: `-w` (destructive, writes and
+  verifies four patterns over every sector) for a destructive run, or plain
+  `badblocks` — its read-only test, which reads every sector and writes none —
+  for a read-only scan.
 - **SMART_AFTER** — a second SMART snapshot, taken after the self-test and
   surface stages.
 - **VERDICT** — the before/after SMART diff, the self-test result, and

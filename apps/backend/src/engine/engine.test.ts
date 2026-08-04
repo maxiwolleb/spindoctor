@@ -900,7 +900,12 @@ describe("TestEngine SURFACE stage safety re-check (TOCTOU guard)", () => {
     )
   })
 
-  it("does not re-check safety for a read-only regime", async () => {
+  // Was "does not re-check safety for a read-only regime" — the old, wrong
+  // behavior (issue #85). Two independent reasons the re-check has to run for
+  // every mode: the safety guards apply to read-only runs too, and device paths
+  // are transient, so a read-only scan that trusted the startRun snapshot could
+  // spend hours reading whatever drive inherited /dev/sdX during the self-test.
+  it("re-checks safety for a read-only regime too, and refuses a drive mounted since", async () => {
     const clean = drive()
     const mountedNow = drive({ mounted: true })
     const api = new ChangingDeviceApi(
@@ -921,11 +926,47 @@ describe("TestEngine SURFACE stage safety re-check (TOCTOU guard)", () => {
     const runId = await engine.startRun({ serial: clean.serial, mode: "read-only" })
     const terminal = await waitForSettled(engine, runId)
 
-    expect(terminal.status).toBe("DONE")
+    expect(terminal.status).toBe("FAILED")
+    // Never reached the surface stage at all.
+    expect(api.surfaceCalls).toEqual([])
+    const audit = repo.listAudit(db)
+    expect(audit.some((a) => a.action === "READONLY_RECHECK_DENIED")).toBe(true)
+    // Recorded under its own action, not the destructive one.
+    expect(audit.some((a) => a.action === "DESTRUCTIVE_RECHECK_DENIED")).toBe(false)
+  })
+
+  it("re-resolves the device path for a read-only surface scan", async () => {
+    // The drive is the same drive throughout — only its path moved, as happens
+    // across a hotplug during an hours-long self-test.
+    const before = drive({ devicePath: "/dev/sdb" })
+    const after = drive({ devicePath: "/dev/sdz" })
+    const api = new ChangingDeviceApi(
+      {
+        smartByPath: {
+          [before.devicePath]: smartRaw(),
+          [after.devicePath]: smartRaw(),
+        },
+        selfTestByPath: {
+          [before.devicePath]: PASSED_SELFTEST,
+          [after.devicePath]: PASSED_SELFTEST,
+        },
+        surface: { plan: [100], result: { mode: "read-only", badBlocks: 0, completed: true } },
+      },
+      [[before], [after]],
+    )
+    const engine = new TestEngine({
+      db,
+      deviceApi: api,
+      sleep: async () => {},
+      selfTestPollIntervalMs: 0,
+    })
+
+    const runId = await engine.startRun({ serial: before.serial, mode: "read-only" })
+    expect((await waitForSettled(engine, runId)).status).toBe("DONE")
+
     expect(api.surfaceCalls).toEqual([
-      { devicePath: clean.devicePath, sizeBytes: clean.sizeBytes, mode: "read-only" },
+      { devicePath: after.devicePath, sizeBytes: after.sizeBytes, mode: "read-only" },
     ])
-    expect(repo.listAudit(db).some((a) => a.action === "DESTRUCTIVE_RECHECK_DENIED")).toBe(false)
   })
 })
 

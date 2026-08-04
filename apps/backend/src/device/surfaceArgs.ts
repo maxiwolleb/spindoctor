@@ -49,7 +49,17 @@ export function buildSurfaceArgs(opts: {
   return [
     "-b",
     String(surfaceBlockSize(opts.sizeBytes)),
-    opts.mode === "destructive" ? "-w" : "-n",
+    // `-w` writes four patterns over every sector and verifies each. A read-only
+    // run passes no mode flag at all, which is badblocks' actual read-only test.
+    //
+    // It used to pass `-n`, badblocks' *non-destructive read-write* test: opens
+    // the device O_RDWR and writes a pattern to every sector, restoring the
+    // original as it goes. Data survives a clean `-n`; it does not survive one
+    // interrupted by power loss, an OOM kill, or a `docker kill`, and on a
+    // mounted filesystem the read-modify-write races the live filesystem even
+    // when it completes. Every label in the UI and the docs promised "read-only"
+    // (issue #85) — so the code now matches the promise rather than the reverse.
+    ...(opts.mode === "destructive" ? ["-w"] : []),
     "-s",
     "-o",
     opts.logfile,

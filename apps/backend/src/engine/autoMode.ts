@@ -3,7 +3,7 @@ import type { Db } from "../db/client"
 import type { DeviceApi } from "../device/deviceApi"
 import { appendAudit, getConfig, upsertDrive } from "../db/repositories"
 import { silentLogger, type Logger } from "../logger"
-import { checkDestructiveAllowed } from "../safety/guards"
+import { checkRunAllowed } from "../safety/guards"
 
 /**
  * The only slice of TestEngine the poller needs. Kept as a small structural
@@ -99,7 +99,7 @@ export class AutoModePoller {
       // about directly.
       if (this.#engine.isDriveActive(drive.serial)) continue
 
-      const decision = checkDestructiveAllowed(drive, { protectList })
+      const decision = checkRunAllowed(drive, { protectList })
       if (!decision.allowed) continue
 
       try {
