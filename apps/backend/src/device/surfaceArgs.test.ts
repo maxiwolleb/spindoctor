@@ -87,11 +87,26 @@ describe("buildSurfaceArgs", () => {
     expect(args.slice(0, 2)).toEqual(["-b", "8192"])
   })
 
-  it("uses -n for a read-only run and -w for a destructive one", () => {
+  it("uses -w for a destructive run", () => {
     const base = { logfile: "/tmp/bb.log", sizeBytes: SIZES.hdd500g, devicePath: "/dev/sdb" }
 
     expect(buildSurfaceArgs({ ...base, mode: "destructive" })).toContain("-w")
-    expect(buildSurfaceArgs({ ...base, mode: "read-only" })).toContain("-n")
+  })
+
+  // Issue #85: this passed `-n`, which is badblocks' non-destructive *read-write*
+  // test — it writes a pattern to every sector and restores it. A mode labelled
+  // "Read-only scan" in the UI must not write to the disk at all.
+  it("passes no write flag at all for a read-only run", () => {
+    const args = buildSurfaceArgs({
+      mode: "read-only",
+      logfile: "/tmp/bb.log",
+      sizeBytes: SIZES.hdd500g,
+      devicePath: "/dev/sdb",
+    })
+
+    expect(args).not.toContain("-n")
+    expect(args).not.toContain("-w")
+    expect(args).toEqual(["-b", "4096", "-s", "-o", "/tmp/bb.log", "/dev/sdb"])
   })
 
   it("puts the device path last, as badblocks expects", () => {

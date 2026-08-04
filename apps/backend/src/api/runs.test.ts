@@ -177,6 +177,40 @@ describe("POST /api/runs", () => {
     expect(repo.listRuns(db)).toHaveLength(0)
   })
 
+  // Issue #85: the guards were consulted only for destructive runs, so this
+  // exact request — no confirmation, one unauthenticated call — started a
+  // full-surface pass on a drive the same API refused to touch destructively.
+  it("403s a read-only request on a mounted drive too, creating no run", async () => {
+    const { app } = build()
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/runs",
+      payload: {
+        serial: mountedDrive.serial,
+        mode: "read-only",
+      } satisfies CreateRunRequest,
+    })
+    expect(res.statusCode).toBe(403)
+    expect(res.json()).toMatchObject({ code: "MOUNTED" })
+    expect(repo.listRuns(db)).toHaveLength(0)
+  })
+
+  it("403s a read-only request on a protected drive", async () => {
+    repo.updateConfig(db, { protectList: [cleanDrive.serial] })
+    const { app } = build()
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/runs",
+      payload: {
+        serial: cleanDrive.serial,
+        mode: "read-only",
+      } satisfies CreateRunRequest,
+    })
+    expect(res.statusCode).toBe(403)
+    expect(res.json()).toMatchObject({ code: "PROTECTED" })
+    expect(repo.listRuns(db)).toHaveLength(0)
+  })
+
   it("409s a second destructive start for a drive that already has an active run", async () => {
     const deviceApi = new ParkableSelfTestApi(state)
     const { app, engine } = build(deviceApi)

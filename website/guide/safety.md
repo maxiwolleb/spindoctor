@@ -8,10 +8,14 @@ write-pattern scan that writes and verifies every sector of the drive.
 undo. Only point spindoctor's destructive mode at drives whose data you
 do not need.
 
-A read-only scan (`badblocks -n`) is available as an alternative when you
-want to exercise a drive's surface without destroying its contents, but
-the full regime — and the strongest signal — comes from the destructive
-path.
+A read-only scan (plain `badblocks`, which reads every sector and writes
+none) is available as an alternative when you want to check a drive's
+surface without touching its contents, but the full regime — and the
+strongest signal — comes from the destructive path.
+
+The safety guards below apply to both modes. A read-only run writes
+nothing, but it still keeps a drive busy for hours, and a drive on the
+protected list is one spindoctor leaves alone entirely.
 
 ## Always-on guards
 
