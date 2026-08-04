@@ -44,6 +44,9 @@ jobs:
       - name: Spellcheck
         run: pnpm spellcheck
 
+      - name: Dead code (knip)
+        run: pnpm knip
+
       - name: Audit dependencies
         run: pnpm audit --prod --audit-level=high
         continue-on-error: true

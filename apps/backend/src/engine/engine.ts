@@ -11,7 +11,6 @@ import type {
   StageName,
   StageProgressEvent,
   SurfaceResult,
-  Thresholds,
 } from "@spindoctor/shared"
 import type { Db } from "../db/client"
 import { silentLogger, type Logger } from "../logger"
