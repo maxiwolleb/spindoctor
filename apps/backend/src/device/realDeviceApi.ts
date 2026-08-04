@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process"
+import { spawn, type ChildProcess } from "node:child_process"
 import { readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -45,6 +45,22 @@ export interface RealDeviceApiOpts {
   surfaceCommand?: string
   /** Test seam: builds the arg list (given the logfile path) instead of the real `-w/-n -s -o` flags. */
   surfaceArgsPrefix?: (logfile: string) => string[]
+  /**
+   * How long an aborted surface process is given to exit on SIGTERM before it
+   * gets SIGKILL. Defaults to 5 s — badblocks has a logfile to flush, so it is
+   * worth asking politely first.
+   */
+  surfaceKillGraceMs?: number
+  /**
+   * How long after an abort the surface promise settles regardless of whether
+   * the process actually died. Defaults to 15 s. SIGKILL does not reach a task
+   * in an uninterruptible kernel I/O wait either, so without this deadline the
+   * promise could never settle and the engine's concurrency permit — released in
+   * its `finally` — would leak (issue #86).
+   */
+  surfaceAbandonMs?: number
+  /** Test seam: delivers a signal to the surface child. Defaults to `child.kill`. */
+  killer?: (child: ChildProcess, signal: NodeJS.Signals) => void
   /** Structured logger; silent by default. */
   logger?: Logger
 }
@@ -201,8 +217,33 @@ export class RealDeviceApi implements DeviceApi {
       // run, and grading them the same hid issue #84 behind a WARN.
       let sawProgress = false
 
+      const kill = this.opts.killer ?? ((c: ChildProcess, s: NodeJS.Signals) => c.kill(s))
+      const graceMs = this.opts.surfaceKillGraceMs ?? 5_000
+      const abandonMs = this.opts.surfaceAbandonMs ?? 15_000
+      let killTimer: NodeJS.Timeout | undefined
+      let abandonTimer: NodeJS.Timeout | undefined
+
       const onAbort = () => {
-        child.kill("SIGTERM")
+        kill(child, "SIGTERM")
+        // badblocks on a failing drive is routinely blocked in a kernel I/O wait
+        // that no signal interrupts, so both of these are needed: SIGKILL for a
+        // process that merely ignored SIGTERM, and a hard deadline for one that
+        // cannot be killed at all.
+        killTimer = setTimeout(() => {
+          this.log.warn(
+            { devicePath, pid: child.pid },
+            "surface process did not exit on SIGTERM — escalating to SIGKILL",
+          )
+          kill(child, "SIGKILL")
+        }, graceMs)
+        abandonTimer = setTimeout(() => {
+          this.log.error(
+            { devicePath, pid: child.pid },
+            "surface process survived SIGKILL — abandoning it and settling the stage " +
+              "so the run cannot wedge; it may still hold the device open",
+          )
+          void finish(null)
+        }, abandonMs)
       }
       signal.addEventListener("abort", onAbort, { once: true })
 
@@ -228,6 +269,10 @@ export class RealDeviceApi implements DeviceApi {
         if (settled) return
         settled = true
         signal.removeEventListener("abort", onAbort)
+        // Whichever path got here first, the other two must not fire: a stale
+        // kill timer would signal a pid the OS may have recycled.
+        if (killTimer !== undefined) clearTimeout(killTimer)
+        if (abandonTimer !== undefined) clearTimeout(abandonTimer)
         let badBlocksLog: string
         try {
           badBlocksLog = await readFile(logfile, "utf8")

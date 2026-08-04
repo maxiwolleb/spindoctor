@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url"
 import { dirname, join } from "node:path"
 import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
+import type { ChildProcess } from "node:child_process"
 import { RealDeviceApi } from "./realDeviceApi"
 import { execFileRunner } from "./runner"
 
@@ -102,6 +103,138 @@ describe("RealDeviceApi.runSurfaceTest (against the badblocks emulator)", () => 
     // process was actually terminated rather than left running.
     expect(elapsed).toBeLessThan(2000)
     expect(result).toEqual({ mode: "write", badBlocks: 0, completed: false })
+  }, 8000)
+
+  // Issue #86: SIGTERM was the only kill, and the promise resolved only from
+  // `close`/`error`. A badblocks that ignores SIGTERM — which is what a process
+  // stuck in an uninterruptible I/O wait on a failing drive looks like — left
+  // the run in SURFACE forever and leaked its concurrency permit, while the
+  // abort call had already reported success.
+  it("escalates to SIGKILL when the process ignores SIGTERM", async () => {
+    const api = new RealDeviceApi(execFileRunner, {
+      logDir: dir,
+      surfaceCommand: process.execPath,
+      surfaceArgsPrefix: (logfile) => [
+        emulatorPath,
+        "--log",
+        logfile,
+        "--hang",
+        "--ignore-sigterm",
+      ],
+      surfaceKillGraceMs: 150,
+      surfaceAbandonMs: 5000,
+    })
+    const controller = new AbortController()
+
+    const start = Date.now()
+    const result = await api.runSurfaceTest(
+      "/dev/fake",
+      SIZE_BYTES,
+      "destructive",
+      () => controller.abort(),
+      controller.signal,
+    )
+    const elapsed = Date.now() - start
+
+    // Resolved because SIGKILL landed, not because the abandon timer fired:
+    // well after the grace period, well before the abandon deadline.
+    expect(elapsed).toBeGreaterThanOrEqual(150)
+    expect(elapsed).toBeLessThan(4000)
+    expect(result).toMatchObject({ mode: "write", completed: false })
+    expect(result.startFailed).toBeUndefined()
+  }, 10000)
+
+  it("settles even if the process never exits at all, so the run can never wedge", async () => {
+    // The case SIGKILL cannot fix either: a task in uninterruptible sleep
+    // ignores it too. The promise still has to settle, or the engine's
+    // concurrency permit is never released.
+    // Swallows the signals so the process genuinely outlives them, and keeps the
+    // handle so the test can clean it up afterwards — the emulator's --hang loop
+    // would otherwise be orphaned and run forever.
+    let child: ChildProcess | undefined
+    const api = new RealDeviceApi(execFileRunner, {
+      logDir: dir,
+      surfaceCommand: process.execPath,
+      surfaceArgsPrefix: (logfile) => [emulatorPath, "--log", logfile, "--hang"],
+      killer: (c) => {
+        child = c
+      },
+      surfaceKillGraceMs: 50,
+      surfaceAbandonMs: 300,
+    })
+    const controller = new AbortController()
+
+    const start = Date.now()
+    const result = await api.runSurfaceTest(
+      "/dev/fake",
+      SIZE_BYTES,
+      "destructive",
+      () => controller.abort(),
+      controller.signal,
+    )
+    const elapsed = Date.now() - start
+    child?.kill("SIGKILL")
+
+    expect(elapsed).toBeGreaterThanOrEqual(300)
+    expect(elapsed).toBeLessThan(3000)
+    expect(result).toMatchObject({ completed: false })
+  }, 10000)
+
+  it("sends no signal at all on a clean run", async () => {
+    // A run that finishes normally must not be left holding armed timers that
+    // later fire a SIGKILL at a recycled pid.
+    const signals: string[] = []
+    const api = new RealDeviceApi(execFileRunner, {
+      logDir: dir,
+      surfaceCommand: process.execPath,
+      surfaceArgsPrefix: (logfile) => [emulatorPath, "--log", logfile, "--bad", "0"],
+      killer: (_child, signal) => signals.push(signal),
+      surfaceKillGraceMs: 50,
+      surfaceAbandonMs: 100,
+    })
+
+    const result = await api.runSurfaceTest(
+      "/dev/fake",
+      SIZE_BYTES,
+      "read-only",
+      () => {},
+      new AbortController().signal,
+    )
+    // Well past both deadlines, had either been left armed.
+    await new Promise((r) => setTimeout(r, 250))
+
+    expect(result.completed).toBe(true)
+    expect(signals).toEqual([])
+  }, 8000)
+
+  it("sends SIGTERM first, then SIGKILL, in that order", async () => {
+    const signals: string[] = []
+    let child: ChildProcess | undefined
+    const api = new RealDeviceApi(execFileRunner, {
+      logDir: dir,
+      surfaceCommand: process.execPath,
+      surfaceArgsPrefix: (logfile) => [emulatorPath, "--log", logfile, "--hang"],
+      // Records instead of killing, so the escalation runs to completion and the
+      // abandon timer provides the exit.
+      killer: (c, signal) => {
+        child = c
+        signals.push(signal)
+      },
+      surfaceKillGraceMs: 60,
+      surfaceAbandonMs: 400,
+    })
+    const controller = new AbortController()
+
+    await api.runSurfaceTest(
+      "/dev/fake",
+      SIZE_BYTES,
+      "destructive",
+      () => controller.abort(),
+      controller.signal,
+    )
+    child?.kill("SIGKILL")
+
+    expect(signals).toEqual(["SIGTERM", "SIGKILL"])
   }, 8000)
 
   it("captures the badblocks stdout+stderr and bad-block logfile into onLog", async () => {

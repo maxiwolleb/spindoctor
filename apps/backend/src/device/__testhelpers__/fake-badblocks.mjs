@@ -13,9 +13,12 @@
 //     non-zero exit, with no progress and no logfile, all before any I/O
 //   - optionally runs to completion but exits non-zero (--exit-code), to tell a
 //     scan that started and then failed apart from one that never started
+//   - optionally ignores SIGTERM (--ignore-sigterm), standing in for a badblocks
+//     stuck in an uninterruptible kernel I/O wait on a failing drive, which is
+//     the normal case for the drives this tool exists to test (issue #86)
 //
 // Usage: node fake-badblocks.mjs --log <path> [--bad <n>] [--stdout <text>] [--hang]
-//          [--phases <n>] [--fail-start] [--exit-code <n>]
+//          [--phases <n>] [--fail-start] [--exit-code <n>] [--ignore-sigterm]
 import { writeFileSync } from "node:fs"
 
 const args = process.argv.slice(2)
@@ -27,6 +30,11 @@ const hang = args.includes("--hang")
 // through several — write + verify per pattern); a single pass by default.
 const phases = args.includes("--phases") ? Number(args[args.indexOf("--phases") + 1]) : 1
 const exitCode = args.includes("--exit-code") ? Number(args[args.indexOf("--exit-code") + 1]) : 0
+
+// A real process in an uninterruptible I/O wait doesn't die on SIGTERM. Node
+// can't enter that state on demand, so it just refuses to handle the signal —
+// which exercises the same escalation path.
+if (args.includes("--ignore-sigterm")) process.on("SIGTERM", () => {})
 
 if (stdoutText) process.stdout.write(`${stdoutText}\n`)
 
