@@ -139,11 +139,17 @@ startup.
 
 ### Verdict thresholds
 
-- **Reallocated sectors:** `0` → PASS; `1`–`10` and stable → WARN; above
-  `10`, or grown during the test window, → FAIL. (`10` is the default
+- **Reallocated sectors:** `0` → PASS; `1`–`4` and stable → WARN; above
+  `4`, or grown during the test window, → FAIL. (`4` is the default
   `reallocatedWarnMax` threshold — configurable in Settings.)
 - **Current pending / offline uncorrectable / reported uncorrectable
   sectors:** any value `> 0` after the test → FAIL.
+- **Spin retries:** any value `> 0` → FAIL. A drive that needed a retry to
+  bring its platters to speed fails at roughly ten times the rate of one
+  that never did.
+- **Command timeouts:** above `100` → WARN (default
+  `commandTimeoutWarnMax`, configurable). A handful of timeouts is as often
+  a cable as a drive.
 - **SSD/NVMe wear** (`percentageUsed`): `≥ 80%` → WARN, `≥ 100%` → FAIL
   (defaults, configurable).
 - **Surface scan:** any bad block found → FAIL.
