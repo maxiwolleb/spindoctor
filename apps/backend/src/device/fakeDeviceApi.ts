@@ -25,7 +25,7 @@ export class FakeDeviceApi implements DeviceApi {
   readonly started: string[] = []
   /** Device paths a self-test abort was issued for, in order. */
   readonly selfTestAborts: string[] = []
-  readonly surfaceCalls: { devicePath: string; mode: RegimeMode }[] = []
+  readonly surfaceCalls: { devicePath: string; sizeBytes: number; mode: RegimeMode }[] = []
   constructor(private state: FakeDeviceApiState = {}) {}
 
   async listDevices(): Promise<DiscoveredDrive[]> {
@@ -55,12 +55,13 @@ export class FakeDeviceApi implements DeviceApi {
 
   async runSurfaceTest(
     devicePath: string,
+    sizeBytes: number,
     mode: RegimeMode,
     onProgress: (percent: number) => void,
     signal: AbortSignal,
     onLog?: (log: string) => void,
   ): Promise<SurfaceResult> {
-    this.surfaceCalls.push({ devicePath, mode })
+    this.surfaceCalls.push({ devicePath, sizeBytes, mode })
     const plan = this.state.surface?.plan ?? [25, 50, 75, 100]
     const aborted: SurfaceResult = { mode: toSurfaceMode(mode), badBlocks: 0, completed: false }
 

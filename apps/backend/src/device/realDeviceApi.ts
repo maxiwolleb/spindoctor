@@ -14,6 +14,7 @@ import type { DeviceApi } from "./deviceApi"
 import { parseLsblk } from "./lsblkParser"
 import { parseSmartctlScan } from "./scanParser"
 import { mergeDiscovery } from "./discovery"
+import { buildSurfaceArgs } from "./surfaceArgs"
 import { parseSelfTest, scsiSelfTestInProgress } from "./smartParser"
 import { silentLogger, type Logger } from "../logger"
 import {
@@ -163,6 +164,7 @@ export class RealDeviceApi implements DeviceApi {
 
   async runSurfaceTest(
     devicePath: string,
+    sizeBytes: number,
     mode: RegimeMode,
     onProgress: (percent: number) => void,
     signal: AbortSignal,
@@ -180,10 +182,9 @@ export class RealDeviceApi implements DeviceApi {
     const logfile = join(logDir, `badblocks-${randomUUID()}.log`)
 
     const command = this.opts.surfaceCommand ?? "badblocks"
-    const flags = this.opts.surfaceArgsPrefix
-      ? this.opts.surfaceArgsPrefix(logfile)
-      : [mode === "destructive" ? "-w" : "-n", "-s", "-o", logfile]
-    const args = [...flags, devicePath]
+    const args = this.opts.surfaceArgsPrefix
+      ? [...this.opts.surfaceArgsPrefix(logfile), devicePath]
+      : buildSurfaceArgs({ mode, logfile, sizeBytes, devicePath })
 
     return new Promise((resolve) => {
       // stdout is piped (not ignored) even though badblocks rarely writes to
@@ -193,6 +194,12 @@ export class RealDeviceApi implements DeviceApi {
 
       const stdoutChunks: Buffer[] = []
       const stderrChunks: Buffer[] = []
+      // Whether badblocks ever reported a percentage. Distinguishes a scan that
+      // never started (bad arguments, a device too large for its block size, a
+      // missing binary) from one that started and was cut short — the first is a
+      // tool failure the operator has to fix, the second is a fact about the
+      // run, and grading them the same hid issue #84 behind a WARN.
+      let sawProgress = false
 
       const onAbort = () => {
         child.kill("SIGTERM")
@@ -207,7 +214,10 @@ export class RealDeviceApi implements DeviceApi {
         stderrChunks.push(chunk)
         if (signal.aborted) return
         const percent = parseBadblocksPercent(chunk.toString())
-        if (percent !== null) onProgress(progress.update(percent))
+        if (percent !== null) {
+          sawProgress = true
+          onProgress(progress.update(percent))
+        }
       })
 
       // Both `close` and `error` fire on a spawn failure (confirmed on Node
@@ -233,7 +243,15 @@ export class RealDeviceApi implements DeviceApi {
             badBlocksLog,
           }),
         )
-        resolve({ mode: surfaceMode, badBlocks, completed: code === 0 })
+        const completed = code === 0
+        resolve({
+          mode: surfaceMode,
+          badBlocks,
+          completed,
+          // An abort is a deliberate stop, not a start failure, however early it
+          // lands — so it never sets this even though no progress was seen.
+          ...(!completed && !sawProgress && !signal.aborted ? { startFailed: true } : {}),
+        })
         try {
           await rm(logfile, { force: true })
         } catch {

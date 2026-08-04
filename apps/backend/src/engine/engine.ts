@@ -75,6 +75,20 @@ export class DriveGoneError extends Error {
   }
 }
 
+/** Thrown when the surface tool exited without ever scanning — so the stage
+ * produced no measurement of the drive at all. Kept distinct from an incomplete
+ * scan on purpose: a run that could not test the surface must not hand out a
+ * grade for it (issue #84). The message is what lands in `runs.error`, so it
+ * points at the stage log that holds badblocks' own words. */
+export class SurfaceToolError extends Error {
+  constructor(mode: RegimeMode) {
+    super(
+      `SURFACE_COULD_NOT_START: the ${mode} surface scan exited without scanning — see the stage log`,
+    )
+    this.name = "SurfaceToolError"
+  }
+}
+
 /** Thrown by `startRun` when the target drive already has an active run in
  * this process (dispatched either via `startRun` or a `reconcile()` resume).
  * Prevents two concurrent runs — most critically two concurrent destructive
@@ -1069,6 +1083,7 @@ export class TestEngine extends EventEmitter {
     let capturedLog: string | undefined
     const surfaceResult = await this.deviceApi.runSurfaceTest(
       devicePath,
+      currentDrive.sizeBytes,
       mode,
       (percent) =>
         this.#emitStageProgress(stageId, {
@@ -1107,6 +1122,12 @@ export class TestEngine extends EventEmitter {
     // an unrelated column with an explicit undefined `.set()` value.
     if (capturedLog !== undefined) stagePatch.log = capturedLog
     updateStage(this.db, stageId, stagePatch)
+
+    // Thrown after the stage row is written, so the operator can still read the
+    // tool's own error out of the persisted log. #run turns this into a FAILED
+    // run with no verdict, which is the honest outcome: the drive was not
+    // measured, so it is neither a PASS nor a WARN (issue #84).
+    if (surfaceResult.startFailed === true) throw new SurfaceToolError(mode)
 
     return { surface: surfaceResult, drive: currentDrive }
   }

@@ -142,6 +142,16 @@ export interface SurfaceResult {
   mode: "write" | "read-only"
   badBlocks: number
   completed: boolean
+  /**
+   * Set when the surface tool exited without ever scanning — the device is too
+   * large for the block size, the arguments were rejected, the binary is
+   * missing. That is a tool failure, not a measurement, so the run fails with an
+   * error instead of producing a verdict: graded as an ordinary incomplete scan
+   * it becomes a WARN, which is how issue #84 stayed invisible on every drive
+   * over 4 TiB. Absent (rather than `false`) on the normal paths, so a stored
+   * result from before this existed reads the same as a clean one.
+   */
+  startFailed?: boolean
 }
 
 export interface Thresholds {
