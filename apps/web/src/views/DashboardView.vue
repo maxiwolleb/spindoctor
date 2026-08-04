@@ -11,7 +11,8 @@ const router = useRouter()
 
 const dialogSerial = ref<string | null>(null)
 const dialogOpen = ref(false)
-const startError = ref<string | null>(null)
+/** Failure of an action the operator just took (start or stop), shown inline. */
+const actionError = ref<string | null>(null)
 
 const dialogDrive = computed(() =>
   dialogSerial.value ? (store.driveBySerial(dialogSerial.value) ?? null) : null,
@@ -33,14 +34,25 @@ function onOpen(serial: string): void {
 }
 
 async function onSubmitStart(payload: CreateRunRequest): Promise<void> {
-  startError.value = null
+  actionError.value = null
   try {
     await store.startTest(payload)
   } catch (err) {
     // store.startTest already rethrows the ApiError (or whatever the client
     // threw) after recording it — surface its message directly (covers a
     // safety-guard 403 or a confirmation-mismatch 409/400 alike).
-    startError.value = err instanceof Error ? err.message : String(err)
+    actionError.value = err instanceof Error ? err.message : String(err)
+  }
+}
+
+async function onStop(runId: number): Promise<void> {
+  actionError.value = null
+  try {
+    await store.abort(runId)
+  } catch (err) {
+    // A 409 lands here when the run finished between the row rendering and the
+    // click — worth saying so rather than looking like a no-op.
+    actionError.value = err instanceof Error ? err.message : String(err)
   }
 }
 </script>
@@ -50,21 +62,37 @@ async function onSubmitStart(payload: CreateRunRequest): Promise<void> {
     <h1 class="text-h5 mb-4">Dashboard</h1>
 
     <v-alert
-      v-if="startError"
+      v-if="actionError"
       type="error"
       variant="tonal"
       density="compact"
       class="mb-4"
       closable
-      @click:close="startError = null"
+      @click:close="actionError = null"
     >
-      {{ startError }}
+      {{ actionError }}
+    </v-alert>
+
+    <!-- Background failures — a drive refresh that didn't come back — as opposed
+         to a request the operator just made. Nothing rendered `store.error`
+         before, so a failed load simply showed an empty table (issue #104). -->
+    <v-alert
+      v-if="store.error && !actionError"
+      type="warning"
+      variant="tonal"
+      density="compact"
+      class="mb-4"
+      data-test="store-error"
+    >
+      {{ store.error }}
     </v-alert>
 
     <DriveTable
       :drives="store.drives"
       :live-by-drive="store.liveByDrive"
+      :load-failed="store.error !== null && store.drives.length === 0"
       @start="onStart"
+      @stop="onStop"
       @open="onOpen"
     />
 

@@ -133,13 +133,23 @@ export const useConsoleStore = defineStore("console", () => {
     await refreshDrives()
   }
 
+  /**
+   * Stops a run, then refreshes the drive list so the row reflects it.
+   *
+   * Rethrows, like `startTest` and `saveSettings`. It used to swallow, which made
+   * it the one action whose failure was invisible — a 409 for a run that had
+   * already finished, or a network error, both looked exactly like a successful
+   * stop (issue #104).
+   */
   async function abort(runId: number): Promise<void> {
     try {
       await deps.api.abortRun(runId)
       error.value = null
     } catch (err) {
       error.value = messageOf(err)
+      throw err
     }
+    await refreshDrives()
   }
 
   function handleStageProgress(payload: StageProgressEvent): void {
