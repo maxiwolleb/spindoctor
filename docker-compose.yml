@@ -2,7 +2,7 @@
 # destructive drive tests) the device-passthrough block below before use.
 services:
   spindoctor:
-    image: ghcr.io/maxiwolleb/spindoctor:latest
+    image: ghcr.io/maxiwolleb/spindoctor:0.0.1-alpha
     # Uncomment to build from a local checkout instead of pulling the image:
     # build: .
     ports:

@@ -82,22 +82,27 @@ any device through.
 ## Quickstart
 
 > [!IMPORTANT]
-> **No image has been published yet**, so `ghcr.io/maxiwolleb/spindoctor:latest`
-> cannot be pulled until the first `v*` tag exists. Until then, build it from a
-> checkout and use that tag instead:
+> The only published image so far is the pre-release
+> **`ghcr.io/maxiwolleb/spindoctor:0.0.1-alpha`**. There is deliberately no
+> `:latest` tag yet — it is reserved for the first non-prerelease version, so
+> that pulling `:latest` never silently gets you an alpha. Use the exact tag:
+>
+> ```
+> image: ghcr.io/maxiwolleb/spindoctor:0.0.1-alpha
+> ```
+>
+> Or build from a checkout:
 >
 > ```
 > git clone https://github.com/maxiwolleb/spindoctor && cd spindoctor
 > docker build -t spindoctor:local .
 > ```
->
-> then set `image: spindoctor:local` below.
 
 ```yaml
 # docker-compose.yml
 services:
   spindoctor:
-    image: ghcr.io/maxiwolleb/spindoctor:latest
+    image: ghcr.io/maxiwolleb/spindoctor:0.0.1-alpha
     ports:
       - "8080:8080"
     volumes:
