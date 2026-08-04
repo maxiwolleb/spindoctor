@@ -7,7 +7,7 @@ A full example ships in the repo as [`docker-compose.yml`](https://github.com/ma
 ```yaml
 services:
   spindoctor:
-    image: ghcr.io/maxiwolleb/spindoctor:latest
+    image: ghcr.io/maxiwolleb/spindoctor:0.0.1-alpha
     # Uncomment to build from a local checkout instead of pulling the image:
     # build: .
     ports:
