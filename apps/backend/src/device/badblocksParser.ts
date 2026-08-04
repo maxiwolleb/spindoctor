@@ -3,31 +3,35 @@
  */
 
 /**
- * Extract the last percentage-done value from badblocks progress output.
- * badblocks prints progress lines like: `\r  12.50% done, 0:03 elapsed. (0/0/0 errors)`
+ * Extract every percentage-done value in a chunk of badblocks progress output,
+ * in the order badblocks emitted them.
+ *
+ * Progress looks like `  12.50% done, 0:03 elapsed. (0/0/0 errors)`, rubbed out
+ * by a run of backspaces (`\b`) rather than a carriage return — a newline appears
+ * only at a phase boundary.
+ *
+ * All of them, not just the last: a chunk that happens to span a phase boundary
+ * carries the reset back to ~0 in the middle of it, and dropping that made
+ * `BadblocksProgressTracker` miss the phase completion, under-reporting overall
+ * progress for the rest of the stage (issue #90). Unlikely on a multi-TB drive,
+ * where phases are hours apart, but ordinary on a small or fast device.
  *
  * @param chunk - A string chunk from badblocks stderr
- * @returns The percentage as a number, or null if no match found
+ * @returns Every percentage found, oldest first; empty when the chunk has none
  */
-export function parseBadblocksPercent(chunk: string): number | null {
+export function parseBadblocksPercents(chunk: string): number[] {
   const regex = /([\d.]+)%\s*done/g
-  let lastMatch: RegExpExecArray | null = null
+  const percents: number[] = []
   let match: RegExpExecArray | null
 
   while ((match = regex.exec(chunk)) !== null) {
-    lastMatch = match
+    const percentStr = match[1]
+    if (percentStr === undefined) continue
+    const percent = parseFloat(percentStr)
+    if (Number.isFinite(percent)) percents.push(percent)
   }
 
-  if (lastMatch === null) {
-    return null
-  }
-
-  const percentStr = lastMatch[1]
-  if (percentStr === undefined) {
-    return null
-  }
-
-  return parseFloat(percentStr)
+  return percents
 }
 
 /**

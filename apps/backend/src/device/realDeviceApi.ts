@@ -18,7 +18,7 @@ import { buildSurfaceArgs } from "./surfaceArgs"
 import { parseSelfTest, scsiSelfTestInProgress } from "./smartParser"
 import { silentLogger, type Logger } from "../logger"
 import {
-  parseBadblocksPercent,
+  parseBadblocksPercents,
   countBadBlocks,
   formatSurfaceLog,
   badblocksPhaseCount,
@@ -254,8 +254,10 @@ export class RealDeviceApi implements DeviceApi {
       child.stderr.on("data", (chunk: Buffer) => {
         stderrChunks.push(chunk)
         if (signal.aborted) return
-        const percent = parseBadblocksPercent(chunk.toString())
-        if (percent !== null) {
+        // Every percent in the chunk, in order — a chunk can span a phase
+        // boundary, and the tracker needs to see the reset to count the phase
+        // (issue #90).
+        for (const percent of parseBadblocksPercents(chunk.toString())) {
           sawProgress = true
           onProgress(progress.update(percent))
         }

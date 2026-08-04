@@ -30,6 +30,9 @@ export interface RunsRouteDeps {
   engine: TestEngine
 }
 
+/** Run statuses past which there is nothing left to abort. */
+const TERMINAL_RUN_STATUSES = new Set(["DONE", "FAILED", "ABORTED"])
+
 /** ISO-8601 string for a nullable persisted `Date`, or `null` — never leaks a
  * raw `Date` onto the wire (see `RunView`/`StageView` doc comments). */
 function isoOrNull(d: Date | null): string | null {
@@ -231,6 +234,16 @@ export function runsRoutes(deps: RunsRouteDeps): FastifyPluginAsync {
         if (!row) {
           reply.code(404)
           return { error: `no run found with id "${request.params.id}"`, code: "RUN_NOT_FOUND" }
+        }
+        // A run that already finished has nothing to abort, and `abortRun` is a
+        // no-op for it. Reporting 202 either way left a client unable to tell
+        // "abort requested" from "nothing to abort" (issue #90).
+        if (TERMINAL_RUN_STATUSES.has(row.status)) {
+          reply.code(409)
+          return {
+            error: `run ${id} has already finished (${row.status})`,
+            code: "RUN_NOT_ACTIVE",
+          }
         }
         engine.abortRun(id)
         reply.code(202)

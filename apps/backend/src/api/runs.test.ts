@@ -659,18 +659,33 @@ describe("GET /api/runs/:id/smart", () => {
 })
 
 describe("POST /api/runs/:id/abort", () => {
-  it("202s and aborts an existing run (idempotent even once terminal)", async () => {
+  it("202s and aborts a run that is still active", async () => {
     const { app } = build()
     repo.upsertDrive(db, cleanDrive)
     const runId = repo.createRun(db, {
       driveSerial: cleanDrive.serial,
       regime: { mode: "destructive" },
     })
-    repo.updateRun(db, runId, { status: "DONE", verdict: "PASS" })
 
     const res = await app.inject({ method: "POST", url: `/api/runs/${runId}/abort` })
     expect(res.statusCode).toBe(202)
     expect(res.json()).toEqual({ ok: true })
+  })
+
+  // Issue #90: this used to 202 regardless of status, so a client could not tell
+  // "abort requested" from "there was nothing to abort".
+  it.each(["DONE", "FAILED", "ABORTED"] as const)("409s for a run already %s", async (status) => {
+    const { app } = build()
+    repo.upsertDrive(db, cleanDrive)
+    const runId = repo.createRun(db, {
+      driveSerial: cleanDrive.serial,
+      regime: { mode: "destructive" },
+    })
+    repo.updateRun(db, runId, { status })
+
+    const res = await app.inject({ method: "POST", url: `/api/runs/${runId}/abort` })
+    expect(res.statusCode).toBe(409)
+    expect(res.json()).toMatchObject({ code: "RUN_NOT_ACTIVE" })
   })
 
   it("404s for a nonexistent run id with a RUN_NOT_FOUND code (Fix 2)", async () => {
