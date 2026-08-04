@@ -28,10 +28,12 @@ There are guards, and they are always on — for read-only runs as well as
 destructive ones:
 
 - a drive **something else is using** is never eligible. spindoctor asks the
-  kernel for exclusive access and refuses the drive if that is denied, which
-  covers a mounted filesystem, an LVM or md member, swap, or another
-  container — and works from inside the container, where the host's mount
-  table is not visible;
+  kernel for exclusive access and refuses the drive if that is denied — which
+  covers a mounted filesystem (in any mount namespace, including the host's),
+  an LVM or md member, and swap. It works from inside the container, where the
+  host's mount table is not visible at all. It does not detect a writer that
+  never claimed the device exclusively, such as a raw `dd` running outside
+  spindoctor;
 - a drive that is **mounted in spindoctor's own mount namespace** is never
   eligible (this is the one that fires when spindoctor runs on the host);
 - the host's own **system disk** is never eligible, as far as spindoctor can

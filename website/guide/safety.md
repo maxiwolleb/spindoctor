@@ -24,9 +24,17 @@ auto-mode — and cannot be bypassed from the UI:
 
 - **Drives something else is using are never eligible.** spindoctor asks the
   kernel for exclusive access to the device and refuses it if that is denied.
-  This covers a mounted filesystem, an LVM or md member, swap, and another
-  container — and unlike a mount table, the answer does not depend on which
-  mount namespace spindoctor is running in, so it holds inside the container.
+  This covers a mounted filesystem, an LVM or md member, and swap; unlike a
+  mount table, the answer does not depend on which mount namespace spindoctor
+  is running in, so it holds inside the container. Because a mounted partition's
+  claim is recorded against the whole disk, mounting `/dev/sdb1` is enough to
+  make `/dev/sdb` refuse.
+
+  The limit of this check: it sees _exclusive_ claims. A process writing the
+  device without claiming it exclusively — a raw `dd`, or a `badblocks` someone
+  ran by hand — is not detected. Nothing outside spindoctor is coordinated with
+  it, so don't rely on this check to make a drive safe to share.
+
 - **Mounted drives are never eligible.** A drive mounted in spindoctor's own
   mount namespace is refused. This is the check that fires when spindoctor
   runs directly on the host.

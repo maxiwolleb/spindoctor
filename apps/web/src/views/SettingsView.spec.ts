@@ -394,7 +394,7 @@ describe("SettingsView", () => {
     const wrapper = mount(SettingsView, { global: { plugins: [vuetify] }, attachTo: document.body })
     await flushPromises()
 
-    expect(wrapper.text()).toContain("1 serial matches no drive")
+    expect(wrapper.text()).toContain("1 serial matches no drive spindoctor can currently see")
     // Not phrased as an error: pre-registering a serial is legitimate.
     expect(wrapper.text()).toContain("expected if the drive isn't attached yet")
 
@@ -408,7 +408,7 @@ describe("SettingsView", () => {
     const wrapper = mount(SettingsView, { global: { plugins: [vuetify] }, attachTo: document.body })
     await flushPromises()
 
-    expect(wrapper.text()).not.toContain("matches no drive")
+    expect(wrapper.text()).not.toContain("no drive spindoctor can currently see")
 
     wrapper.unmount()
   })
@@ -420,7 +420,7 @@ describe("SettingsView", () => {
     const wrapper = mount(SettingsView, { global: { plugins: [vuetify] }, attachTo: document.body })
     await flushPromises()
 
-    expect(wrapper.text()).not.toContain("matches no drive")
+    expect(wrapper.text()).not.toContain("no drive spindoctor can currently see")
 
     wrapper.unmount()
   })
@@ -432,7 +432,7 @@ describe("SettingsView", () => {
     const wrapper = mount(SettingsView, { global: { plugins: [vuetify] }, attachTo: document.body })
     await flushPromises()
 
-    expect(wrapper.text()).not.toContain("matches no drive")
+    expect(wrapper.text()).not.toContain("no drive spindoctor can currently see")
 
     wrapper.unmount()
   })
@@ -449,7 +449,7 @@ describe("SettingsView", () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain("EXISTING1")
-    expect(wrapper.text()).not.toContain("matches no drive")
+    expect(wrapper.text()).not.toContain("no drive spindoctor can currently see")
 
     clickButton(document.body, "Save settings")
     await flushPromises()
