@@ -113,10 +113,6 @@ export function setDriveType(db: Db, serial: string, type: DriveType): void {
   db.update(drives).set({ type }).where(eq(drives.serial, serial)).run()
 }
 
-export function setProtected(db: Db, serial: string, value: boolean): void {
-  db.update(drives).set({ protectedFlag: value }).where(eq(drives.serial, serial)).run()
-}
-
 // ---- runs ----
 
 export function createRun(db: Db, input: { driveSerial: string; regime: unknown }): number {

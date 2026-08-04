@@ -53,15 +53,17 @@ describe("config", () => {
 })
 
 describe("drives", () => {
-  it("inserts then upserts preserving firstSeen and protected flag", () => {
+  // Protection is no longer part of this: it lives in `config.protectList`, and
+  // the `protected` column is legacy (issue #88). This test used to set it via a
+  // `setProtected` helper that in fact had no production callers, which is how
+  // the column came to read `false` for every protected drive.
+  it("inserts then upserts preserving firstSeen", () => {
     repo.upsertDrive(db, drive())
-    repo.setProtected(db, "SER123", true)
     const first = repo.getDrive(db, "SER123")!
     repo.upsertDrive(db, drive({ model: "WDC WD40EFRX (renamed)", sizeBytes: 123 }))
     const second = repo.getDrive(db, "SER123")!
     expect(second.model).toBe("WDC WD40EFRX (renamed)")
     expect(second.sizeBytes).toBe(123)
-    expect(second.protectedFlag).toBe(true)
     expect(second.firstSeen.getTime()).toBe(first.firstSeen.getTime())
     expect(second.lastSeen.getTime()).toBeGreaterThanOrEqual(first.lastSeen.getTime())
     expect(repo.listDrives(db)).toHaveLength(1)

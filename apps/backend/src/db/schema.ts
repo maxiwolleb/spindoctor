@@ -9,6 +9,16 @@ export const drives = sqliteTable("drives", {
   transport: text("transport").notNull(),
   firstSeen: integer("first_seen", { mode: "timestamp_ms" }).notNull(),
   lastSeen: integer("last_seen", { mode: "timestamp_ms" }).notNull(),
+  /**
+   * Legacy, and deliberately not read. Protection lives in `config.protectList`,
+   * which is what `checkRunAllowed` consults and what `GET /api/drives` now
+   * reports. Nothing ever wrote this column — its only setter had no callers —
+   * so it read `false` for every drive including protected ones, which is how
+   * the UI came to disagree with the engine (issue #88). Kept rather than
+   * migrated away because dropping a column in SQLite means rebuilding the
+   * table for no functional gain; do not wire it back up as a second source of
+   * truth.
+   */
   protectedFlag: integer("protected", { mode: "boolean" }).notNull().default(false),
 })
 

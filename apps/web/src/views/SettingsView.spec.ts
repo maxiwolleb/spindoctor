@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { flushPromises, mount } from "@vue/test-utils"
 import { createPinia, setActivePinia } from "pinia"
-import type { SettingsView as SettingsViewDto } from "@spindoctor/shared"
+import type { DriveView, SettingsView as SettingsViewDto } from "@spindoctor/shared"
 import { vuetify } from "../plugins/vuetify"
 import { setConsoleDeps } from "../stores/useConsoleStore"
 import type { ApiClient } from "../api/client"
@@ -22,9 +22,12 @@ const baseSettings: SettingsViewDto = {
   diagnosticsIncludeSerials: false,
 }
 
-function fakeApi(settings: SettingsViewDto = baseSettings) {
+function fakeApi(settings: SettingsViewDto = baseSettings, drives: DriveView[] = []) {
   return {
-    getDrives: vi.fn(),
+    // SettingsView loads drives too: the protect list is checked against what
+    // spindoctor can currently see, so an entry that matches nothing can be
+    // flagged as a possible typo (issue #88).
+    getDrives: vi.fn().mockResolvedValue(drives),
     getDrive: vi.fn(),
     createRun: vi.fn(),
     listRuns: vi.fn(),
@@ -33,6 +36,22 @@ function fakeApi(settings: SettingsViewDto = baseSettings) {
     getSettings: vi.fn().mockResolvedValue(settings),
     putSettings: vi.fn().mockImplementation((patch) => Promise.resolve({ ...settings, ...patch })),
     getAudit: vi.fn(),
+  }
+}
+
+/** Minimal `DriveView` — only `serial` matters to the protect-list check. */
+function drive(serial: string): DriveView {
+  return {
+    serial,
+    model: "WDC WD40EFRX",
+    sizeBytes: 4_000_787_030_016,
+    type: "HDD",
+    transport: "SATA",
+    present: true,
+    mounted: false,
+    isSystemDisk: false,
+    protected: false,
+    latestRun: null,
   }
 }
 
@@ -360,6 +379,82 @@ describe("SettingsView", () => {
     await flushPromises()
     expect(api.putSettings).toHaveBeenLastCalledWith(
       expect.objectContaining({ protectList: ["NEWSERIAL"] }),
+    )
+
+    wrapper.unmount()
+  })
+  // Issue #88: a mistyped protect-list entry looked exactly like a working one,
+  // on the guard whose whole job is stopping the wrong drive being wiped.
+  it("warns about a protected serial that matches no visible drive", async () => {
+    const api = fakeApi({ ...baseSettings, protectList: ["EXISTING1", "MISTYPED-SERIAL"] }, [
+      drive("EXISTING1"),
+    ])
+    setConsoleDeps({ api: api as unknown as ApiClient })
+
+    const wrapper = mount(SettingsView, { global: { plugins: [vuetify] }, attachTo: document.body })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain("1 serial matches no drive")
+    // Not phrased as an error: pre-registering a serial is legitimate.
+    expect(wrapper.text()).toContain("expected if the drive isn't attached yet")
+
+    wrapper.unmount()
+  })
+
+  it("does not warn when every protected serial matches a visible drive", async () => {
+    const api = fakeApi({ ...baseSettings, protectList: ["EXISTING1"] }, [drive("EXISTING1")])
+    setConsoleDeps({ api: api as unknown as ApiClient })
+
+    const wrapper = mount(SettingsView, { global: { plugins: [vuetify] }, attachTo: document.body })
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain("matches no drive")
+
+    wrapper.unmount()
+  })
+
+  it("matches a visible drive whose serial differs only in case", async () => {
+    const api = fakeApi({ ...baseSettings, protectList: ["EXISTING1"] }, [drive("existing1")])
+    setConsoleDeps({ api: api as unknown as ApiClient })
+
+    const wrapper = mount(SettingsView, { global: { plugins: [vuetify] }, attachTo: document.body })
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain("matches no drive")
+
+    wrapper.unmount()
+  })
+
+  it("says nothing when no drives are visible at all, rather than flagging every entry", async () => {
+    const api = fakeApi({ ...baseSettings, protectList: ["EXISTING1"] }, [])
+    setConsoleDeps({ api: api as unknown as ApiClient })
+
+    const wrapper = mount(SettingsView, { global: { plugins: [vuetify] }, attachTo: document.body })
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain("matches no drive")
+
+    wrapper.unmount()
+  })
+
+  it("upper-cases a newly typed serial, so it matches the way the guard compares", async () => {
+    const api = fakeApi({ ...baseSettings, protectList: [] }, [drive("EXISTING1")])
+    setConsoleDeps({ api: api as unknown as ApiClient })
+
+    const wrapper = mount(SettingsView, { global: { plugins: [vuetify] }, attachTo: document.body })
+    await flushPromises()
+
+    await wrapper.find("#new-protected-serial").setValue("  existing1  ")
+    clickButton(document.body, "Add")
+    await flushPromises()
+
+    expect(wrapper.text()).toContain("EXISTING1")
+    expect(wrapper.text()).not.toContain("matches no drive")
+
+    clickButton(document.body, "Save settings")
+    await flushPromises()
+    expect(api.putSettings).toHaveBeenLastCalledWith(
+      expect.objectContaining({ protectList: ["EXISTING1"] }),
     )
 
     wrapper.unmount()

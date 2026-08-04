@@ -94,6 +94,38 @@ describe("GET /api/drives", () => {
     })
   })
 
+  // Issue #88: `protected` came from a column nothing ever wrote, so a drive the
+  // engine was correctly refusing with PROTECTED came back `protected: false` —
+  // the chip, the start dialog and the guard all disagreed, and a mistyped
+  // protect-list entry was indistinguishable from a working one.
+  it("reports protected from the protect list the guard actually consults", async () => {
+    repo.updateConfig(db, { protectList: ["SERA"] })
+    const app = build()
+
+    const body = (await app.inject({ method: "GET", url: "/api/drives" })).json<DriveView[]>()
+
+    expect(body.find((d) => d.serial === "SERA")?.protected).toBe(true)
+    expect(body.find((d) => d.serial === "SERB")?.protected).toBe(false)
+  })
+
+  it("reports protected for a list entry that differs in case or spacing", async () => {
+    repo.updateConfig(db, { protectList: ["  sera  "] })
+    const app = build()
+
+    const body = (await app.inject({ method: "GET", url: "/api/drives" })).json<DriveView[]>()
+
+    expect(body.find((d) => d.serial === "SERA")?.protected).toBe(true)
+  })
+
+  it("reports protected on the single-drive route too", async () => {
+    repo.updateConfig(db, { protectList: ["SERA"] })
+    const app = build()
+
+    const res = await app.inject({ method: "GET", url: "/api/drives/SERA" })
+
+    expect(res.json<{ drive: DriveView }>().drive.protected).toBe(true)
+  })
+
   it("persists discovered drives to the db (upsert)", async () => {
     const app = build()
     await app.inject({ method: "GET", url: "/api/drives" })
