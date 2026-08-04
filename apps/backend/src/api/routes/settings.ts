@@ -3,6 +3,7 @@ import { resolveThresholds } from "@spindoctor/shared"
 import type { SettingsView, Thresholds } from "@spindoctor/shared"
 import type { Db } from "../../db/client"
 import { getConfig, updateConfig, type ConfigRow, type ConfigUpdate } from "../../db/repositories"
+import { normalizeSerial } from "../../safety/guards"
 
 export interface SettingsRouteDeps {
   db: Db
@@ -93,7 +94,20 @@ function validatePatch(body: unknown): { patch: Partial<ConfigUpdate> } | { erro
     if (!Array.isArray(list) || !list.every((item) => typeof item === "string")) {
       return { error: "protectList must be a string[]" }
     }
-    patch.protectList = list
+    // Stored normalized (trimmed, upper-cased) and de-duplicated, so what Settings
+    // shows back is what the guard will actually match. Previously an entry was
+    // stored verbatim and compared with exact equality, so a stray space or a
+    // lower-case serial protected nothing while looking right (issue #88).
+    // Empty-after-trim entries are dropped rather than kept as blanks.
+    const seen = new Set<string>()
+    const normalized: string[] = []
+    for (const entry of list) {
+      const serial = normalizeSerial(entry)
+      if (serial === "" || seen.has(serial)) continue
+      seen.add(serial)
+      normalized.push(serial)
+    }
+    patch.protectList = normalized
   }
 
   return { patch }

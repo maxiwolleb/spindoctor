@@ -3,6 +3,33 @@ import type { DiscoveredDrive } from "@spindoctor/shared"
 export type SafetyDecision = { allowed: true } | { allowed: false; code: string; reason: string }
 
 /**
+ * Canonical form of a drive serial for protect-list comparison: trimmed and
+ * upper-cased.
+ *
+ * The list was matched with exact string equality and stored verbatim, so
+ * `"  zjv2geq7…  "` protected nothing while looking identical to a correct entry
+ * in Settings (issue #88). Serials get copied off drive labels and out of
+ * terminal output, where a case change or a stray space is routine, and this is
+ * the last-resort guard against wiping the wrong drive — the one place a silent
+ * near-miss is least acceptable.
+ *
+ * Case-folding is safe here: serials are not case-significant in practice, and
+ * two real drives differing only in the case of their serial would be
+ * indistinguishable to an operator reading a label anyway.
+ */
+export function normalizeSerial(serial: string): string {
+  return serial.trim().toUpperCase()
+}
+
+/** True when this drive's serial is on the protect list, comparing canonical
+ * forms so whitespace or case in either can't create a false negative. */
+export function isProtected(serial: string, protectList: readonly string[]): boolean {
+  const target = normalizeSerial(serial)
+  if (target === "") return false
+  return protectList.some((entry) => normalizeSerial(entry) === target)
+}
+
+/**
  * Whether a run may touch this drive at all — every mode, not just the
  * destructive one.
  *
@@ -46,7 +73,7 @@ export function checkRunAllowed(
   }
 
   // PROTECTED: drive serial is in protection list
-  if (ctx.protectList.includes(drive.serial)) {
+  if (isProtected(drive.serial, ctx.protectList)) {
     return {
       allowed: false,
       code: "PROTECTED",

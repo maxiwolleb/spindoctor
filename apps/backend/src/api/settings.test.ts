@@ -129,6 +129,50 @@ describe("PUT /api/settings", () => {
     expect(follow.json<SettingsView>().protectList).toEqual([])
   })
 
+  // Issue #88: entries were stored verbatim and compared with exact equality, so
+  // this exact request returned 200, echoed the entries back, listed them in
+  // Settings as protected — and protected nothing.
+  it("stores protect-list entries trimmed and upper-cased", async () => {
+    const app = build()
+    const res = await app.inject({
+      method: "PUT",
+      url: "/api/settings",
+      payload: { protectList: ["  zjv2geq70000c909m0j0  ", "ok1"] },
+    })
+
+    expect(res.statusCode).toBe(200)
+    // Echoed back canonical, so what Settings shows is what the guard matches.
+    expect(res.json<SettingsView>().protectList).toEqual(["ZJV2GEQ70000C909M0J0", "OK1"])
+
+    const follow = await app.inject({ method: "GET", url: "/api/settings" })
+    expect(follow.json<SettingsView>().protectList).toEqual(["ZJV2GEQ70000C909M0J0", "OK1"])
+  })
+
+  it("drops blank entries and collapses ones that differ only in case or spacing", async () => {
+    const app = build()
+    const res = await app.inject({
+      method: "PUT",
+      url: "/api/settings",
+      payload: { protectList: ["OK1", " ok1 ", "", "   ", "OK2"] },
+    })
+
+    expect(res.json<SettingsView>().protectList).toEqual(["OK1", "OK2"])
+  })
+
+  it("keeps an entry that matches no discovered drive", async () => {
+    // Pre-registering a serial before attaching the drive is a legitimate and
+    // safety-positive workflow, so an unmatched entry is never rejected.
+    const app = build()
+    const res = await app.inject({
+      method: "PUT",
+      url: "/api/settings",
+      payload: { protectList: ["NOT-ATTACHED-YET"] },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json<SettingsView>().protectList).toEqual(["NOT-ATTACHED-YET"])
+  })
+
   it("400s on a non-boolean autoModeEnabled, persisting nothing", async () => {
     const app = build()
     const res = await app.inject({

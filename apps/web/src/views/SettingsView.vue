@@ -49,7 +49,10 @@ watch(autoModeAck, (checked) => {
 
 async function load(): Promise<void> {
   loading.value = true
-  await store.refreshSettings()
+  // Drives as well as settings: the protect list is checked against what
+  // spindoctor can currently see, and this view is reachable directly, without
+  // the dashboard having populated the store first.
+  await Promise.all([store.refreshSettings(), store.refreshDrives()])
   const settings = store.settings
   if (settings) {
     form.reallocatedWarnMax = settings.thresholds.reallocatedWarnMax
@@ -69,8 +72,15 @@ async function load(): Promise<void> {
 
 onMounted(load)
 
+/** Canonical form for comparison, matching the backend's `normalizeSerial`
+ * (`apps/backend/src/safety/guards.ts`). Entries are stored canonical, so this
+ * only has to normalize what the operator just typed. */
+function normalizeSerial(serial: string): string {
+  return serial.trim().toUpperCase()
+}
+
 function addSerial(): void {
-  const value = newSerial.value.trim()
+  const value = normalizeSerial(newSerial.value)
   if (!value) return
   if (!protectList.value.includes(value)) protectList.value.push(value)
   newSerial.value = ""
@@ -78,6 +88,26 @@ function addSerial(): void {
 
 function removeSerial(serial: string): void {
   protectList.value = protectList.value.filter((s) => s !== serial)
+}
+
+/**
+ * Protected serials that match no drive spindoctor can currently see.
+ *
+ * Not an error — pre-registering a serial before attaching the drive is a
+ * legitimate, safety-positive workflow — but worth surfacing, because a typo
+ * looks exactly like a correct entry otherwise, and this is the guard that stops
+ * the wrong drive being wiped (issue #88).
+ */
+const unmatchedSerials = computed(() => {
+  const known = new Set(store.drives.map((d) => normalizeSerial(d.serial)))
+  // Nothing discovered yet (still loading, or no drives attached) would flag
+  // every entry, which is noise rather than a warning.
+  if (known.size === 0) return []
+  return protectList.value.filter((serial) => !known.has(normalizeSerial(serial)))
+})
+
+function isUnmatched(serial: string): boolean {
+  return unmatchedSerials.value.includes(serial)
 }
 
 /** Mirrors the backend's own `validatePatch` (see
@@ -227,6 +257,8 @@ async function onSave(): Promise<void> {
           :key="serial"
           closable
           class="mono"
+          :color="isUnmatched(serial) ? 'warning' : undefined"
+          :variant="isUnmatched(serial) ? 'tonal' : undefined"
           @click:close="removeSerial(serial)"
         >
           {{ serial }}
@@ -235,6 +267,18 @@ async function onSave(): Promise<void> {
           >No protected drives.</span
         >
       </div>
+      <v-alert
+        v-if="unmatchedSerials.length > 0"
+        type="warning"
+        variant="tonal"
+        density="compact"
+        class="mb-3"
+      >
+        {{ unmatchedSerials.length }}
+        {{ unmatchedSerials.length === 1 ? "serial matches" : "serials match" }} no drive spindoctor
+        can currently see. That is expected if the drive isn't attached yet — but check for a typo,
+        because an entry that matches nothing protects nothing.
+      </v-alert>
       <div class="d-flex ga-2 align-center mb-6" style="max-width: 360px">
         <v-text-field
           id="new-protected-serial"

@@ -2,9 +2,10 @@ import type { FastifyInstance, FastifyPluginAsync, FastifyRequest } from "fastif
 import type { DriveType, DriveView, Transport, Verdict } from "@spindoctor/shared"
 import type { Db } from "../../db/client"
 import type { DriveRow } from "../../db/repositories"
-import { getDrive, listDrives, listRuns, upsertDrive } from "../../db/repositories"
+import { getConfig, getDrive, listDrives, listRuns, upsertDrive } from "../../db/repositories"
 import type { DeviceApi } from "../../device/deviceApi"
 import type { TestEngine } from "../../engine/engine"
+import { isProtected } from "../../safety/guards"
 
 export interface DrivesRouteDeps {
   db: Db
@@ -33,7 +34,13 @@ function latestRunFor(db: Db, serial: string): DriveView["latestRun"] {
   }
 }
 
-function toDriveView(db: Db, row: DriveRow, flags: RuntimeFlags): DriveView {
+/** The protect list as the safety guard sees it. */
+function protectList(db: Db): string[] {
+  const stored = getConfig(db).protectList
+  return Array.isArray(stored) ? (stored as string[]) : []
+}
+
+function toDriveView(db: Db, row: DriveRow, flags: RuntimeFlags, protect: string[]): DriveView {
   return {
     serial: row.serial,
     model: row.model,
@@ -43,7 +50,13 @@ function toDriveView(db: Db, row: DriveRow, flags: RuntimeFlags): DriveView {
     present: flags.present,
     mounted: flags.mounted,
     isSystemDisk: flags.isSystemDisk,
-    protected: row.protectedFlag,
+    // Read from the protect list, the same source `checkRunAllowed` consults —
+    // not the `protected` column, which nothing ever wrote (`setProtected` had no
+    // callers). A drive the engine was correctly refusing came back
+    // `"protected": false`, so the chip, the start dialog and the engine
+    // disagreed, and a mistyped list entry looked exactly like a working one
+    // (issue #88).
+    protected: isProtected(row.serial, protect),
     latestRun: latestRunFor(db, row.serial),
   }
 }
@@ -64,8 +77,9 @@ export function drivesRoutes(deps: DrivesRouteDeps): FastifyPluginAsync {
         })
       }
 
+      const protect = protectList(db)
       return listDrives(db).map((row) =>
-        toDriveView(db, row, flagsBySerial.get(row.serial) ?? ABSENT),
+        toDriveView(db, row, flagsBySerial.get(row.serial) ?? ABSENT, protect),
       )
     })
 
@@ -86,7 +100,7 @@ export function drivesRoutes(deps: DrivesRouteDeps): FastifyPluginAsync {
         const flags: RuntimeFlags = match
           ? { present: true, mounted: match.mounted, isSystemDisk: match.isSystemDisk }
           : ABSENT
-        const drive = toDriveView(db, row, flags)
+        const drive = toDriveView(db, row, flags, protectList(db))
         const runs = listRuns(db, { driveSerial: serial })
         return { drive, runs }
       },
