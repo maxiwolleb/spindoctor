@@ -1,0 +1,19 @@
+{
+  "$schema": "https://unpkg.com/knip@5/schema.json",
+  "workspaces": {
+    "apps/backend": {
+      "entry": ["src/**/*.test.ts", "src/**/__testhelpers__/*.mjs"],
+      "project": "src/**/*.ts"
+    },
+    "apps/web": {
+      "entry": ["src/**/*.{test,spec}.ts"],
+      "project": "src/**/*.{ts,vue}"
+    },
+    "packages/shared": {
+      "entry": ["src/**/*.test.ts"],
+      "project": "src/**/*.ts"
+    }
+  },
+  "ignoreDependencies": ["pino-pretty", "@mdi/js"],
+  "ignoreExportsUsedInFile": true
+}
