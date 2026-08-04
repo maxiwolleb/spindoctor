@@ -16,9 +16,15 @@
 //   - optionally ignores SIGTERM (--ignore-sigterm), standing in for a badblocks
 //     stuck in an uninterruptible kernel I/O wait on a failing drive, which is
 //     the normal case for the drives this tool exists to test (issue #86)
+//   - optionally emits a whole phase boundary inside ONE stderr write (--burst),
+//     the chunk shape issue #90 is about, which the one-update-per-tick default
+//     can never produce
+//   - optionally runs without ever printing progress (--silent-hang), so an abort
+//     can be tested against a scan that has started but reported nothing yet
 //
 // Usage: node fake-badblocks.mjs --log <path> [--bad <n>] [--stdout <text>] [--hang]
 //          [--phases <n>] [--fail-start] [--exit-code <n>] [--ignore-sigterm]
+//          [--burst] [--silent-hang]
 import { writeFileSync } from "node:fs"
 
 const args = process.argv.slice(2)
@@ -47,6 +53,14 @@ if (args.includes("--fail-start")) {
   process.exit(1)
 }
 
+function writeLogAndExit() {
+  if (logPath) {
+    const lines = Array.from({ length: bad }, (_, i) => String(1000 + i))
+    writeFileSync(logPath, lines.join("\n") + (bad > 0 ? "\n" : ""))
+  }
+  process.exit(exitCode)
+}
+
 let phase = 0
 let pct = 0
 const tick = () => {
@@ -61,14 +75,26 @@ const tick = () => {
     }
     phase += 1
     if (phase >= phases) {
-      if (logPath) {
-        const lines = Array.from({ length: bad }, (_, i) => String(1000 + i))
-        writeFileSync(logPath, lines.join("\n") + (bad > 0 ? "\n" : ""))
-      }
-      process.exit(exitCode)
+      writeLogAndExit()
+      return
     }
     pct = 0 // reset for the next phase, as real badblocks does
   }
   setTimeout(tick, 10)
 }
-setTimeout(tick, 10)
+
+if (args.includes("--silent-hang")) {
+  // Under way, but with nothing to report yet. Stays alive so an abort has
+  // something to interrupt.
+  setInterval(() => {}, 1000)
+} else if (args.includes("--burst")) {
+  // One write carrying a whole phase boundary: ...93.75, 100.00, the reset to 0,
+  // then on into the next phase. Reading only the chunk's last percent loses the
+  // reset — exactly what issue #90 fixed.
+  process.stderr.write(
+    "93.75% done\b100.00% done\bTesting with pattern 0x55:\b0.00% done\b6.25% done",
+  )
+  setTimeout(writeLogAndExit, 30)
+} else {
+  setTimeout(tick, 10)
+}

@@ -180,6 +180,99 @@ describe("RealDeviceApi.runSurfaceTest (against the badblocks emulator)", () => 
     expect(result).toMatchObject({ completed: false })
   }, 10000)
 
+  // The clause that actually needs covering: an abort arriving *after* the child
+  // is running but before it has printed a single percent. Without excluding
+  // aborts, `finish` would see a non-zero exit and no progress and call it
+  // SURFACE_COULD_NOT_START — failing the run with no verdict instead of
+  // recording a deliberate stop. The test above only exercised the pre-spawn
+  // early return, so removing that exclusion left the suite green.
+  it("does not call a mid-run abort a start failure, even with no progress reported", async () => {
+    const api = new RealDeviceApi(execFileRunner, {
+      logDir: dir,
+      surfaceCommand: process.execPath,
+      surfaceArgsPrefix: (logfile) => [emulatorPath, "--log", logfile, "--silent-hang"],
+      surfaceKillGraceMs: 50,
+      surfaceAbandonMs: 4000,
+    })
+    const controller = new AbortController()
+    const percents: number[] = []
+    // Abort once the child is definitely up, but it has printed nothing.
+    setTimeout(() => controller.abort(), 120)
+
+    const result = await api.runSurfaceTest(
+      "/dev/fake",
+      SIZE_BYTES,
+      "destructive",
+      (p) => percents.push(p),
+      controller.signal,
+    )
+
+    expect(percents).toEqual([])
+    expect(result.completed).toBe(false)
+    expect(result.startFailed).toBeUndefined()
+  }, 10000)
+
+  // #86 claimed "timers are cleared on every settle path", which nothing checked:
+  // both timers are only armed inside onAbort, so a clean run has nothing to
+  // clear. The leak that matters is abort-then-child-exits-promptly, which settles
+  // at once while the SIGKILL timer stays armed for the whole grace period.
+  it("does not escalate to SIGKILL after the child has already exited on SIGTERM", async () => {
+    const signals: string[] = []
+    const api = new RealDeviceApi(execFileRunner, {
+      logDir: dir,
+      surfaceCommand: process.execPath,
+      surfaceArgsPrefix: (logfile) => [emulatorPath, "--log", logfile, "--hang"],
+      // Forwards SIGTERM for real so the child dies, and records what was sent.
+      killer: (child, signal) => {
+        signals.push(signal)
+        child.kill(signal)
+      },
+      surfaceKillGraceMs: 60,
+      surfaceAbandonMs: 120,
+    })
+    const controller = new AbortController()
+
+    await api.runSurfaceTest(
+      "/dev/fake",
+      SIZE_BYTES,
+      "destructive",
+      () => controller.abort(),
+      controller.signal,
+    )
+    // Well past both deadlines: a timer left armed would fire in this window.
+    await new Promise((r) => setTimeout(r, 300))
+
+    expect(signals).toEqual(["SIGTERM"])
+  }, 10000)
+
+  // #90's other half: the caller has to feed every percent in a chunk to the
+  // tracker. Nothing covered it, because the emulator emits one percent per
+  // write — so the pre-#90 last-only behavior passed the whole suite.
+  it("carries a phase boundary that arrives inside a single chunk through to progress", async () => {
+    const api = new RealDeviceApi(execFileRunner, {
+      logDir: dir,
+      surfaceCommand: process.execPath,
+      // 8 phases, as a destructive run has, so the overall percent is per-phase.
+      surfaceArgsPrefix: (logfile) => [emulatorPath, "--log", logfile, "--burst"],
+    })
+    const percents: number[] = []
+
+    await api.runSurfaceTest(
+      "/dev/fake",
+      SIZE_BYTES,
+      "destructive",
+      (p) => percents.push(p),
+      new AbortController().signal,
+    )
+
+    // The chunk spans ...93.75, 100, reset to 0, 6.25 — so the tracker must have
+    // counted phase 1 complete and be reporting inside phase 2 of 8 (>12.5%).
+    // Reading only the chunk's last percent gives 6.25/8 = 0.78%.
+    expect(percents.length).toBeGreaterThanOrEqual(4)
+    expect(percents.at(-1)).toBeGreaterThan(12.5)
+    expect(percents.at(-1)).toBeLessThan(25)
+  }, 10000)
+
   it("sends no signal at all on a clean run", async () => {
     // A run that finishes normally must not be left holding armed timers that
     // later fire a SIGKILL at a recycled pid.
@@ -405,7 +498,7 @@ describe("RealDeviceApi.runSurfaceTest (against the badblocks emulator)", () => 
     expect(result.startFailed).toBeUndefined()
   }, 5000)
 
-  it("does not flag an abort that lands before any progress as a start failure", async () => {
+  it("returns early for a signal already aborted before the process is spawned", async () => {
     const api = new RealDeviceApi(execFileRunner, {
       logDir: dir,
       surfaceCommand: process.execPath,

@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest"
+import { describe, it, expect, vi } from "vitest"
 import pino from "pino"
 import type { CommandRunner } from "./runner"
 import { RealDeviceApi } from "./realDeviceApi"
@@ -291,6 +291,28 @@ describe("RealDeviceApi operator-declared system disks (#83)", () => {
     const drives = await apiWithSerials(` ${CLEAN_SERIAL.toLowerCase()} ,, `).listDevices()
 
     expect(drives.find((d) => d.serial === CLEAN_SERIAL)?.isSystemDisk).toBe(true)
+  })
+
+  it("reads the environment variable when no explicit value is given", async () => {
+    vi.stubEnv("SPINDOCTOR_SYSTEM_DISK_SERIALS", CLEAN_SERIAL)
+    try {
+      // No `systemDiskSerials` option at all: this is the production path, where
+      // the value comes from the deployment's environment.
+      const drives = await apiWithSerials(undefined).listDevices()
+      expect(drives.find((d) => d.serial === CLEAN_SERIAL)?.isSystemDisk).toBe(true)
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it("marks nothing when the environment variable is unset", async () => {
+    vi.stubEnv("SPINDOCTOR_SYSTEM_DISK_SERIALS", "")
+    try {
+      const drives = await apiWithSerials(undefined).listDevices()
+      expect(drives.find((d) => d.serial === CLEAN_SERIAL)?.isSystemDisk).toBe(false)
+    } finally {
+      vi.unstubAllEnvs()
+    }
   })
 
   it("accepts several serials at once", async () => {

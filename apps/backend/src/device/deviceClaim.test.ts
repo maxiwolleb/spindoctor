@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest"
-import { probeDeviceClaim } from "./deviceClaim"
+import { constants } from "node:fs"
+import { CLAIM_OPEN_FLAGS, makeExclusiveOpener, probeDeviceClaim } from "./deviceClaim"
 
 /** Rejects the way `fs.open` does: an Error carrying an errno `code`. */
 function failsWith(code: string): () => Promise<void> {
@@ -43,5 +44,53 @@ describe("probeDeviceClaim", () => {
       seen.push(path)
     })
     expect(seen).toEqual(["/dev/nvme0n1"])
+  })
+})
+
+// The mechanism the whole guard rests on. Every test above injects its own
+// opener, so none of them touch the real one — deleting `O_EXCL` from it leaves
+// the suite green while making `probeDeviceClaim` answer "free" for every drive,
+// including the host's mounted system disk. That is the issue #83 hole
+// reintroduced by removing one token, so the flags are pinned directly.
+describe("the exclusive open itself", () => {
+  it("asks for O_EXCL — without it the probe cannot detect anything", () => {
+    expect(CLAIM_OPEN_FLAGS & constants.O_EXCL).toBe(constants.O_EXCL)
+  })
+
+  it("opens read-only, so the probe can never modify a drive", () => {
+    expect(CLAIM_OPEN_FLAGS & constants.O_WRONLY).toBe(0)
+    expect(CLAIM_OPEN_FLAGS & constants.O_RDWR).toBe(0)
+    // O_CREAT would turn a probe of a missing path into a file we created.
+    expect(CLAIM_OPEN_FLAGS & constants.O_CREAT).toBe(0)
+  })
+
+  it("passes those flags to open, and closes the handle again", async () => {
+    const calls: Array<{ path: string; flags: number }> = []
+    let closed = 0
+    const fakeOpen = (async (path: string, flags: number) => {
+      calls.push({ path, flags })
+      return {
+        close: async () => {
+          closed += 1
+        },
+      }
+    }) as unknown as typeof import("node:fs/promises").open
+
+    await makeExclusiveOpener(fakeOpen)("/dev/sdb")
+
+    expect(calls).toEqual([{ path: "/dev/sdb", flags: CLAIM_OPEN_FLAGS }])
+    // Leaking the handle would leave us holding the exclusive claim ourselves,
+    // which would make our own badblocks fail to open the drive.
+    expect(closed).toBe(1)
+  })
+
+  it("propagates the open error so probeDeviceClaim can classify it", async () => {
+    const failing = (async () => {
+      const err = new Error("busy") as NodeJS.ErrnoException
+      err.code = "EBUSY"
+      throw err
+    }) as unknown as typeof import("node:fs/promises").open
+
+    expect(await probeDeviceClaim("/dev/sda", makeExclusiveOpener(failing))).toBe("claimed")
   })
 })
