@@ -87,6 +87,28 @@ started with. If the drive is no longer eligible (or no longer present),
 the write is refused and the run fails safely instead of proceeding on
 stale information.
 
+## Stopping a run and what cannot be killed
+
+A run can be stopped from the dashboard, or with
+`POST /api/runs/:id/abort`. Stopping a self-test also tells the drive to stop its
+firmware routine — dropping out of the poll loop would otherwise leave it running
+on its own for hours.
+
+Stopping a surface scan is harder, because a `badblocks` blocked in an
+uninterruptible kernel I/O wait — the normal state for a drive with media errors,
+which is exactly what this tool is pointed at — cannot be killed at all, not even
+with `SIGKILL`. So the teardown is: `SIGTERM`, then `SIGKILL` after a grace
+period, then give up and settle the stage anyway, so one stuck process can never
+wedge the run (or leak the concurrency slot behind it).
+
+Giving up is not the same as forgetting. A drive whose surface process was
+abandoned stays **ineligible** — reported as in use, and refused by the guards —
+until that process is genuinely gone. Otherwise the run would end, release the
+drive, and the next start would write the same platters underneath a scan that is
+still running: each pass would then read the other's pattern and report invented
+bad blocks. The drive frees itself as soon as the process exits; nothing needs
+restarting.
+
 ## Typed-serial confirmation
 
 Starting a **destructive** run manually requires typing the drive's exact
