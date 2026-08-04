@@ -100,6 +100,21 @@ function rowProps({ item }: { item: DriveView }): Record<string, unknown> {
         <v-chip v-if="item.isSystemDisk" size="x-small" color="error" variant="tonal"
           >System</v-chip
         >
+        <!-- Something holds the device: a mounted filesystem in any namespace, an
+             LVM/md member, swap, another container. Inside the container this is
+             the flag that fires where "Mounted" cannot (issue #83). -->
+        <v-chip v-if="item.claim === 'claimed'" size="x-small" color="warning" variant="tonal"
+          >In use</v-chip
+        >
+        <!-- Not a refusal, but not a clean bill of health either: saying nothing
+             here would read as "checked, nothing using it". -->
+        <v-chip
+          v-else-if="item.claim === 'unknown'"
+          size="x-small"
+          color="secondary"
+          variant="tonal"
+          >Use unknown</v-chip
+        >
         <v-chip v-if="item.protected" size="x-small" color="secondary" variant="tonal"
           >Protected</v-chip
         >

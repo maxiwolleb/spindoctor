@@ -70,34 +70,68 @@ describe("StartTestDialog", () => {
     expect((findButton(body, "Wipe & test")!.element as HTMLButtonElement).disabled).toBe(false)
   })
 
-  it("disables the destructive option and shows the guard reason for a mounted drive", async () => {
-    const { body } = mountDialog({ mounted: true })
+  // Issue #85 made the engine run the guards for every mode, so the dialog's
+  // mirror of them had to follow: it used to disable only the destructive radio
+  // and say "destructive testing is blocked", which advertised a read-only scan
+  // the server would refuse with a 403.
+  const BLOCKING = [
+    { name: "mounted drive", patch: { mounted: true }, text: "This drive is mounted" },
+    { name: "system disk", patch: { isSystemDisk: true }, text: "This is the system disk" },
+    { name: "protected drive", patch: { protected: true }, text: "on the protected list" },
+    {
+      name: "drive the kernel says is in use",
+      patch: { claim: "claimed" as const },
+      text: "Something on this host is using this drive",
+    },
+  ]
 
-    const destructiveRadio = body
-      .findAll('input[type="radio"]')
-      .find((r) => (r.element as HTMLInputElement).value === "destructive")
-    expect((destructiveRadio!.element as HTMLInputElement).disabled).toBe(true)
-    expect(body.text()).toContain(
-      "This drive is mounted / is the system disk / is protected — destructive testing is blocked.",
-    )
+  it.each(BLOCKING)("names the specific reason for a $name", ({ patch, text }) => {
+    const { body } = mountDialog(patch)
+    expect(body.text()).toContain(text)
   })
 
-  it("disables the destructive option for a system disk", () => {
-    const { body } = mountDialog({ isSystemDisk: true })
+  it.each(BLOCKING)("disables the destructive option for a $name", ({ patch }) => {
+    const { body } = mountDialog(patch)
     const destructiveRadio = body
       .findAll('input[type="radio"]')
       .find((r) => (r.element as HTMLInputElement).value === "destructive")
     expect((destructiveRadio!.element as HTMLInputElement).disabled).toBe(true)
-    expect(body.text()).toContain("destructive testing is blocked")
   })
 
-  it("disables the destructive option for a protected drive", () => {
-    const { body } = mountDialog({ protected: true })
+  it.each(BLOCKING)("blocks the read-only submit too for a $name", ({ patch }) => {
+    // The whole point: read-only is the default mode, and the server 403s it for
+    // exactly these drives, so the button must not offer to start one.
+    const { body } = mountDialog(patch)
+    const startButton = findButton(body, "Start scan")
+    expect(startButton?.exists()).toBe(true)
+    expect((startButton!.element as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it.each(BLOCKING)("emits nothing when submit is attempted for a $name", async ({ patch }) => {
+    const { wrapper, body } = mountDialog(patch)
+    findButton(body, "Start scan")!.trigger("click")
+    await wrapper.vm.$nextTick()
+    expect(wrapper.emitted("submit")).toBeUndefined()
+  })
+
+  // Not a refusal — the drive is testable, but the check that would have told us
+  // whether anything else is using it could not run (issue #83).
+  it("warns without blocking when the in-use check could not answer", () => {
+    const { body } = mountDialog({ claim: "unknown" })
+
+    expect(body.text()).toContain("could not check whether anything else is using this drive")
+    const startButton = findButton(body, "Start scan")
+    expect((startButton!.element as HTMLButtonElement).disabled).toBe(false)
     const destructiveRadio = body
       .findAll('input[type="radio"]')
       .find((r) => (r.element as HTMLInputElement).value === "destructive")
-    expect((destructiveRadio!.element as HTMLInputElement).disabled).toBe(true)
-    expect(body.text()).toContain("destructive testing is blocked")
+    expect((destructiveRadio!.element as HTMLInputElement).disabled).toBe(false)
+  })
+
+  it("says nothing extra when the drive is free and eligible", () => {
+    const { body } = mountDialog({ claim: "free" })
+    expect(body.text()).not.toContain("could not check whether")
+    expect(body.text()).not.toContain("will not test it")
   })
 
   it("read-only submit needs no confirmation and emits confirm: undefined", async () => {

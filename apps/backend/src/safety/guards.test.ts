@@ -118,8 +118,43 @@ describe("checkRunAllowed with the kernel claim state", () => {
     ).toMatchObject({ code: "MOUNTED" })
   })
 
-  it("denies a claimed drive that is also protected, whichever fires first", () => {
+  it("reports IN_USE ahead of PROTECTED when both apply", () => {
+    // Named explicitly rather than asserting only `allowed: false`: the code is
+    // what the operator reads, and "something is using this drive" is the more
+    // actionable of the two.
     const r = checkRunAllowed({ ...base, claim: "claimed" }, { protectList: ["OK1"] })
-    expect(r).toMatchObject({ allowed: false })
+    expect(r).toMatchObject({ allowed: false, code: "IN_USE" })
+  })
+})
+
+describe("checkRunAllowed with a whitespace-only serial", () => {
+  // A serial of only spaces used to slip through NO_SERIAL (it isn't "") while
+  // also being impossible to protect: the protect list drops blank entries and
+  // isProtected refuses to match an empty target. So the drive was destructively
+  // eligible and no mechanism could stop it.
+  it("refuses it as NO_SERIAL", () => {
+    for (const serial of ["  ", "\t", "\n", " \t "]) {
+      expect(checkRunAllowed({ ...base, serial }, { protectList: [] })).toMatchObject({
+        allowed: false,
+        code: "NO_SERIAL",
+      })
+    }
+  })
+
+  it("agrees with isProtected about what counts as no serial", () => {
+    expect(isProtected("   ", ["ANYTHING"])).toBe(false)
+    expect(checkRunAllowed({ ...base, serial: "   " }, { protectList: [] })).toMatchObject({
+      code: "NO_SERIAL",
+    })
+  })
+
+  it("still allows a serial that merely has padding around real characters", () => {
+    expect(checkRunAllowed({ ...base, serial: "  OK1  " }, { protectList: [] })).toEqual({
+      allowed: true,
+    })
+    // And that padded serial can still be protected.
+    expect(checkRunAllowed({ ...base, serial: "  OK1  " }, { protectList: ["ok1"] })).toMatchObject(
+      { code: "PROTECTED" },
+    )
   })
 })

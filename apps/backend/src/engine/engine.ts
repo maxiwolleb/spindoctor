@@ -398,6 +398,30 @@ export class TestEngine extends EventEmitter {
         return
       }
 
+      // A resumed run has to pass the guards again before it touches the drive.
+      // Nothing checked them on this path: the only guard a resume met was the
+      // one inside #runSurfaceStage, so a container restart during a long
+      // self-test would carry on — or start a fresh ~90-minute routine — on a
+      // drive that had since been protected, mounted, or claimed by the host,
+      // and only refuse it hours later at the surface stage. The destructive
+      // write was always guarded; the hours of I/O before it were not.
+      const decision = checkRunAllowed(drive, { protectList: this.#protectList() })
+      if (!decision.allowed) {
+        this.terminalRuns.add(runId)
+        appendAudit(this.db, {
+          action: "RESUME_DENIED",
+          driveSerial: drive.serial,
+          detail: decision.code,
+        })
+        updateRun(this.db, runId, {
+          status: "FAILED",
+          error: `resume refused: ${decision.code}`,
+          finishedAt: new Date(),
+        })
+        this.#emitRunUpdate({ runId, driveSerial: drive.serial, status: "FAILED" })
+        return
+      }
+
       const plan = this.#planResume(run, regime.mode)
 
       if (plan.tooManyRestarts) {

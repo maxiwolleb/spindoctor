@@ -456,4 +456,78 @@ describe("TestEngine.reconcile with skipped stages (#49)", () => {
     ])
     expect(repo.getRun(db, runId)?.restartCount).toBe(0)
   })
+  // A resumed run used to meet no guard until it reached SURFACE. So a container
+  // restart during the hours-long self-test carried on — or started a fresh
+  // ~90-minute routine — against a drive that had since been protected, mounted
+  // or claimed by the host, and only refused it hours later. The destructive
+  // write itself was always guarded; the hours of I/O before it were not.
+  describe("safety on resume", () => {
+    const seedInterruptedSelfTest = (serial: string) => {
+      const runId = seedRunningRun("destructive", serial)
+      seedSmartBefore(runId)
+      repo.addStage(db, { runId, stage: "SELFTEST_LONG", status: "RUNNING" })
+      return runId
+    }
+
+    const engineFor = (api: FakeDeviceApi) =>
+      new TestEngine({ db, deviceApi: api, sleep: async () => {}, selfTestPollIntervalMs: 0 })
+
+    it("refuses to resume a run whose drive is now on the protect list", async () => {
+      const d = drive()
+      repo.upsertDrive(db, d)
+      const runId = seedInterruptedSelfTest(d.serial)
+      repo.updateConfig(db, { protectList: [d.serial] })
+
+      const api = new FakeDeviceApi({ drives: [d], smartByPath: { [d.devicePath]: smartRaw() } })
+      const engine = engineFor(api)
+
+      const settled = waitForSettled(engine, runId)
+      await engine.reconcile()
+      expect((await settled).status).toBe("FAILED")
+
+      const run = repo.getRun(db, runId)!
+      expect(run.error).toContain("PROTECTED")
+      // Never touched the drive: no self-test restarted, no surface scan.
+      expect(api.started).toEqual([])
+      expect(api.surfaceCalls).toEqual([])
+      expect(repo.listAudit(db).some((a) => a.action === "RESUME_DENIED")).toBe(true)
+    })
+
+    it("refuses to resume a run whose drive the kernel now says is in use", async () => {
+      const d = drive({ claim: "claimed" })
+      repo.upsertDrive(db, d)
+      const runId = seedInterruptedSelfTest(d.serial)
+
+      const api = new FakeDeviceApi({ drives: [d], smartByPath: { [d.devicePath]: smartRaw() } })
+      const engine = engineFor(api)
+
+      const settled = waitForSettled(engine, runId)
+      await engine.reconcile()
+      expect((await settled).status).toBe("FAILED")
+
+      expect(repo.getRun(db, runId)!.error).toContain("IN_USE")
+      expect(api.started).toEqual([])
+    })
+
+    it("resumes normally when the drive is still eligible", async () => {
+      const d = drive()
+      repo.upsertDrive(db, d)
+      const runId = seedRunningRun("destructive", d.serial)
+      seedSmartBefore(runId)
+      seedSelfTestDone(runId)
+      repo.addStage(db, { runId, stage: "SURFACE", status: "RUNNING" })
+
+      const api = new FakeDeviceApi({
+        drives: [d],
+        smartByPath: { [d.devicePath]: smartRaw() },
+        surface: { plan: [100], result: { mode: "write", badBlocks: 0, completed: true } },
+      })
+      const engine = engineFor(api)
+
+      const settled = waitForSettled(engine, runId)
+      await engine.reconcile()
+      expect((await settled).status).toBe("DONE")
+      expect(repo.listAudit(db).some((a) => a.action === "RESUME_DENIED")).toBe(false)
+    })
+  })
 })

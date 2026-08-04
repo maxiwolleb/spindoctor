@@ -459,4 +459,42 @@ describe("SettingsView", () => {
 
     wrapper.unmount()
   })
+  // A failed GET used to leave `loading` false and `store.settings` null, so the
+  // template rendered the form's declared initial values — every threshold `0`,
+  // which are not the defaults (4/100/80/100). Saving that silently made every
+  // SSD and NVMe FAIL, because ssdPercentageUsedFail: 0 matches any wear value.
+  it("shows an error instead of a zeroed form when settings cannot be loaded", async () => {
+    const api = fakeApi()
+    api.getSettings = vi.fn().mockRejectedValue(new Error("boom"))
+    setConsoleDeps({ api: api as unknown as ApiClient })
+
+    const wrapper = mount(SettingsView, { global: { plugins: [vuetify] }, attachTo: document.body })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain("Could not load settings")
+    expect(wrapper.text()).toContain("Nothing has been changed")
+    // The form itself must not be on screen at all — no fields, and above all no
+    // way to save the zeros.
+    expect(wrapper.find("#reallocated-warn-max").exists()).toBe(false)
+    expect(
+      Array.from(document.body.querySelectorAll("button")).some((b) =>
+        b.textContent?.includes("Save settings"),
+      ),
+    ).toBe(false)
+
+    wrapper.unmount()
+  })
+
+  it("surfaces the underlying error text so the operator knows what failed", async () => {
+    const api = fakeApi()
+    api.getSettings = vi.fn().mockRejectedValue(new Error("502 Bad Gateway"))
+    setConsoleDeps({ api: api as unknown as ApiClient })
+
+    const wrapper = mount(SettingsView, { global: { plugins: [vuetify] }, attachTo: document.body })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain("502 Bad Gateway")
+
+    wrapper.unmount()
+  })
 })

@@ -48,6 +48,7 @@
     "sntrealtek",
     "softprops",
     "spindoctor",
+    "sysfs",
     "testhelpers",
     "toctou",
     "udma",

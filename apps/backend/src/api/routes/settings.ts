@@ -18,13 +18,21 @@ const THRESHOLD_KEYS = [
 
 function toSettingsView(row: ConfigRow): SettingsView {
   const protectList = row.protectList
+  // Normalized on the way out as well as in: an install that stored entries
+  // before #88 still holds them verbatim, and serving those raw makes the UI's
+  // "already canonical" assumption false — its de-duplication then misses, and
+  // Settings shows two chips for one serial. The guard was never fooled (it
+  // normalizes both sides), but what is displayed should match what is matched.
+  const normalized = Array.isArray(protectList)
+    ? [...new Set((protectList as string[]).map(normalizeSerial).filter((s) => s !== ""))]
+    : []
   return {
     // Resolved rather than cast: an install created before a threshold existed
     // has a stored blob without that key (issue #54).
     thresholds: resolveThresholds(row.thresholds),
     concurrency: row.concurrency,
     autoModeEnabled: row.autoModeEnabled,
-    protectList: Array.isArray(protectList) ? (protectList as string[]) : [],
+    protectList: normalized,
     skipCondemnedDrives: row.skipCondemnedDrives,
     diagnosticsEnabled: row.diagnosticsEnabled,
     diagnosticsIncludeSerials: row.diagnosticsIncludeSerials,
