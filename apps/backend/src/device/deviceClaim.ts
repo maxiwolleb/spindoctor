@@ -60,9 +60,13 @@ const defaultOpener: ExclusiveOpener = makeExclusiveOpener()
  * `O_EXCL`, so while one is mid-scan this probe still answers `"free"`, and two
  * concurrent destructive scans of the same device will each run to completion.
  * So this covers exclusive holders (mounted filesystems in any namespace, LVM and
- * md members, swap) but not a raw `dd` or `badblocks` in another container. The
- * engine's own bookkeeping is what prevents spindoctor doing that to itself; a
- * second writer from outside spindoctor is out of reach of this check.
+ * md members, swap) but not a raw `dd` or `badblocks` in another container.
+ *
+ * spindoctor's own writers are handled separately, because they are the ones it
+ * can actually know about: a drive whose surface process was abandoned rather
+ * than reaped is remembered and reported `claimed` until that pid is gone (see
+ * `RealDeviceApi.hasAbandonedWriter`, issue #105). A second writer from outside
+ * spindoctor remains out of reach of both mechanisms.
  *
  * Read-only and non-destructive: it opens `O_RDONLY`, closes immediately, and a
  * probe that fails changes nothing about the holder.

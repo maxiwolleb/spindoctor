@@ -1,8 +1,18 @@
 import { describe, it, expect, vi } from "vitest"
 import pino from "pino"
 import type { CommandRunner } from "./runner"
-import { RealDeviceApi } from "./realDeviceApi"
+import { RealDeviceApi, isProcessAlive } from "./realDeviceApi"
 import { checkRunAllowed } from "../safety/guards"
+import { tmpdir } from "node:os"
+import { dirname, join } from "node:path"
+import { fileURLToPath } from "node:url"
+import type { ChildProcess } from "node:child_process"
+
+const emulatorPath = join(
+  dirname(fileURLToPath(import.meta.url)),
+  "__testhelpers__",
+  "fake-badblocks.mjs",
+)
 import lsblk from "./__fixtures__/lsblk.json"
 import scan from "./__fixtures__/smartctl-scan.json"
 import ataHealthy from "./__fixtures__/ata-healthy.json"
@@ -372,5 +382,142 @@ describe("RealDeviceApi operator-declared system disks (#83)", () => {
       // Only the one lsblk itself identified, on the host-side view.
       expect(drives.filter((d) => d.isSystemDisk).map((d) => d.serial)).toEqual(["S4EWNX0M"])
     }
+  })
+})
+
+// Issue #105: #86's abandon deadline settles the stage so a run cannot wedge, but
+// the badblocks it gave up on may still be writing. An exclusive-open probe
+// cannot see that — badblocks holds its working fd O_RDWR without O_EXCL — so
+// once the run ended the drive read back `free` and the next start wrote the same
+// platters underneath the first one.
+describe("RealDeviceApi abandoned writers (#105)", () => {
+  const CLEAN_SERIAL = "ZFL9AB"
+  const CLEAN_PATH = "/dev/sdb"
+
+  const runner = () =>
+    fakeRunner({
+      lsblk: { stdout: JSON.stringify(lsblk) },
+      "smartctl --scan": { stdout: JSON.stringify(scan) },
+    })
+
+  /** Drives an abort through to the abandon deadline: nothing is actually
+   * killed, so the child outlives every signal and has to be given up on. */
+  async function abandonAChild(api: RealDeviceApi, child: { current?: ChildProcess }) {
+    const controller = new AbortController()
+    await api.runSurfaceTest(
+      CLEAN_PATH,
+      500_107_862_016,
+      "destructive",
+      () => controller.abort(),
+      controller.signal,
+    )
+    return child.current
+  }
+
+  function apiWith(opts: Partial<ConstructorParameters<typeof RealDeviceApi>[1]> = {}) {
+    const held: { current?: ChildProcess } = {}
+    const api = new RealDeviceApi(runner(), {
+      logDir: tmpdir(),
+      surfaceCommand: process.execPath,
+      surfaceArgsPrefix: (logfile) => [emulatorPath, "--log", logfile, "--hang"],
+      // Swallows the signals, so the child survives to the abandon deadline.
+      killer: (c) => {
+        held.current = c
+      },
+      surfaceKillGraceMs: 30,
+      surfaceAbandonMs: 120,
+      exclusiveOpener: async () => {},
+      ...opts,
+    })
+    return { api, held }
+  }
+
+  it("reports the device as claimed while the abandoned process is alive", async () => {
+    const { api, held } = apiWith({ processAlive: () => true })
+
+    await abandonAChild(api, held)
+    const drives = await api.listDevices()
+
+    const drive = drives.find((d) => d.serial === CLEAN_SERIAL)
+    expect(drive?.claim).toBe("claimed")
+    // And the guard refuses it, which is the whole point.
+    expect(checkRunAllowed(drive!, { protectList: [] })).toMatchObject({
+      allowed: false,
+      code: "IN_USE",
+    })
+    // Other drives are unaffected — this is per-device, not a global halt.
+    expect(drives.filter((d) => d.claim === "claimed")).toHaveLength(1)
+
+    held.current?.kill("SIGKILL")
+  }, 10000)
+
+  it("frees the device again once that process has gone, without a restart", async () => {
+    let alive = true
+    const { api, held } = apiWith({ processAlive: () => alive })
+
+    await abandonAChild(api, held)
+    expect((await api.listDevices()).find((d) => d.serial === CLEAN_SERIAL)?.claim).toBe("claimed")
+
+    alive = false
+    const after = (await api.listDevices()).find((d) => d.serial === CLEAN_SERIAL)
+
+    expect(after?.claim).toBe("free")
+    expect(checkRunAllowed(after!, { protectList: [] })).toEqual({ allowed: true })
+
+    held.current?.kill("SIGKILL")
+  }, 10000)
+
+  it("quarantines nothing when the surface run ends normally", async () => {
+    const api = new RealDeviceApi(runner(), {
+      logDir: tmpdir(),
+      surfaceCommand: process.execPath,
+      surfaceArgsPrefix: (logfile) => [emulatorPath, "--log", logfile, "--bad", "0"],
+      exclusiveOpener: async () => {},
+      // Would keep any recorded entry alive, so a false positive shows up here.
+      processAlive: () => true,
+    })
+
+    const result = await api.runSurfaceTest(
+      CLEAN_PATH,
+      500_107_862_016,
+      "destructive",
+      () => {},
+      new AbortController().signal,
+    )
+
+    expect(result.completed).toBe(true)
+    expect((await api.listDevices()).every((d) => d.claim === "free")).toBe(true)
+  }, 10000)
+
+  it("clears the quarantine if the child exits after being given up on", async () => {
+    // The abandon deadline fires, then the process dies of its own accord and
+    // Node delivers `close`. That is a confirmed exit, so the drive is ours.
+    const { api, held } = apiWith({ processAlive: () => true })
+
+    const child = await abandonAChild(api, held)
+    expect((await api.listDevices()).find((d) => d.serial === CLEAN_SERIAL)?.claim).toBe("claimed")
+
+    child?.kill("SIGKILL")
+    await new Promise((resolve) => child?.once("close", resolve))
+
+    expect((await api.listDevices()).find((d) => d.serial === CLEAN_SERIAL)?.claim).toBe("free")
+  }, 10000)
+})
+
+describe("isProcessAlive", () => {
+  it("is true for this very process", () => {
+    expect(isProcessAlive(process.pid)).toBe(true)
+  })
+
+  it("is true for a process we exist alongside but may not signal", () => {
+    // pid 1 is init: present, and cannot be signalled by an unprivileged process, which
+    // raises EPERM rather than ESRCH. Reading that as "gone" would release a
+    // drive still being written to, so only ESRCH counts as dead.
+    expect(isProcessAlive(1)).toBe(true)
+  })
+
+  it("is false for a pid that does not exist", () => {
+    // Far above /proc/sys/kernel/pid_max on any normal system.
+    expect(isProcessAlive(0x7ffffff0)).toBe(false)
   })
 })

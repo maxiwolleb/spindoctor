@@ -35,6 +35,24 @@ function num(v: unknown): number | null {
   return typeof v === "number" && Number.isFinite(v) ? v : null
 }
 
+/**
+ * Whether a pid still exists. Signal 0 performs the permission and existence
+ * checks without delivering anything.
+ *
+ * `EPERM` counts as alive: the process is there, we simply may not signal it.
+ * Only `ESRCH` ("no such process") means gone — and erring toward "still
+ * running" is the safe direction here, since the caller uses this to decide
+ * whether a drive may be written to.
+ */
+export function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code !== "ESRCH"
+  }
+}
+
 /** `RegimeMode` names the user-facing regime; `SurfaceResult.mode` names the badblocks flag used. */
 function toSurfaceMode(mode: RegimeMode): SurfaceResult["mode"] {
   return mode === "destructive" ? "write" : "read-only"
@@ -65,6 +83,8 @@ export interface RealDeviceApiOpts {
   killer?: (child: ChildProcess, signal: NodeJS.Signals) => void
   /** Test seam: performs the exclusive-open claim probe (see `deviceClaim.ts`). */
   exclusiveOpener?: ExclusiveOpener
+  /** Test seam: whether a pid is still running. Defaults to `kill(pid, 0)`. */
+  processAlive?: (pid: number) => boolean
   /** Serials to treat as system disks, comma-separated. Defaults to
    * `process.env.SPINDOCTOR_SYSTEM_DISK_SERIALS`. */
   systemDiskSerials?: string
@@ -101,6 +121,24 @@ export class RealDeviceApi implements DeviceApi {
    */
   private reportedSkips = new Set<string>()
 
+  /**
+   * Device paths whose surface process we gave up on, by pid.
+   *
+   * When the abandon deadline fires we settle the stage so the run cannot wedge
+   * (issue #86) — but the process may still be writing to the drive. Nothing
+   * recorded that, so once the run ended the drive read back as `free` and a
+   * restart (operator or auto-mode) sailed through the guard: two destructive
+   * scans over the same platters, each one's verify pass reading the other's
+   * pattern, producing invented bad blocks and a bogus FAIL on a drive that had
+   * also just been written twice (issue #105).
+   *
+   * An exclusive-open probe cannot see this, because badblocks holds its working
+   * fd `O_RDWR` without `O_EXCL`. So it has to be remembered rather than
+   * detected. Entries clear themselves once the pid is gone, so a drive is not
+   * quarantined for longer than the process actually lives.
+   */
+  private abandonedWriters = new Map<string, number>()
+
   private readonly log: Logger
 
   constructor(
@@ -108,6 +146,24 @@ export class RealDeviceApi implements DeviceApi {
     private opts: RealDeviceApiOpts = {},
   ) {
     this.log = opts.logger ?? silentLogger()
+  }
+
+  /** True while a surface process we abandoned on this device is still running.
+   * Self-clearing: a pid that has gone is dropped, so the drive frees up on its
+   * own without waiting for a restart. */
+  private hasAbandonedWriter(devicePath: string): boolean {
+    const pid = this.abandonedWriters.get(devicePath)
+    if (pid === undefined) return false
+
+    const alive = this.opts.processAlive ?? isProcessAlive
+    if (alive(pid)) return true
+
+    this.abandonedWriters.delete(devicePath)
+    this.log.info(
+      { devicePath, pid },
+      "abandoned surface process has exited — the drive is eligible again",
+    )
+    return false
   }
 
   async listDevices(): Promise<DiscoveredDrive[]> {
@@ -137,11 +193,18 @@ export class RealDeviceApi implements DeviceApi {
     const systemSerials = this.systemDiskSerials()
     return Promise.all(
       merged.map(async (drive) => {
-        // Not probed at all (so reported as unknown) while we are the ones using
-        // it: probing would race our own badblocks for no new information.
-        const claim = this.opts.isDriveUnderTest?.(drive.serial)
-          ? "unknown"
-          : await probeDeviceClaim(drive.devicePath, this.opts.exclusiveOpener)
+        // Checked before the probe, because the probe cannot see this: a
+        // badblocks we abandoned still holds the device but never claimed it
+        // exclusively, so an exclusive open succeeds and would report "free"
+        // (issue #105).
+        const claim = this.hasAbandonedWriter(drive.devicePath)
+          ? "claimed"
+          : // Not probed at all (so reported as unknown) while we are the ones
+            // using it: probing would race our own badblocks for no new
+            // information.
+            this.opts.isDriveUnderTest?.(drive.serial)
+            ? "unknown"
+            : await probeDeviceClaim(drive.devicePath, this.opts.exclusiveOpener)
         if (claim === "unknown" && this.opts.isDriveUnderTest?.(drive.serial) !== true) {
           this.reportClaimUnknown(drive.devicePath)
         }
@@ -321,8 +384,12 @@ export class RealDeviceApi implements DeviceApi {
           this.log.error(
             { devicePath, pid: child.pid },
             "surface process survived SIGKILL — abandoning it and settling the stage " +
-              "so the run cannot wedge; it may still hold the device open",
+              "so the run cannot wedge; the drive stays ineligible while it lives",
           )
+          // Remembered so the drive is refused until this process is actually
+          // gone. Without it, the settled run releases the drive and the next
+          // start writes the same platters underneath this one (issue #105).
+          if (child.pid !== undefined) this.abandonedWriters.set(devicePath, child.pid)
           void finish(null)
         }, abandonMs)
       }
@@ -388,6 +455,9 @@ export class RealDeviceApi implements DeviceApi {
       }
 
       child.on("close", (code) => {
+        // A real exit event: whatever we may have recorded on the abandon path,
+        // this process is demonstrably gone and the device is ours again.
+        this.abandonedWriters.delete(devicePath)
         void finish(code)
       })
 
