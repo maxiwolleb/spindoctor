@@ -237,6 +237,19 @@ export interface VerdictResult {
   reasons: Reason[]
 }
 
+/**
+ * Whether the kernel reports a block device as already claimed by something
+ * else — a mounted filesystem, an LVM or md member, swap, another container.
+ *
+ * Deliberately three-valued. `"unknown"` means spindoctor could not find out,
+ * and it is not the same as `"free"`: the `MOUNTED`/`SYSTEM_DISK` guards used to
+ * be derived from `lsblk` mountpoints, which describe only the *calling
+ * process's* mount namespace, so inside the container every host drive looked
+ * unmounted — including the host's own system disk (issue #83). A guard that
+ * cannot see its input has to say so rather than report a reassuring "no".
+ */
+export type DeviceClaimState = "claimed" | "free" | "unknown"
+
 export interface DiscoveredDrive {
   devicePath: string
   serial: string
@@ -245,8 +258,14 @@ export interface DiscoveredDrive {
   sizeBytes: number
   type: DriveType
   transport: Transport
+  /** From `lsblk`, and therefore namespace-local: true only for a filesystem
+   * mounted in *this* process's namespace. Kept because it is still correct when
+   * spindoctor runs on the host, but `claim` is what the container can trust. */
   mounted: boolean
   isSystemDisk: boolean
+  /** Absent when the device was never probed (a `DeviceApi` that doesn't, or a
+   * test fixture); treated exactly like `"unknown"`. */
+  claim?: DeviceClaimState
 }
 
 export interface SelfTestProgress {
@@ -301,6 +320,10 @@ export interface DriveView {
   present: boolean
   mounted: boolean
   isSystemDisk: boolean
+  /** Surfaced so the UI can distinguish "nothing is using this drive" from
+   * "spindoctor could not tell", instead of showing the same reassuring blank
+   * for both (issue #83). */
+  claim?: DeviceClaimState
   protected: boolean
   latestRun: {
     id: number

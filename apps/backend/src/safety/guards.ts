@@ -63,12 +63,27 @@ export function checkRunAllowed(
     }
   }
 
-  // MOUNTED: drive is currently mounted
+  // MOUNTED: drive is mounted in this process's own mount namespace
   if (drive.mounted) {
     return {
       allowed: false,
       code: "MOUNTED",
       reason: "Drive is currently mounted",
+    }
+  }
+
+  // IN_USE: the kernel refused an exclusive open, so something holds this device
+  // — a mounted filesystem in any namespace (including the host's), an LVM or md
+  // member, swap, another container. This is the check that works inside the
+  // container, where `mounted` above cannot see the host's mounts at all
+  // (issue #83). `"unknown"` deliberately does not deny: the probe is unavailable
+  // in some environments, and refusing every drive would leave the tool unable to
+  // do its job, so an unknown is surfaced rather than enforced.
+  if (drive.claim === "claimed") {
+    return {
+      allowed: false,
+      code: "IN_USE",
+      reason: "Something on this host is using the drive (the kernel refused exclusive access)",
     }
   }
 

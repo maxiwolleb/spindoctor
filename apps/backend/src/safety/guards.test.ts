@@ -74,3 +74,52 @@ describe("normalizeSerial / isProtected", () => {
     expect(r).toMatchObject({ allowed: false, code: "PROTECTED" })
   })
 })
+
+// Issue #83: `mounted` and `isSystemDisk` come from `lsblk`, which reports only
+// the calling process's mount namespace. Inside the container — the deployment
+// this project ships as — the host's `/` and `/boot` are not mounted, so no host
+// drive ever reported a mountpoint and both guards were structurally unable to
+// fire, for the system disk included.
+describe("checkRunAllowed with the kernel claim state", () => {
+  it("denies a drive the kernel says is in use, even with no mountpoint visible", () => {
+    // Exactly the container's view of the host's system disk: lsblk shows nothing
+    // mounted, but the kernel refuses an exclusive open.
+    const r = checkRunAllowed(
+      { ...base, mounted: false, isSystemDisk: false, claim: "claimed" },
+      { protectList: [] },
+    )
+    expect(r).toMatchObject({ allowed: false, code: "IN_USE" })
+  })
+
+  it("allows a drive the kernel says is free", () => {
+    expect(checkRunAllowed({ ...base, claim: "free" }, { protectList: [] })).toEqual({
+      allowed: true,
+    })
+  })
+
+  it("does not deny on an unknown claim state", () => {
+    // Denying here would make every drive ineligible wherever the probe can't
+    // run, i.e. would stop the tool doing its job. The unknown is logged and
+    // surfaced instead — a guard that can't see its input must say so, not guess
+    // in either direction.
+    for (const claim of ["unknown", undefined] as const) {
+      expect(checkRunAllowed({ ...base, claim }, { protectList: [] })).toEqual({ allowed: true })
+    }
+  })
+
+  it("still prefers the more specific reason when several apply", () => {
+    // Order matters for the message the operator reads: being the system disk is
+    // more informative than being busy, and both are more specific than IN_USE.
+    expect(
+      checkRunAllowed({ ...base, isSystemDisk: true, claim: "claimed" }, { protectList: [] }),
+    ).toMatchObject({ code: "SYSTEM_DISK" })
+    expect(
+      checkRunAllowed({ ...base, mounted: true, claim: "claimed" }, { protectList: [] }),
+    ).toMatchObject({ code: "MOUNTED" })
+  })
+
+  it("denies a claimed drive that is also protected, whichever fires first", () => {
+    const r = checkRunAllowed({ ...base, claim: "claimed" }, { protectList: ["OK1"] })
+    expect(r).toMatchObject({ allowed: false })
+  })
+})

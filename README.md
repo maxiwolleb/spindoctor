@@ -24,16 +24,39 @@ surface stage runs `badblocks -w`, a destructive write-pattern scan — it
 erases all data on the drive, with no way to get it back. Only point
 spindoctor at drives whose data you do not need.
 
-There are guards, and they are always on:
+There are guards, and they are always on — for read-only runs as well as
+destructive ones:
 
-- a drive that is currently **mounted** is never eligible for a destructive
-  run;
-- the host's own **system disk** is never eligible;
+- a drive **something else is using** is never eligible. spindoctor asks the
+  kernel for exclusive access and refuses the drive if that is denied, which
+  covers a mounted filesystem, an LVM or md member, swap, or another
+  container — and works from inside the container, where the host's mount
+  table is not visible;
+- a drive that is **mounted in spindoctor's own mount namespace** is never
+  eligible (this is the one that fires when spindoctor runs on the host);
+- the host's own **system disk** is never eligible, as far as spindoctor can
+  identify it — see the caveat below;
 - any drive you add to the **protected-serial list** (Settings) is never
   eligible, including in auto-mode;
 - starting a destructive run — manually or via auto-mode — requires
   **typing the drive's serial number** to confirm, in the UI and enforced
   again by the API.
+
+**The caveat, stated plainly.** Running in a container, spindoctor cannot see
+which disk the host booted from: `lsblk` reports mountpoints for the
+container's own mount namespace, not the host's. The exclusive-access check
+above is what protects a live system disk in practice, because a mounted disk
+is a claimed disk. But if that check cannot run on your setup, spindoctor says
+so in the log and on the drive rather than reporting a reassuring "not
+mounted" — and you can name the system disk explicitly, which is
+namespace-proof and survives device renumbering:
+
+```yaml
+environment:
+  # Serials spindoctor must always refuse, comma-separated. Read them off the
+  # drives, or with `lsblk -o NAME,SERIAL,MOUNTPOINTS` on the host.
+  - SPINDOCTOR_SYSTEM_DISK_SERIALS=YOUR-SYSTEM-DISK-SERIAL
+```
 
 These guards reduce risk, they do not eliminate it. You are the one who
 decides which drives get passed into the container in the first place
