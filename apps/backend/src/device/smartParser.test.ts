@@ -17,6 +17,7 @@ import ataWarning from "./__fixtures__/ata-warning.json"
 import nvmeHealthy from "./__fixtures__/nvme-healthy.json"
 import scsiMinimal from "./__fixtures__/scsi-minimal.json"
 import sasImpendingFailure from "./__fixtures__/sas-impending-failure.json"
+import sas12tbReal from "./__fixtures__/sas-12tb-real.json"
 import sasUncorrectedErrors from "./__fixtures__/sas-uncorrected-errors.json"
 import sataSsdWorn from "./__fixtures__/sata-ssd-worn.json"
 import nvmeUsbBridgeReal from "./__fixtures__/nvme-usb-bridge-real.json"
@@ -698,6 +699,48 @@ describe("selfTestSupported", () => {
   })
 })
 
+// Every other SAS fixture here is hand-authored from the smartctl docs, which
+// means the parsers have only ever been tested against what we expected smartctl
+// to emit. This one is a real `smartctl -x --json=c` capture off a 12 TB SAS
+// drive whose firmware reports impending failure (serial and SAS addresses
+// scrubbed; every value the parsers read is untouched) — the one case where
+// "this drive is dying" is known independently of our own rules.
+describe("parse → evaluateVerdict on a real SAS capture", () => {
+  it("grades the drive its own firmware condemns as FAIL, for the right reasons", () => {
+    const metrics = parseSmartMetrics(sas12tbReal)
+
+    expect(metrics.smartHealthPassed).toBe(false)
+    expect(metrics.grownDefects).toBe(355)
+    // 4 invalid DWORDs + 28 loss-of-sync on phy_0, summed across both ports.
+    expect(metrics.linkErrors).toBe(32)
+    expect(metrics.powerOnHours).toBe(56444)
+
+    const { verdict, reasons } = evaluateVerdict({
+      before: metrics,
+      after: metrics,
+      deviceType: "HDD",
+      selfTest: { status: "UNKNOWN" },
+      surface: null,
+      thresholds: DEFAULT_THRESHOLDS,
+    })
+
+    expect(verdict).toBe("FAIL")
+    const bySeverity = (code: string) => reasons.find((r) => r.code === code)?.severity
+    expect(bySeverity("SMART_HEALTH_FAILED")).toBe("fail")
+    expect(bySeverity("GROWN_DEFECTS_PRESENT")).toBe("warn")
+    expect(bySeverity("LINK_ERRORS")).toBe("warn")
+    // No absolute grown-defect FAIL rule, deliberately: across the SAS fleet
+    // baseline, counts on healthy drives and on condemned ones overlap.
+    expect(bySeverity("GROWN_DEFECTS_PRESENT")).not.toBe("fail")
+  })
+
+  it("reads the device type and transport a real SAS drive reports", () => {
+    expect(parseDeviceType(sas12tbReal)).toBe("HDD")
+    expect(isScsiDevice(sas12tbReal)).toBe(true)
+    expect(selfTestSupported(sas12tbReal)).toBe(true)
+  })
+})
+
 describe("parseLongSelfTestMinutes (#61)", () => {
   it("reads the drive's own polling time for the extended routine", () => {
     expect(parseLongSelfTestMinutes(ataSelfTestProgress)).toBe(289)
@@ -710,12 +753,45 @@ describe("parseLongSelfTestMinutes (#61)", () => {
     ).toBe(97)
   })
 
+  // Issue #87: SAS drives have no `ata_smart_data` node at all, so reading only
+  // that meant a ~19-hour SAS long self-test showed no ETA — and SAS reports no
+  // progress percentage either, so there was nothing to extrapolate from.
+  it("reads the declared duration a SAS drive reports under its own key", () => {
+    // Real 12 TB SAS capture: 67680 s = 1128 min (18.8 h), which is what this
+    // drive's firmware declares and what the API reported as null.
+    expect(parseLongSelfTestMinutes(sas12tbReal)).toBe(1128)
+  })
+
+  it("rounds the SAS figure to whole minutes", () => {
+    expect(parseLongSelfTestMinutes({ scsi_extended_self_test_seconds: 90 })).toBe(2)
+    expect(parseLongSelfTestMinutes({ scsi_extended_self_test_seconds: 29 })).toBe(1)
+  })
+
+  it("prefers the ATA figure when a drive somehow reports both", () => {
+    expect(
+      parseLongSelfTestMinutes({
+        ata_smart_data: { self_test: { polling_minutes: { extended: 97 } } },
+        scsi_extended_self_test_seconds: 67680,
+      }),
+    ).toBe(97)
+  })
+
   it("is null for a drive that doesn't report one", () => {
     expect(parseLongSelfTestMinutes(ataHealthy)).toBeNull()
     expect(parseLongSelfTestMinutes(nvmeHealthy)).toBeNull()
+    // Not every SAS drive reports the key — the 8 TB on the same bench as the
+    // 12 TB above omits it entirely, so null has to stay reachable for SAS.
     expect(parseLongSelfTestMinutes(sasImpendingFailure)).toBeNull()
     expect(parseLongSelfTestMinutes({})).toBeNull()
     expect(parseLongSelfTestMinutes(null)).toBeNull()
+  })
+
+  it("rejects a non-positive or non-numeric SAS figure", () => {
+    // A declared 0 would render as "<1m left" for the whole 19 hours, which is
+    // the same lie as no answer at all, only more confident.
+    expect(parseLongSelfTestMinutes({ scsi_extended_self_test_seconds: 0 })).toBeNull()
+    expect(parseLongSelfTestMinutes({ scsi_extended_self_test_seconds: -1 })).toBeNull()
+    expect(parseLongSelfTestMinutes({ scsi_extended_self_test_seconds: "67680" })).toBeNull()
   })
 
   it("rejects a non-positive or non-numeric figure rather than passing it on", () => {

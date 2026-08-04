@@ -111,15 +111,29 @@ export function selfTestSupported(json: unknown): boolean {
  * better than extrapolating from the drive's 10%-granular progress counter,
  * which reported "~6m left" for that same routine (issue #61).
  *
- * `null` when the drive doesn't report it — SAS/SCSI and NVMe describe self-test
- * duration differently, if at all, and the caller falls back to extrapolation.
- * A non-positive figure is treated as no answer too: a declared 0 would render
- * as "<1m left" for the whole 90 minutes, which is the same lie inverted.
+ * SAS/SCSI drives have no `ata_smart_data` node at all and declare the same thing
+ * in seconds, under `scsi_extended_self_test_seconds` (issue #87). That fallback
+ * matters more on SAS than the ATA figure does on ATA: `pollSelfTest` gets no
+ * progress percentage out of a SAS drive either, so without it a ~19-hour
+ * routine shows neither progress nor an ETA for its entire duration.
+ *
+ * `null` when the drive doesn't report either — not every SAS drive does (of the
+ * two 12 TB units on the bench both did, the 8 TB alongside them did not), and
+ * NVMe describes its self-test differently again; the caller falls back to
+ * extrapolation. A non-positive figure is treated as no answer too: a declared 0
+ * would render as "<1m left" for the whole run, which is the same lie inverted.
  */
 export function parseLongSelfTestMinutes(json: unknown): number | null {
   const selfTest = asRecord(asRecord(asRecord(json).ata_smart_data).self_test)
   const minutes = num(asRecord(selfTest.polling_minutes).extended)
-  return minutes != null && minutes > 0 ? minutes : null
+  if (minutes != null && minutes > 0) return minutes
+
+  const scsiSeconds = num(asRecord(json).scsi_extended_self_test_seconds)
+  if (scsiSeconds == null || scsiSeconds <= 0) return null
+  // Rounded to the nearest minute, with a floor of 1: the figure feeds a
+  // human-readable ETA, and a sub-30-second declaration must not round down to 0
+  // — that is the "<1m left" lie the ATA branch above already rejects.
+  return Math.max(1, Math.round(scsiSeconds / 60))
 }
 
 /** True for a SAS/SCSI device, which reports health via SCSI log pages rather
