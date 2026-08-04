@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { mount } from "@vue/test-utils"
 import type { DriveView } from "@spindoctor/shared"
+import type { LiveProgress } from "../stores/useConsoleStore"
 import { vuetify } from "../plugins/vuetify"
 import DriveTable from "./DriveTable.vue"
 
@@ -28,6 +29,20 @@ const driveB: DriveView = {
   isSystemDisk: false,
   protected: false,
   latestRun: null,
+}
+
+/** A store `LiveProgress` entry; only `runId` and the bar fields matter here. */
+function live(runId: number, over: Partial<LiveProgress> = {}): LiveProgress {
+  return {
+    runId,
+    stage: "SURFACE",
+    percent: 10,
+    status: "RUNNING",
+    verdict: null,
+    startedAt: null,
+    declaredTotalMinutes: null,
+    ...over,
+  }
 }
 
 describe("DriveTable", () => {
@@ -73,7 +88,9 @@ describe("DriveTable", () => {
 
   // The engine 409s a second start while a run is non-terminal (RUNNING or
   // PENDING), so the button should not offer it in the first place.
-  it.each(["RUNNING", "PENDING"] as const)("disables 'Start test' while a run is %s", (status) => {
+  // Issue #104: Start used to be merely disabled while a run was in flight, with
+  // no way to stop that run from anywhere in the UI. Stop now takes its place.
+  it.each(["RUNNING", "PENDING"] as const)("offers Stop instead of Start while %s", (status) => {
     const busy: DriveView = {
       ...driveA,
       latestRun: { id: 2, status, verdict: null, currentStage: "SURFACE" },
@@ -83,8 +100,76 @@ describe("DriveTable", () => {
       global: { plugins: [vuetify] },
     })
 
-    const startButton = wrapper.findAll("button").find((btn) => btn.text() === "Start test")
+    expect(wrapper.findAll("button").find((b) => b.text() === "Start test")).toBeUndefined()
+    const stop = wrapper.findAll("button").find((b) => b.text() === "Stop")
+    expect(stop).toBeDefined()
+    expect(stop?.attributes("disabled")).toBeUndefined()
+  })
+
+  it("emits stop with the run id when Stop is clicked", async () => {
+    const busy: DriveView = {
+      ...driveA,
+      latestRun: { id: 42, status: "RUNNING", verdict: null, currentStage: "SURFACE" },
+    }
+    const wrapper = mount(DriveTable, {
+      props: { drives: [busy], liveByDrive: {} },
+      global: { plugins: [vuetify] },
+    })
+
+    await wrapper
+      .findAll("button")
+      .find((b) => b.text() === "Stop")!
+      .trigger("click")
+
+    expect(wrapper.emitted("stop")).toEqual([[42]])
+  })
+
+  // The case that made the Stop button necessary *and* impossible: a run started
+  // by auto-mode or another tab arrives only as live progress, because the store
+  // writes `latestRun` back on terminal events alone.
+  it("offers Stop for a run known only from live progress", async () => {
+    const wrapper = mount(DriveTable, {
+      props: { drives: [driveA], liveByDrive: { [driveA.serial]: live(77) } },
+      global: { plugins: [vuetify] },
+    })
+
+    expect(wrapper.findAll("button").find((b) => b.text() === "Start test")).toBeUndefined()
+    await wrapper
+      .findAll("button")
+      .find((b) => b.text() === "Stop")!
+      .trigger("click")
+    expect(wrapper.emitted("stop")).toEqual([[77]])
+  })
+
+  it("disables Start for a drive that is no longer present", () => {
+    // startRun 404s for an absent drive, so offering it is a dead end.
+    const absent: DriveView = { ...driveA, present: false }
+    const wrapper = mount(DriveTable, {
+      props: { drives: [absent], liveByDrive: {} },
+      global: { plugins: [vuetify] },
+    })
+
+    const startButton = wrapper.findAll("button").find((b) => b.text() === "Start test")
     expect(startButton?.attributes("disabled")).toBeDefined()
+  })
+
+  it("says the list failed to load rather than claiming nothing is attached", () => {
+    const wrapper = mount(DriveTable, {
+      props: { drives: [], liveByDrive: {}, loadFailed: true },
+      global: { plugins: [vuetify] },
+    })
+
+    expect(wrapper.text()).toContain("could not be loaded")
+    expect(wrapper.text()).not.toContain("No drives detected")
+  })
+
+  it("keeps the ordinary empty state when nothing failed", () => {
+    const wrapper = mount(DriveTable, {
+      props: { drives: [], liveByDrive: {} },
+      global: { plugins: [vuetify] },
+    })
+
+    expect(wrapper.text()).toContain("No drives detected")
   })
 
   it.each(["DONE", "FAILED", "ABORTED"] as const)(
@@ -108,7 +193,9 @@ describe("DriveTable", () => {
     const wrapper = mount(DriveTable, {
       props: {
         drives: [driveA, driveB],
-        liveByDrive: { SERB5678: { runId: 9, stage: "SURFACE", percent: 55, status: "RUNNING" } },
+        liveByDrive: {
+          SERB5678: live(9, { stage: "SURFACE", percent: 55 }),
+        },
       },
       global: { plugins: [vuetify] },
     })

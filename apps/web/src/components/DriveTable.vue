@@ -2,16 +2,23 @@
 import type { DriveView } from "@spindoctor/shared"
 import { humanBytes, verdictColor } from "../lib/format"
 import RunProgress from "./RunProgress.vue"
-import type { RunProgressLive } from "./RunProgress.vue"
+// The store's live type rather than RunProgress's presentational one: this table
+// needs the run id to offer a Stop button, which RunProgressLive has no reason to
+// carry. LiveProgress is a superset, so it still satisfies RunProgress's prop.
+import type { LiveProgress } from "../stores/useConsoleStore"
 import VerdictBadge from "./VerdictBadge.vue"
 
 const props = defineProps<{
   drives: DriveView[]
-  liveByDrive: Record<string, RunProgressLive>
+  liveByDrive: Record<string, LiveProgress>
+  /** Set when the drive list failed to load, so an empty table says so rather
+   * than claiming no drives are attached. */
+  loadFailed?: boolean
 }>()
 
 const emit = defineEmits<{
   start: [serial: string]
+  stop: [runId: number]
   open: [serial: string]
 }>()
 
@@ -43,12 +50,27 @@ function onStartClick(serial: string): void {
   emit("start", serial)
 }
 
-/** A run the engine still owns. `startRun` rejects a second start for such a
- * drive with a 409, so the button must not offer one — these are the same
- * non-terminal statuses `reconcile()` picks up on restart. */
-function hasRunInFlight(drive: DriveView): boolean {
-  const status = drive.latestRun?.status
-  return status === "RUNNING" || status === "PENDING"
+/**
+ * The id of a run the engine still owns for this drive, or null.
+ *
+ * Both sources matter. `latestRun` covers a run this client started or loaded,
+ * but the store only writes it back on *terminal* events — a run started by
+ * auto-mode or another tab arrives purely as live progress. Reading only
+ * `latestRun` therefore left the row showing a progress bar with the Start button
+ * still enabled, so clicking it returned a 409, and gave the Stop button nothing
+ * to stop (issue #104).
+ */
+function activeRunId(drive: DriveView): number | null {
+  const live = props.liveByDrive[drive.serial]
+  if (live) return live.runId
+  const latest = drive.latestRun
+  if (latest && (latest.status === "RUNNING" || latest.status === "PENDING")) return latest.id
+  return null
+}
+
+/** A drive with no device node behind it can't be tested — `startRun` 404s. */
+function startDisabled(drive: DriveView): boolean {
+  return activeRunId(drive) !== null || !drive.present
 }
 
 /** Makes each data row keyboard-openable, not just clickable: focusable via
@@ -130,11 +152,25 @@ function rowProps({ item }: { item: DriveView }): Record<string, unknown> {
     </template>
 
     <template #item.actions="{ item }">
+      <!-- Stop replaces Start while a run is in flight rather than sitting beside
+           it: the only action that makes sense for a drive already being tested is
+           stopping it, and a destructive wipe must be stoppable from the same
+           screen that started it (issue #104). -->
       <v-btn
+        v-if="activeRunId(item) !== null"
+        size="small"
+        color="error"
+        variant="tonal"
+        @click.stop="emit('stop', activeRunId(item) as number)"
+      >
+        Stop
+      </v-btn>
+      <v-btn
+        v-else
         size="small"
         color="primary"
         variant="tonal"
-        :disabled="hasRunInFlight(item)"
+        :disabled="startDisabled(item)"
         @click.stop="onStartClick(item.serial)"
       >
         Start test
@@ -142,7 +178,12 @@ function rowProps({ item }: { item: DriveView }): Record<string, unknown> {
     </template>
 
     <template #no-data>
-      <p class="text-medium-emphasis pa-4 ma-0">
+      <!-- An empty table after a failed load must not read as "nothing attached":
+           that reassuring sentence stood in for a load error (issue #104). -->
+      <p v-if="loadFailed" class="text-medium-emphasis pa-4 ma-0">
+        Drives could not be loaded — see the error above.
+      </p>
+      <p v-else class="text-medium-emphasis pa-4 ma-0">
         No drives detected. Attach a drive and it'll appear here.
       </p>
     </template>

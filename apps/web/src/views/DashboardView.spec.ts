@@ -150,4 +150,82 @@ describe("DashboardView", () => {
 
     expect(wrapper.text()).toContain("drive is mounted — refusing to wipe")
   })
+
+  // Issue #104: `store.abort` had no call site anywhere in the UI, so a
+  // destructive wipe could only be stopped with a direct API call.
+  it("stops the run when DriveTable emits stop", async () => {
+    const store = stubStore()
+    const abort = vi.spyOn(store, "abort").mockResolvedValue()
+    const { wrapper } = mountDashboard()
+    await flushPromises()
+
+    await wrapper.findComponent(DriveTable).vm.$emit("stop", 42)
+    await flushPromises()
+
+    expect(abort).toHaveBeenCalledWith(42)
+  })
+
+  it("surfaces the reason when a stop fails, instead of looking like a no-op", async () => {
+    const store = stubStore()
+    // What a 409 looks like: the run finished between the row rendering and the
+    // click. `abort` used to swallow this entirely.
+    vi.spyOn(store, "abort").mockRejectedValue(new Error("run 42 has already finished (DONE)"))
+    const { wrapper } = mountDashboard()
+    await flushPromises()
+
+    await wrapper.findComponent(DriveTable).vm.$emit("stop", 42)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain("already finished")
+  })
+
+  // A failed drive refresh left the table showing "No drives detected. Attach a
+  // drive and it'll appear here." — a reassuring empty state standing in for a
+  // load error, because nothing rendered `store.error`.
+  it("renders a background load failure and tells the table to say so", async () => {
+    const store = stubStore()
+    store.error = "GET /api/drives failed: 502 Bad Gateway"
+    const { wrapper } = mountDashboard()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain("502 Bad Gateway")
+    expect(wrapper.findComponent(DriveTable).props("loadFailed")).toBe(true)
+  })
+
+  it("does not claim a load failure when drives did load", async () => {
+    const store = stubStore()
+    store.error = "something transient"
+    store.drives = [
+      {
+        serial: "SERA1234",
+        model: "M",
+        sizeBytes: 1,
+        type: "HDD",
+        transport: "SATA",
+        present: true,
+        mounted: false,
+        isSystemDisk: false,
+        protected: false,
+        latestRun: null,
+      },
+    ]
+    const { wrapper } = mountDashboard()
+    await flushPromises()
+
+    expect(wrapper.findComponent(DriveTable).props("loadFailed")).toBe(false)
+  })
+
+  it("prefers the action error over the background one, so they can't stack up", async () => {
+    const store = stubStore()
+    store.error = "background refresh problem"
+    vi.spyOn(store, "abort").mockRejectedValue(new Error("stop failed loudly"))
+    const { wrapper } = mountDashboard()
+    await flushPromises()
+
+    await wrapper.findComponent(DriveTable).vm.$emit("stop", 1)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain("stop failed loudly")
+    expect(wrapper.text()).not.toContain("background refresh problem")
+  })
 })

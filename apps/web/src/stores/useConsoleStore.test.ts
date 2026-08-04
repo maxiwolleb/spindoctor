@@ -318,14 +318,28 @@ describe("useConsoleStore", () => {
     expect(store.error).toBe("confirmation required")
   })
 
-  it("abort calls api.abortRun and records an error on failure without throwing", async () => {
+  // Issue #104: this used to swallow, which made abort the one action whose
+  // failure was invisible — a 409 for an already-finished run looked exactly like
+  // a successful stop. It now rethrows like startTest and saveSettings.
+  it("abort records the error AND rethrows it", async () => {
     const store = useConsoleStore()
-    api.abortRun.mockRejectedValueOnce(new Error("run not found"))
+    api.abortRun.mockRejectedValueOnce(new Error("run 7 has already finished (DONE)"))
+
+    await expect(store.abort(7)).rejects.toThrow("already finished")
+
+    expect(api.abortRun).toHaveBeenCalledWith(7)
+    expect(store.error).toBe("run 7 has already finished (DONE)")
+  })
+
+  it("abort refreshes the drive list so the row stops showing a live run", async () => {
+    const store = useConsoleStore()
+    api.abortRun.mockResolvedValueOnce({ ok: true })
+    api.getDrives.mockClear()
 
     await store.abort(7)
 
-    expect(api.abortRun).toHaveBeenCalledWith(7)
-    expect(store.error).toBe("run not found")
+    expect(api.getDrives).toHaveBeenCalledTimes(1)
+    expect(store.error).toBeNull()
   })
 
   it("saveSettings calls putSettings with the patch and adopts the response", async () => {
