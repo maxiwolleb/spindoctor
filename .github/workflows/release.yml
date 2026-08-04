@@ -5,8 +5,60 @@ on:
     tags:
       - "v*"
 
+# A moved or re-pushed tag must not race two publishes of the same version.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
+  # A tag push triggers neither CI job (ci.yml runs on pushes to main and on
+  # pull requests), so without this the tagged image was published on the
+  # assumption that main was last seen green. Cheap insurance against publishing
+  # from a tag placed on the wrong commit.
+  verify:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+        with:
+          version: 10.34.1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Check formatting
+        run: pnpm format:check
+
+      - name: Spellcheck
+        run: pnpm spellcheck
+
+      - name: Dead code (knip)
+        run: pnpm knip
+
+      - name: Typecheck
+        run: pnpm -r typecheck
+
+      - name: Test
+        run: pnpm test
+
   release:
+    needs: verify
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -29,10 +81,17 @@ jobs:
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
           images: ghcr.io/maxiwolleb/spindoctor
+          # `latest` is gated on a non-prerelease tag. `type=raw,value=latest` is
+          # unconditional, so the first `v0.0.1-alpha` would have made an alpha
+          # the image every new user pulls — the README tells them to pull
+          # `:latest`. `{{major}}.{{minor}}` is skipped for prereleases by the
+          # action itself, so a prerelease publishes only its own exact version.
+          flavor: |
+            latest=false
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest
+            type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
@@ -44,8 +103,17 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          # Baked in so the running app knows what it is: main.ts reads
+          # SPINDOCTOR_VERSION for the diagnostics bundle, specifically so a
+          # finding can be tied to the code that produced it (#70). Nothing set
+          # it, so every bundle from a released image reported null.
+          build-args: |
+            SPINDOCTOR_VERSION=${{ github.ref_name }}
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
         with:
           generate_release_notes: true
+          # The action does not infer this from the tag, so without it an
+          # `-alpha` tag would publish as a normal "Latest" release.
+          prerelease: ${{ contains(github.ref_name, '-') }}

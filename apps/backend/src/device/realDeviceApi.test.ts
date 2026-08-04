@@ -248,6 +248,45 @@ describe("RealDeviceApi kernel claim probe (#83)", () => {
 
     expect(lines.filter((l) => l.includes("could not determine whether"))).toHaveLength(0)
   })
+  it("does not probe a drive spindoctor is itself testing", async () => {
+    // The probe holds an exclusive claim for a few microseconds, and real
+    // badblocks takes its own O_EXCL probe when it starts `-w` — if they
+    // coincide badblocks refuses, which since #84 fails the whole run and throws
+    // away the hours of self-test before it.
+    const probed: string[] = []
+    const api = new RealDeviceApi(runner(), {
+      exclusiveOpener: async (path) => void probed.push(path),
+      isDriveUnderTest: (serial) => serial === CLEAN_SERIAL,
+    })
+
+    const drives = await api.listDevices()
+
+    const underTest = drives.find((d) => d.serial === CLEAN_SERIAL)
+    expect(probed).not.toContain(underTest!.devicePath)
+    // Reported unknown rather than free: while we hold it, the probe could only
+    // tell us about ourselves.
+    expect(underTest?.claim).toBe("unknown")
+    // Every other drive is still probed.
+    expect(probed.length).toBe(drives.length - 1)
+    expect(drives.filter((d) => d.serial !== CLEAN_SERIAL).every((d) => d.claim === "free")).toBe(
+      true,
+    )
+  })
+
+  it("does not warn about an unknown claim for a drive it deliberately skipped", async () => {
+    const lines: string[] = []
+    const logger = pino({ level: "warn" }, { write: (line: string) => void lines.push(line) })
+    const api = new RealDeviceApi(runner(), {
+      logger,
+      exclusiveOpener: async () => {},
+      isDriveUnderTest: () => true,
+    })
+
+    await api.listDevices()
+
+    // Not being able to check is worth saying; choosing not to check is not.
+    expect(lines.filter((l) => l.includes("could not determine whether"))).toHaveLength(0)
+  })
 })
 
 // The container has no way to work out which disk the host booted from, so the

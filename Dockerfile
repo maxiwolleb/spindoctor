@@ -61,9 +61,16 @@ COPY --from=build /app /app
 # Built SPA, served as static files + SPA-fallback by the backend itself.
 COPY --from=build /src/apps/web/dist /app/web
 
+# The released version, passed in by the Release workflow (`--build-arg`). The
+# backend reads SPINDOCTOR_VERSION so a diagnostics bundle can be tied to the
+# code that produced it (#70); unset, every bundle reported a null version.
+# Defaults to "dev" for a local `docker build`, which is the honest answer there.
+ARG SPINDOCTOR_VERSION=dev
+
 ENV NODE_ENV=production \
     SPINDOCTOR_DB=/data/spindoctor.sqlite \
     SPINDOCTOR_WEB_ROOT=/app/web \
+    SPINDOCTOR_VERSION=${SPINDOCTOR_VERSION} \
     PORT=8080
 
 # SPINDOCTOR_MIGRATIONS_DIR is intentionally left unset: the deploy dir keeps

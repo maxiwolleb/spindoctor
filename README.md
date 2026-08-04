@@ -179,7 +179,8 @@ startup.
   (defaults, configurable).
 - **Surface scan:** any bad block found → FAIL.
 - A failed long self-test → FAIL; an aborted/incomplete self-test or
-  surface scan → WARN.
+  surface scan → WARN. A surface scan that could not **start** is different:
+  the run fails outright with no verdict, since the drive was never measured.
 - Interface CRC errors → WARN (check cabling).
 - NVMe media errors → FAIL.
 - **The drive's own SMART health verdict** reporting failure → FAIL. On SAS this
@@ -237,7 +238,7 @@ the auto-mode toggle.
 
 spindoctor is a pnpm workspace monorepo:
 
-- `apps/backend` — Fastify + TypeScript (REST + SSE), SQLite via Drizzle.
+- `apps/backend` — Fastify + TypeScript (REST + live events), SQLite via Drizzle.
 - `apps/web` — Vue 3 + Vuetify, built with Vite.
 - `packages/shared` — wire types shared by both sides (source-only, no
   build step).
