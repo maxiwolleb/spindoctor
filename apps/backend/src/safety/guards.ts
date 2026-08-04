@@ -45,8 +45,14 @@ export function checkRunAllowed(
   drive: DiscoveredDrive,
   ctx: { protectList: string[] },
 ): SafetyDecision {
-  // NO_SERIAL: drive has no serial
-  if (drive.serial === "") {
+  // NO_SERIAL: drive has no usable serial. Normalized rather than compared to ""
+  // so this agrees with `isProtected` about what "no serial" means: a serial of
+  // only whitespace used to pass here *and* be impossible to protect (the protect list
+  // drops blank entries, and isProtected refuses to match an empty target), so
+  // such a drive could be wiped and nothing could stop it. NVMe and SCSI sysfs
+  // serials are space-padded fixed-width fields, which is exactly the shape that
+  // reaches us when udev isn't there to tidy them up.
+  if (normalizeSerial(drive.serial) === "") {
     return {
       allowed: false,
       code: "NO_SERIAL",

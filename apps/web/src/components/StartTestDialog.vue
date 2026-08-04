@@ -34,26 +34,49 @@ watch(
   },
 )
 
-/** The always-on safety guards (mirrors the backend's own gate): a mounted,
- * system, or protected disk can never be the target of a destructive run, no
- * matter what the UI does — surfaced here so the destructive option is
- * visibly blocked rather than silently rejected after the fact. */
+/**
+ * The always-on safety guards, mirroring the backend's own gate
+ * (`apps/backend/src/safety/guards.ts`) so an ineligible drive is visibly
+ * blocked rather than silently rejected after the fact.
+ *
+ * These block **every** mode, not just the destructive one: the engine has run
+ * the guards for read-only runs as well since issue #85, so telling the operator
+ * that only "destructive testing is blocked" both understated the guard and
+ * advertised a read-only scan that the server would refuse with a 403.
+ *
+ * The specific reason is named rather than listing all of them at once — on the
+ * one screen where the operator decides whether to wipe a drive, "which of these
+ * is it?" is the whole question.
+ */
 const blockedReason = computed<string | null>(() => {
-  if (props.drive.mounted || props.drive.isSystemDisk || props.drive.protected) {
-    return "This drive is mounted / is the system disk / is protected — destructive testing is blocked."
+  const drive = props.drive
+  if (drive.isSystemDisk) return "This is the system disk — spindoctor will not test it."
+  if (drive.mounted) return "This drive is mounted — unmount it before testing."
+  if (drive.claim === "claimed") {
+    return "Something on this host is using this drive (the kernel refused exclusive access) — spindoctor will not test it."
+  }
+  if (drive.protected) {
+    return "This drive is on the protected list — remove it in Settings if you really mean to test it."
   }
   return null
 })
 
-const destructiveDisabled = computed<boolean>(() => blockedReason.value !== null)
+/** Not a refusal: the drive is testable, but spindoctor could not establish
+ * whether anything else is using it, so it says so instead of implying the
+ * check passed (issue #83). */
+const claimUnknown = computed<boolean>(() => props.drive.claim === "unknown")
+
+const blocked = computed<boolean>(() => blockedReason.value !== null)
 
 const confirmMatches = computed<boolean>(
   () => confirmInput.value.length > 0 && confirmInput.value === props.drive.serial,
 )
 
 const canSubmit = computed<boolean>(() => {
-  if (mode.value === "destructive") return !destructiveDisabled.value && confirmMatches.value
-  return true
+  // A blocked drive blocks both modes, and a destructive run additionally needs
+  // the typed serial.
+  if (blocked.value) return false
+  return mode.value === "destructive" ? confirmMatches.value : true
 })
 
 const submitLabel = computed<string>(() =>
@@ -98,11 +121,24 @@ function onSubmit(): void {
           {{ blockedReason }}
         </v-alert>
 
+        <v-alert
+          v-else-if="claimUnknown"
+          type="info"
+          variant="tonal"
+          density="compact"
+          class="mb-4"
+          data-test="claim-unknown"
+        >
+          spindoctor could not check whether anything else is using this drive. That check is what
+          protects a mounted host disk from inside a container — confirm the drive is not in use
+          before wiping it.
+        </v-alert>
+
         <v-radio-group v-model="mode" density="comfortable" hide-details class="mb-2">
           <v-radio
             label="Full destructive test — wipes the drive"
             value="destructive"
-            :disabled="destructiveDisabled"
+            :disabled="blocked"
           />
           <v-radio label="Read-only scan — reads every sector, writes none" value="read-only" />
         </v-radio-group>

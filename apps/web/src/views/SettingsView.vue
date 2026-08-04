@@ -36,6 +36,10 @@ const autoModeAck = ref(false)
 const savedDiagnosticsEnabled = computed<boolean>(() => store.settings?.diagnosticsEnabled === true)
 const diagnosticsBundleUrl = "/api/diagnostics/bundle"
 
+/** Why the settings could not be read, captured at load time rather than read
+ * from the store's shared `error` field, which a later action overwrites. */
+const loadError = ref<string | null>(null)
+
 const validationError = ref<string | null>(null)
 const snackbar = reactive<{ show: boolean; text: string; color: "success" | "error" }>({
   show: false,
@@ -49,10 +53,16 @@ watch(autoModeAck, (checked) => {
 
 async function load(): Promise<void> {
   loading.value = true
-  // Drives as well as settings: the protect list is checked against what
-  // spindoctor can currently see, and this view is reachable directly, without
-  // the dashboard having populated the store first.
-  await Promise.all([store.refreshSettings(), store.refreshDrives()])
+  loadError.value = null
+  // Settings first, and its outcome captured before anything else runs: the store
+  // keeps one shared `error` field, so a later successful action (the drive
+  // refresh below) clears it and the reason this page is empty would be lost.
+  await store.refreshSettings()
+  if (store.settings === null) loadError.value = store.error ?? "unknown error"
+  // Drives too: the protect list is checked against what spindoctor can
+  // currently see, and this view is reachable directly, without the dashboard
+  // having populated the store first.
+  await store.refreshDrives()
   const settings = store.settings
   if (settings) {
     form.reallocatedWarnMax = settings.thresholds.reallocatedWarnMax
@@ -69,6 +79,19 @@ async function load(): Promise<void> {
   }
   loading.value = false
 }
+
+/**
+ * True when the settings could not be loaded, so the form must not be shown.
+ *
+ * `refreshSettings` swallows its error into `store.error`, which left `loading`
+ * false and `store.settings` null — and the form then rendered its declared
+ * initial values, every threshold reading `0`. Those are not the defaults (4 /
+ * 100 / 80 / 100), so an operator who hit one failed GET saw a normal-looking
+ * page and could Save it: `ssdPercentageUsedFail: 0` makes every SSD and NVMe
+ * FAIL, silently and permanently. A page that cannot show the real settings must
+ * not offer to overwrite them.
+ */
+const loadFailed = computed<boolean>(() => !loading.value && store.settings === null)
 
 onMounted(load)
 
@@ -188,6 +211,16 @@ async function onSave(): Promise<void> {
     <h1 class="text-h5 mb-4">Settings</h1>
 
     <div v-if="loading" class="text-medium-emphasis">Loading settings…</div>
+
+    <!-- No form at all when the settings could not be read: the fields would
+         show their initial zeros, which are not the defaults, and saving them
+         would fail every solid-state drive. -->
+    <v-alert v-else-if="loadFailed" type="error" variant="tonal" density="compact">
+      Could not load settings{{ loadError ? `: ${loadError}` : "." }} Nothing has been changed.
+      <div class="mt-2">
+        <v-btn size="small" variant="tonal" @click="load">Retry</v-btn>
+      </div>
+    </v-alert>
 
     <template v-else>
       <v-alert v-if="validationError" type="error" variant="tonal" density="compact" class="mb-4">
