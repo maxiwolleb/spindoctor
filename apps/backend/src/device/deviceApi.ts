@@ -22,6 +22,11 @@ export interface DeviceApi {
   pollSelfTest(devicePath: string): Promise<SelfTestProgress>
   runSurfaceTest(
     devicePath: string,
+    /** The drive's capacity. Required because badblocks' default 1024-byte
+     * block size caps the addressable device at 4 TiB, so the block size has to
+     * be derived from the size of the drive in front of us (issue #84) — a
+     * surface stage that silently cannot start is worse than no surface stage. */
+    sizeBytes: number,
     mode: RegimeMode,
     onProgress: (percent: number) => void,
     signal: AbortSignal,

@@ -6,6 +6,10 @@ import { tmpdir } from "node:os"
 import { RealDeviceApi } from "./realDeviceApi"
 import { execFileRunner } from "./runner"
 
+/** Capacity passed to `runSurfaceTest`; only the badblocks `-b` arithmetic
+ * reads it (issue #84), so any plausible drive size does. */
+const SIZE_BYTES = 500_107_862_016
+
 // Runs the fake-badblocks emulator (a plain Node script) in place of the real
 // `badblocks` binary — no real disk or real badblocks involved.
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -43,6 +47,7 @@ describe("RealDeviceApi.runSurfaceTest (against the badblocks emulator)", () => 
 
     const result = await api.runSurfaceTest(
       "/dev/fake",
+      SIZE_BYTES,
       "destructive",
       (p) => percents.push(p),
       new AbortController().signal,
@@ -65,6 +70,7 @@ describe("RealDeviceApi.runSurfaceTest (against the badblocks emulator)", () => 
 
     const result = await api.runSurfaceTest(
       "/dev/fake",
+      SIZE_BYTES,
       "read-only",
       () => {},
       new AbortController().signal,
@@ -84,6 +90,7 @@ describe("RealDeviceApi.runSurfaceTest (against the badblocks emulator)", () => 
     const start = Date.now()
     const result = await api.runSurfaceTest(
       "/dev/fake",
+      SIZE_BYTES,
       "destructive",
       () => controller.abort(),
       controller.signal,
@@ -115,6 +122,7 @@ describe("RealDeviceApi.runSurfaceTest (against the badblocks emulator)", () => 
     let capturedLog: string | undefined
     const result = await api.runSurfaceTest(
       "/dev/fake",
+      SIZE_BYTES,
       "destructive",
       () => {},
       new AbortController().signal,
@@ -145,6 +153,7 @@ describe("RealDeviceApi.runSurfaceTest (against the badblocks emulator)", () => 
     let capturedLog: string | undefined
     const result = await api.runSurfaceTest(
       "/dev/fake",
+      SIZE_BYTES,
       "destructive",
       () => controller.abort(),
       controller.signal,
@@ -171,6 +180,7 @@ describe("RealDeviceApi.runSurfaceTest (against the badblocks emulator)", () => 
     // No 5th argument at all — must not throw from an unconditional call.
     const result = await api.runSurfaceTest(
       "/dev/fake",
+      SIZE_BYTES,
       "read-only",
       () => {},
       new AbortController().signal,
@@ -191,6 +201,7 @@ describe("RealDeviceApi.runSurfaceTest (against the badblocks emulator)", () => 
     const start = Date.now()
     const result = await api.runSurfaceTest(
       "/dev/fake",
+      SIZE_BYTES,
       "destructive",
       () => {},
       new AbortController().signal,
@@ -199,5 +210,110 @@ describe("RealDeviceApi.runSurfaceTest (against the badblocks emulator)", () => 
 
     expect(elapsed).toBeLessThan(2000)
     expect(result).toMatchObject({ completed: false, badBlocks: 0 })
+    // A binary that isn't there never scanned anything, so this is a tool
+    // failure rather than an incomplete measurement.
+    expect(result.startFailed).toBe(true)
   }, 3000)
+
+  it("flags a scan that never started, and keeps the tool's own error in the log", async () => {
+    // The shape of issue #84: badblocks rejects the device before any I/O, so
+    // there is no progress and no logfile — only a message on stderr.
+    const api = new RealDeviceApi(execFileRunner, {
+      logDir: dir,
+      surfaceCommand: process.execPath,
+      surfaceArgsPrefix: (logfile) => [emulatorPath, "--log", logfile, "--fail-start"],
+    })
+    let captured: string | undefined
+    const percents: number[] = []
+
+    const result = await api.runSurfaceTest(
+      "/dev/fake",
+      SIZE_BYTES,
+      "destructive",
+      (p) => percents.push(p),
+      new AbortController().signal,
+      (log) => {
+        captured = log
+      },
+    )
+
+    expect(percents).toEqual([])
+    expect(result).toMatchObject({ mode: "write", badBlocks: 0, completed: false })
+    expect(result.startFailed).toBe(true)
+    expect(captured).toContain("must be 32-bit value")
+  }, 5000)
+
+  it("does not flag a scan that started and then failed", async () => {
+    const api = new RealDeviceApi(execFileRunner, {
+      logDir: dir,
+      surfaceCommand: process.execPath,
+      surfaceArgsPrefix: (logfile) => [
+        emulatorPath,
+        "--log",
+        logfile,
+        "--exit-code",
+        "1",
+        "--phases",
+        "1",
+      ],
+    })
+
+    const result = await api.runSurfaceTest(
+      "/dev/fake",
+      SIZE_BYTES,
+      "destructive",
+      () => {},
+      new AbortController().signal,
+    )
+
+    // Reported progress, then exited non-zero: an incomplete measurement, which
+    // is a fact about the run and stays a WARN.
+    expect(result.completed).toBe(false)
+    expect(result.startFailed).toBeUndefined()
+  }, 5000)
+
+  it("does not flag an abort that lands before any progress as a start failure", async () => {
+    const api = new RealDeviceApi(execFileRunner, {
+      logDir: dir,
+      surfaceCommand: process.execPath,
+      surfaceArgsPrefix: (logfile) => [emulatorPath, "--log", logfile, "--hang"],
+    })
+    const controller = new AbortController()
+    controller.abort()
+
+    const result = await api.runSurfaceTest(
+      "/dev/fake",
+      SIZE_BYTES,
+      "destructive",
+      () => {},
+      controller.signal,
+    )
+
+    expect(result.startFailed).toBeUndefined()
+  }, 5000)
+
+  it("passes an explicit -b on the production path, sized for the drive", async () => {
+    // Goes through the real argument builder — no `surfaceArgsPrefix` seam — and
+    // uses `echo` as the command so the arguments spindoctor actually produces
+    // come back through the captured stdout. Without this, nothing asserts that
+    // the block size reaches badblocks at all (issue #84).
+    const api = new RealDeviceApi(execFileRunner, { logDir: dir, surfaceCommand: "/bin/echo" })
+    let captured = ""
+
+    const result = await api.runSurfaceTest(
+      "/dev/fake",
+      12_000_138_625_024, // 12 TB: 11.7e9 blocks at badblocks' 1024-byte default
+      "destructive",
+      () => {},
+      new AbortController().signal,
+      (log) => {
+        captured = log
+      },
+    )
+
+    // One assertion on the whole argument line, so an argument reordered into
+    // the wrong position still fails: block size first, device path last.
+    expect(captured).toMatch(/-b 4096 -w -s -o \S+ \/dev\/fake/)
+    expect(result.startFailed).toBeUndefined()
+  }, 5000)
 })

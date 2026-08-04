@@ -144,7 +144,9 @@ describe("TestEngine.reconcile", () => {
     const terminal = await settled
 
     expect(terminal.status).toBe("DONE")
-    expect(api.surfaceCalls).toEqual([{ devicePath: d.devicePath, mode: "destructive" }])
+    expect(api.surfaceCalls).toEqual([
+      { devicePath: d.devicePath, sizeBytes: d.sizeBytes, mode: "destructive" },
+    ])
 
     const run = repo.getRun(db, runId)!
     expect(run.restartCount).toBe(1)
@@ -191,7 +193,9 @@ describe("TestEngine.reconcile", () => {
     // The firmware self-test kept running across the restart — reconcile
     // must not have called startLongSelfTest a second time.
     expect(api.started).toEqual([])
-    expect(api.surfaceCalls).toEqual([{ devicePath: d.devicePath, mode: "destructive" }])
+    expect(api.surfaceCalls).toEqual([
+      { devicePath: d.devicePath, sizeBytes: d.sizeBytes, mode: "destructive" },
+    ])
 
     const stages = db.select().from(stageResults).where(eq(stageResults.runId, runId)).all()
     const selfTestRows = stages.filter((s) => s.stage === "SELFTEST_LONG")

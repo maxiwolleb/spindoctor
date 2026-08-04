@@ -419,6 +419,47 @@ describe("TestEngine full-run behavior", () => {
     expect(events.every((e) => e.declaredTotalMinutes === null)).toBe(true)
   })
 
+  // Issue #84: badblocks' default block size made the surface stage unable to
+  // start on any drive over 4 TiB, and "did not complete" graded that as a WARN
+  // — indistinguishable from a scan that ran and was cut short. A stage that
+  // never measured the drive must not produce a grade at all.
+  it("fails the run instead of grading it when the surface tool never started", async () => {
+    const d = drive()
+    const api = new FakeDeviceApi({
+      drives: [d],
+      smartByPath: { [d.devicePath]: smartRaw() },
+      selfTestByPath: { [d.devicePath]: PASSED_SELFTEST },
+      surface: {
+        result: { mode: "write", badBlocks: 0, completed: false, startFailed: true },
+        log: "badblocks: Value too large for defined data type invalid end block",
+      },
+    })
+    const engine = new TestEngine({
+      db,
+      deviceApi: api,
+      sleep: async () => {},
+      selfTestPollIntervalMs: 0,
+    })
+
+    const runId = await engine.startRun({ serial: d.serial, mode: "destructive" })
+    expect((await waitForSettled(engine, runId)).status).toBe("FAILED")
+
+    const run = repo.getRun(db, runId)!
+    expect(run.verdict).toBeNull()
+    expect(run.error).toContain("SURFACE_COULD_NOT_START")
+
+    // The tool's own words survive on the stage, which is the only place the
+    // real cause is visible.
+    const surfaceStage = db
+      .select()
+      .from(stageResults)
+      .where(eq(stageResults.runId, runId))
+      .all()
+      .find((s) => s.stage === "SURFACE")
+    expect(surfaceStage?.status).toBe("FAILED")
+    expect(surfaceStage?.log).toContain("invalid end block")
+  })
+
   it("runs SURFACE in read-only mode for a read-only regime", async () => {
     const d = drive()
     const api = new FakeDeviceApi({
@@ -436,7 +477,9 @@ describe("TestEngine full-run behavior", () => {
     const runId = await engine.startRun({ serial: d.serial, mode: "read-only" })
     await waitForSettled(engine, runId)
 
-    expect(api.surfaceCalls).toEqual([{ devicePath: d.devicePath, mode: "read-only" }])
+    expect(api.surfaceCalls).toEqual([
+      { devicePath: d.devicePath, sizeBytes: d.sizeBytes, mode: "read-only" },
+    ])
   })
 
   // Cancelling has to cancel the drive too: the engine breaking out of its poll
@@ -879,7 +922,9 @@ describe("TestEngine SURFACE stage safety re-check (TOCTOU guard)", () => {
     const terminal = await waitForSettled(engine, runId)
 
     expect(terminal.status).toBe("DONE")
-    expect(api.surfaceCalls).toEqual([{ devicePath: clean.devicePath, mode: "read-only" }])
+    expect(api.surfaceCalls).toEqual([
+      { devicePath: clean.devicePath, sizeBytes: clean.sizeBytes, mode: "read-only" },
+    ])
     expect(repo.listAudit(db).some((a) => a.action === "DESTRUCTIVE_RECHECK_DENIED")).toBe(false)
   })
 })
@@ -923,7 +968,9 @@ describe("TestEngine SMART_AFTER/VERDICT fresh device path (Fix B)", () => {
     expect(terminal.status).toBe("DONE")
 
     // SURFACE wrote to the path resolved at that point (unchanged here).
-    expect(api.surfaceCalls).toEqual([{ devicePath: original.devicePath, mode: "destructive" }])
+    expect(api.surfaceCalls).toEqual([
+      { devicePath: original.devicePath, sizeBytes: original.sizeBytes, mode: "destructive" },
+    ])
 
     // SMART_BEFORE read the original path; SMART_AFTER must have read the
     // freshly re-resolved one, not the stale startRun-time snapshot.
@@ -1400,7 +1447,9 @@ describe("TestEngine early exit on a condemned baseline (#49)", () => {
     await waitForSettled(engine, runId)
 
     expect(api.started).toEqual([d.devicePath])
-    expect(api.surfaceCalls).toEqual([{ devicePath: d.devicePath, mode: "destructive" }])
+    expect(api.surfaceCalls).toEqual([
+      { devicePath: d.devicePath, sizeBytes: d.sizeBytes, mode: "destructive" },
+    ])
     const stages = db.select().from(stageResults).where(eq(stageResults.runId, runId)).all()
     expect(stages.every((s) => s.status === "DONE")).toBe(true)
   })

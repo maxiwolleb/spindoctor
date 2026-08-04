@@ -2,6 +2,10 @@ import { describe, it, expect } from "vitest"
 import type { DiscoveredDrive } from "@spindoctor/shared"
 import { FakeDeviceApi } from "./fakeDeviceApi"
 
+/** Capacity passed to `runSurfaceTest`; only the badblocks `-b` arithmetic
+ * reads it (issue #84), so any plausible drive size does. */
+const SIZE_BYTES = 500_107_862_016
+
 const d: DiscoveredDrive = {
   devicePath: "/dev/sda",
   serial: "S1",
@@ -34,6 +38,7 @@ describe("FakeDeviceApi.runSurfaceTest", () => {
     const percents: number[] = []
     const result = await api.runSurfaceTest(
       "/dev/sda",
+      SIZE_BYTES,
       "destructive",
       (p) => percents.push(p),
       new AbortController().signal,
@@ -49,6 +54,7 @@ describe("FakeDeviceApi.runSurfaceTest", () => {
     const percents: number[] = []
     const result = await api.runSurfaceTest(
       "/dev/sda",
+      SIZE_BYTES,
       "read-only",
       (p) => percents.push(p),
       controller.signal,
@@ -63,6 +69,7 @@ describe("FakeDeviceApi.runSurfaceTest", () => {
     const percents: number[] = []
     const result = await api.runSurfaceTest(
       "/dev/sda",
+      SIZE_BYTES,
       "destructive",
       (p) => {
         percents.push(p)
@@ -81,6 +88,7 @@ describe("FakeDeviceApi.runSurfaceTest", () => {
     const percents: number[] = []
     const result = await api.runSurfaceTest(
       "/dev/sdb",
+      SIZE_BYTES,
       "read-only",
       (p) => percents.push(p),
       new AbortController().signal,
@@ -91,11 +99,23 @@ describe("FakeDeviceApi.runSurfaceTest", () => {
 
   it("records calls in surfaceCalls", async () => {
     const api = new FakeDeviceApi()
-    await api.runSurfaceTest("/dev/sdb", "read-only", () => {}, new AbortController().signal)
-    await api.runSurfaceTest("/dev/sda", "destructive", () => {}, new AbortController().signal)
+    await api.runSurfaceTest(
+      "/dev/sdb",
+      SIZE_BYTES,
+      "read-only",
+      () => {},
+      new AbortController().signal,
+    )
+    await api.runSurfaceTest(
+      "/dev/sda",
+      SIZE_BYTES,
+      "destructive",
+      () => {},
+      new AbortController().signal,
+    )
     expect(api.surfaceCalls).toEqual([
-      { devicePath: "/dev/sdb", mode: "read-only" },
-      { devicePath: "/dev/sda", mode: "destructive" },
+      { devicePath: "/dev/sdb", sizeBytes: SIZE_BYTES, mode: "read-only" },
+      { devicePath: "/dev/sda", sizeBytes: SIZE_BYTES, mode: "destructive" },
     ])
   })
 })
