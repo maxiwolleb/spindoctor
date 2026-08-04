@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest"
 import {
-  parseBadblocksPercent,
+  parseBadblocksPercents,
   countBadBlocks,
   collapseProgressRedraw,
   formatSurfaceLog,
@@ -8,18 +8,51 @@ import {
   BadblocksProgressTracker,
 } from "./badblocksParser"
 
-describe("parseBadblocksPercent", () => {
+describe("parseBadblocksPercents", () => {
   it("extracts a percent from a typical progress line", () => {
-    expect(parseBadblocksPercent("\r  12.50% done, 0:03 elapsed. (0/0/0 errors)")).toBe(12.5)
+    // Real badblocks rubs out the previous figure with backspaces, not \r.
+    expect(parseBadblocksPercents("\b\b\b  12.50% done, 0:03 elapsed. (0/0/0 errors)")).toEqual([
+      12.5,
+    ])
   })
-  it("returns the last percent when a chunk has several", () => {
-    expect(parseBadblocksPercent("6.25% done\r12.50% done\r18.75% done")).toBe(18.75)
+
+  // Issue #90: this used to return only the last percent in the chunk. A chunk
+  // spanning a phase boundary therefore hid the reset, so
+  // BadblocksProgressTracker never counted the phase as complete and overall
+  // progress under-reported for the rest of the stage.
+  it("returns every percent in the chunk, in order", () => {
+    expect(parseBadblocksPercents("6.25% done\b12.50% done\b18.75% done")).toEqual([
+      6.25, 12.5, 18.75,
+    ])
   })
-  it("returns null when there is no percent", () => {
-    expect(parseBadblocksPercent("Testing with pattern 0xaa:")).toBeNull()
+
+  it("keeps a reset that occurs mid-chunk, so the phase boundary survives", () => {
+    expect(
+      parseBadblocksPercents("93.75% done\b100.00% done\bTesting with pattern 0x55:\b0.50% done"),
+    ).toEqual([93.75, 100, 0.5])
   })
+
+  it("returns an empty array when there is no percent", () => {
+    expect(parseBadblocksPercents("Testing with pattern 0xaa:")).toEqual([])
+  })
+
   it("handles an integer percent", () => {
-    expect(parseBadblocksPercent("100% done, 1:00 elapsed")).toBe(100)
+    expect(parseBadblocksPercents("100% done, 1:00 elapsed")).toEqual([100])
+  })
+})
+
+describe("BadblocksProgressTracker fed a chunk that spans a phase boundary (#90)", () => {
+  it("counts the phase as complete even when the reset shares a chunk", () => {
+    const tracker = new BadblocksProgressTracker(8)
+    // Everything one chunk would have carried across the 0xaa→verify boundary.
+    const percents = parseBadblocksPercents("93.75% done\b100.00% done\b0.00% done\b6.25% done")
+    const overall = percents.map((p) => tracker.update(p))
+
+    // Last figure is inside phase 2 of 8, so overall must be above 1/8 = 12.5%.
+    expect(overall[overall.length - 1]).toBeGreaterThan(12.5)
+    // Reading only the chunk's last percent gave 6.25/8 = 0.78% — a bar that
+    // jumps backwards from 12.5% and stays low for the rest of the run.
+    expect(overall[overall.length - 1]).toBeLessThan(25)
   })
 })
 
