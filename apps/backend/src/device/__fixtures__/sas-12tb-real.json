@@ -1,0 +1,388 @@
+{
+  "json_format_version": [
+    1,
+    0
+  ],
+  "smartctl": {
+    "version": [
+      7,
+      4
+    ],
+    "pre_release": false,
+    "svn_revision": "5530",
+    "platform_info": "x86_64-linux-7.0.0-29-generic",
+    "build_info": "(local build)",
+    "argv": [
+      "smartctl",
+      "-x",
+      "--json=c",
+      "/dev/sda"
+    ],
+    "exit_status": 12
+  },
+  "local_time": {
+    "time_t": 1785853902,
+    "asctime": "Tue Aug  4 14:31:42 2026 UTC"
+  },
+  "device": {
+    "name": "/dev/sda",
+    "info_name": "/dev/sda",
+    "type": "scsi",
+    "protocol": "SCSI"
+  },
+  "scsi_vendor": "SEAGATE",
+  "scsi_product": "ST12000NM0027",
+  "scsi_model_name": "SEAGATE ST12000NM0027",
+  "scsi_revision": "E004",
+  "scsi_version": "SPC-4",
+  "user_capacity": {
+    "blocks": 23437770752,
+    "bytes": 12000138625024
+  },
+  "logical_block_size": 512,
+  "physical_block_size": 4096,
+  "scsi_lb_provisioning": {
+    "name": "fully provisioned",
+    "value": 0,
+    "management_enabled": {
+      "name": "LBPME",
+      "value": 0
+    },
+    "read_zeros": {
+      "name": "LBPRZ",
+      "value": 0
+    }
+  },
+  "rotation_rate": 7200,
+  "form_factor": {
+    "scsi_value": 2,
+    "name": "3.5 inches"
+  },
+  "logical_unit_id": "0x5000c500a0000000",
+  "serial_number": "SCRUBBEDSAS12T00001",
+  "device_type": {
+    "scsi_terminology": "Peripheral Device Type [PDT]",
+    "scsi_value": 0,
+    "name": "disk"
+  },
+  "scsi_transport_protocol": {
+    "name": "SAS (SPL-4)",
+    "value": 6
+  },
+  "smart_support": {
+    "available": true,
+    "enabled": true
+  },
+  "temperature_warning": {
+    "enabled": true
+  },
+  "smart_status": {
+    "passed": false,
+    "scsi": {
+      "asc": 93,
+      "ascq": 50,
+      "ie_string": "Data channel impending failure data error rate too high"
+    }
+  },
+  "scsi_format_status": {
+    "total_new_block_since_format": 357
+  },
+  "temperature": {
+    "current": 24,
+    "drive_trip": 60
+  },
+  "scsi_start_stop_cycle_counter": {
+    "year_of_manufacture": "2018",
+    "week_of_manufacture": "39",
+    "specified_cycle_count_over_device_lifetime": 50000,
+    "accumulated_start_stop_cycles": 187,
+    "specified_load_unload_count_over_device_lifetime": 600000,
+    "accumulated_load_unload_cycles": 2539
+  },
+  "scsi_grown_defect_list": 355,
+  "power_on_time": {
+    "hours": 56444,
+    "minutes": 5
+  },
+  "seagate_farm_log": {
+    "supported": true
+  },
+  "scsi_error_counter_log": {
+    "read": {
+      "errors_corrected_by_eccfast": 2925852074,
+      "errors_corrected_by_eccdelayed": 3495,
+      "errors_corrected_by_rereads_rewrites": 0,
+      "total_errors_corrected": 2925855569,
+      "correction_algorithm_invocations": 3495,
+      "gigabytes_processed": "12775.264",
+      "total_uncorrected_errors": 0
+    },
+    "write": {
+      "errors_corrected_by_eccfast": 0,
+      "errors_corrected_by_eccdelayed": 0,
+      "errors_corrected_by_rereads_rewrites": 0,
+      "total_errors_corrected": 0,
+      "correction_algorithm_invocations": 1,
+      "gigabytes_processed": "12037.368",
+      "total_uncorrected_errors": 0
+    }
+  },
+  "scsi_self_test_0": {
+    "code": {
+      "value": 2,
+      "string": "Background long"
+    },
+    "result": {
+      "value": 2,
+      "string": "Aborted (device reset ?)"
+    },
+    "power_on_time": {
+      "hours": 56308,
+      "aka": "accumulated_power_on_hours"
+    }
+  },
+  "scsi_self_test_1": {
+    "code": {
+      "value": 1,
+      "string": "Background short"
+    },
+    "result": {
+      "value": 2,
+      "string": "Aborted (device reset ?)"
+    },
+    "power_on_time": {
+      "hours": 56293,
+      "aka": "accumulated_power_on_hours"
+    }
+  },
+  "scsi_extended_self_test_seconds": 67680,
+  "scsi_background_scan": {
+    "status": {
+      "value": 0,
+      "string": "no scans active",
+      "number_scans_performed": 0,
+      "scan_progress": "0.00%",
+      "number_medium_scans_performed": 0
+    },
+    "result_1": {
+      "parameter_code": 1,
+      "accumulated_power_on": {
+        "minutes": 3156926
+      },
+      "lba": 19573880816,
+      "sense_key": {
+        "value": 4,
+        "string": "Hardware Error"
+      },
+      "asc": 9,
+      "ascq": 0,
+      "reassign_status": {
+        "value": 2,
+        "string": "Successfully reassigned"
+      }
+    },
+    "result_2": {
+      "parameter_code": 2,
+      "accumulated_power_on": {
+        "minutes": 3156926
+      },
+      "lba": 19573880824,
+      "sense_key": {
+        "value": 4,
+        "string": "Hardware Error"
+      },
+      "asc": 9,
+      "ascq": 0,
+      "reassign_status": {
+        "value": 2,
+        "string": "Successfully reassigned"
+      }
+    },
+    "result_3": {
+      "parameter_code": 3,
+      "accumulated_power_on": {
+        "minutes": 3156926
+      },
+      "lba": 19573880832,
+      "sense_key": {
+        "value": 4,
+        "string": "Hardware Error"
+      },
+      "asc": 9,
+      "ascq": 0,
+      "reassign_status": {
+        "value": 2,
+        "string": "Successfully reassigned"
+      }
+    },
+    "result_4": {
+      "parameter_code": 4,
+      "accumulated_power_on": {
+        "minutes": 3156926
+      },
+      "lba": 19573880848,
+      "sense_key": {
+        "value": 4,
+        "string": "Hardware Error"
+      },
+      "asc": 9,
+      "ascq": 0,
+      "reassign_status": {
+        "value": 2,
+        "string": "Successfully reassigned"
+      }
+    },
+    "result_5": {
+      "parameter_code": 5,
+      "accumulated_power_on": {
+        "minutes": 3156926
+      },
+      "lba": 19573880856,
+      "sense_key": {
+        "value": 4,
+        "string": "Hardware Error"
+      },
+      "asc": 9,
+      "ascq": 0,
+      "reassign_status": {
+        "value": 2,
+        "string": "Successfully reassigned"
+      }
+    },
+    "result_6": {
+      "parameter_code": 6,
+      "accumulated_power_on": {
+        "minutes": 3156926
+      },
+      "lba": 19573880864,
+      "sense_key": {
+        "value": 4,
+        "string": "Hardware Error"
+      },
+      "asc": 9,
+      "ascq": 0,
+      "reassign_status": {
+        "value": 2,
+        "string": "Successfully reassigned"
+      }
+    },
+    "result_7": {
+      "parameter_code": 7,
+      "accumulated_power_on": {
+        "minutes": 3335430
+      },
+      "lba": 23160039632,
+      "sense_key": {
+        "value": 1,
+        "string": "Recovered Error"
+      },
+      "asc": 24,
+      "ascq": 1,
+      "reassign_status": {
+        "value": 5,
+        "string": "Recovered via rewrite in-place"
+      }
+    },
+    "result_8": {
+      "parameter_code": 8,
+      "accumulated_power_on": {
+        "minutes": 3335430
+      },
+      "lba": 23158021832,
+      "sense_key": {
+        "value": 1,
+        "string": "Recovered Error"
+      },
+      "asc": 23,
+      "ascq": 1,
+      "reassign_status": {
+        "value": 5,
+        "string": "Recovered via rewrite in-place"
+      }
+    },
+    "result_9": {
+      "parameter_code": 9,
+      "accumulated_power_on": {
+        "minutes": 3343619
+      },
+      "lba": 5775332776,
+      "sense_key": {
+        "value": 4,
+        "string": "Hardware Error"
+      },
+      "asc": 9,
+      "ascq": 0,
+      "reassign_status": {
+        "value": 2,
+        "string": "Successfully reassigned"
+      }
+    },
+    "result_49152": {
+      "parameter_code": 49152,
+      "accumulated_power_on": {
+        "minutes": 3342641
+      },
+      "lba": 2894752740,
+      "sense_key": {
+        "value": 1,
+        "string": "Recovered Error"
+      },
+      "asc": 24,
+      "ascq": 8,
+      "reassign_status": {
+        "value": 5,
+        "string": "Recovered via rewrite in-place"
+      }
+    }
+  },
+  "scsi_sas_port_0": {
+    "relative_target_port_id": 1,
+    "generation_code": 0,
+    "number_of_phys": 1,
+    "phy_0": {
+      "identifier": 0,
+      "attached_device_type": "SAS or SATA device",
+      "attached_reason": "unknown",
+      "reason": "unknown",
+      "negotiated_logical_link_rate": "phy enabled; 6 Gbps",
+      "attached_initiator_port": {
+        "ssp_stp_smp": "111"
+      },
+      "attached_target_port": {
+        "ssp_stp_smp": "000"
+      },
+      "sas_address": "0x5000c500a0000000",
+      "attached_sas_address": "0x5000c500a0000000",
+      "attached_phy_identifier": 1,
+      "invalid_dword_count": 4,
+      "running_disparity_error_count": 4,
+      "loss_of_dword_synchronization_count": 28,
+      "phy_reset_problem_count": 0
+    }
+  },
+  "scsi_sas_port_1": {
+    "relative_target_port_id": 2,
+    "generation_code": 0,
+    "number_of_phys": 1,
+    "phy_0": {
+      "identifier": 1,
+      "attached_device_type": "no device attached",
+      "attached_reason": "unknown",
+      "reason": "unknown",
+      "negotiated_logical_link_rate": "phy enabled; unknown",
+      "attached_initiator_port": {
+        "ssp_stp_smp": "000"
+      },
+      "attached_target_port": {
+        "ssp_stp_smp": "000"
+      },
+      "sas_address": "0x5000c500a0000000",
+      "attached_sas_address": "0x5000c500a0000000",
+      "attached_phy_identifier": 0,
+      "invalid_dword_count": 0,
+      "running_disparity_error_count": 0,
+      "loss_of_dword_synchronization_count": 0,
+      "phy_reset_problem_count": 0
+    }
+  }
+}
