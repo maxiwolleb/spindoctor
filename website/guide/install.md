@@ -16,7 +16,21 @@ services:
       # App database (SQLite) lives here; back this up like you would any
       # other stateful volume.
       - ./data:/data
+      # Uncomment together with the device-passthrough block below. `lsblk`
+      # reads drive serials from the host's udev database, and spindoctor keys
+      # every drive on its serial — without this mount every disk comes back
+      # serial-less, discovery drops all of them, and the dashboard stays empty
+      # even though the disks are attached and healthy.
+      # - /run/udev:/run/udev:ro
     restart: unless-stopped
+
+    # Strongly recommended once you pass any device through: the host's own
+    # system disk, by serial. In a container `lsblk` reports only the
+    # container's mount namespace, so spindoctor cannot work out which disk the
+    # host booted from — see Safety. Read serials with
+    # `lsblk -o NAME,SERIAL,MOUNTPOINTS` on the host.
+    # environment:
+    #   - SPINDOCTOR_SYSTEM_DISK_SERIALS=YOUR-SYSTEM-DISK-SERIAL
 
     # Device passthrough — REQUIRED for real SMART/badblocks/hdparm access,
     # OFF by default so a plain `docker compose up` never touches host disks.

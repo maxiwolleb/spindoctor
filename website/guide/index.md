@@ -29,8 +29,8 @@ spindoctor runs a fixed health regime per drive:
    surface result are evaluated against configurable thresholds into a
    strict **PASS / WARN / FAIL**, with structured reasons attached.
 
-Everything is driven and observed from a web UI backed by Server-Sent
-Events, so you can attach a batch of drives, kick off tests, and watch
+Everything is driven and observed from a web UI fed by a live event
+stream, so you can attach a batch of drives, kick off tests, and watch
 SMART snapshots, self-test progress, and surface-scan status update live,
 per drive — without babysitting a terminal.
 

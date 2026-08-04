@@ -4,10 +4,10 @@
 
 spindoctor is a pnpm-workspace monorepo with three packages:
 
-- **`apps/backend`** — Fastify + TypeScript. REST API, Server-Sent Events
+- **`apps/backend`** — Fastify + TypeScript. REST API, live events over
   for live progress, and (in production) static serving of the built SPA.
 - **`apps/web`** — Vue 3 + Vite + TypeScript, using **Vuetify** for
-  components and **Pinia** for state, fed by the backend's SSE stream.
+  components and **Pinia** for state, fed by the backend's event stream.
 - **`packages/shared`** — wire types (drive/run/stage views, verdict
   types, thresholds, events) imported by both sides. It's **source-only**:
   its `package.json` `exports` point straight at `./src/index.ts` with no
@@ -30,15 +30,16 @@ Under `apps/backend/src/`:
   on startup — a self-test resumes by polling, a killed surface stage
   restarts. `AutoModePoller` sits alongside it, polling drive discovery on
   an interval and enqueuing destructive runs when auto-mode is on.
-- **`safety/`** — `checkDestructiveAllowed`, the single guard function
-  consulted by every destructive-start path (manual API route, the
-  pre-write re-check, and the auto-mode poller) — see
+- **`safety/`** — `checkRunAllowed`, the single guard function consulted by
+  every start path, destructive or read-only (manual API route, the resume
+  path, the pre-write re-check, and the auto-mode poller) — see
   [Safety](/guide/safety).
 - **`verdict/`** — `evaluateVerdict`, a **pure** function: before/after
   SMART metrics + self-test result + surface result + thresholds →
   PASS/WARN/FAIL with structured reasons. No I/O, heavily table-tested.
 - **`api/`** — Fastify route registration (`drives`, `runs`, `settings`,
-  `audit`, `events`/SSE) plus a uniform JSON error shape.
+  `audit`, `diagnostics`) plus a uniform JSON error shape, and `realtime.ts`,
+  which attaches Socket.IO for live run/stage events.
 - **`db/`** — SQLite via **Drizzle ORM** + `better-sqlite3`; repositories
   for drives, runs, stage results, SMART snapshots, config, and audit log.
 
@@ -47,13 +48,13 @@ Everything is keyed on the drive's **serial number** — device paths
 long-running stage, since a device node can be reassigned or reused
 across a multi-hour regime.
 
-## Live progress: SSE
+## Live progress
 
-The web UI doesn't poll. `apps/backend/src/api/routes/events.ts` exposes
-an SSE endpoint that bridges `TestEngine`'s `run:update` and
-`stage:progress` events straight onto the wire; the Pinia store in
-`apps/web` subscribes once and updates reactively as stages progress,
-self-tests tick forward, and verdicts land.
+The web UI doesn't poll. `apps/backend/src/api/realtime.ts` attaches
+**Socket.IO** to Fastify's raw HTTP server and bridges `TestEngine`'s
+`run:update` and `stage:progress` events straight onto the wire; the Pinia
+store in `apps/web` subscribes once and updates reactively as stages
+progress, self-tests tick forward, and verdicts land.
 
 ## The `tsx` runtime
 

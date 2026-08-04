@@ -68,6 +68,17 @@ export interface RealDeviceApiOpts {
   /** Serials to treat as system disks, comma-separated. Defaults to
    * `process.env.SPINDOCTOR_SYSTEM_DISK_SERIALS`. */
   systemDiskSerials?: string
+  /**
+   * True for a drive spindoctor is itself testing right now, which is not probed.
+   *
+   * Two reasons. The probe holds an exclusive claim for a few microseconds, and
+   * real badblocks takes its own `O_EXCL` probe when it starts `-w`: if the two
+   * coincide, badblocks refuses ("apparently in use by the system"), which since
+   * #84 fails the run outright — throwing away the SMART read and the hours-long
+   * self-test that preceded it. And the answer would be about us anyway, which
+   * tells the guard nothing it doesn't already enforce via the active-run check.
+   */
+  isDriveUnderTest?: (serial: string) => boolean
   /** Structured logger; silent by default. */
   logger?: Logger
 }
@@ -126,8 +137,14 @@ export class RealDeviceApi implements DeviceApi {
     const systemSerials = this.systemDiskSerials()
     return Promise.all(
       merged.map(async (drive) => {
-        const claim = await probeDeviceClaim(drive.devicePath, this.opts.exclusiveOpener)
-        if (claim === "unknown") this.reportClaimUnknown(drive.devicePath)
+        // Not probed at all (so reported as unknown) while we are the ones using
+        // it: probing would race our own badblocks for no new information.
+        const claim = this.opts.isDriveUnderTest?.(drive.serial)
+          ? "unknown"
+          : await probeDeviceClaim(drive.devicePath, this.opts.exclusiveOpener)
+        if (claim === "unknown" && this.opts.isDriveUnderTest?.(drive.serial) !== true) {
+          this.reportClaimUnknown(drive.devicePath)
+        }
         return {
           ...drive,
           claim,

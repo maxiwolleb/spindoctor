@@ -125,7 +125,14 @@ from](#where-the-thresholds-come-from) below. The rules, in order:
     stronger evidence than a firmware self-test anyway.
 - **Surface scan:**
   - any bad block found (`badBlocks > 0`) → **FAIL**.
-  - didn't complete → **WARN**.
+  - started but didn't finish (aborted, or the tool stopped partway) →
+    **WARN**.
+  - never started at all — the surface tool exited without scanning a single
+    block — the **run fails** with `SURFACE_COULD_NOT_START` and produces no
+    verdict. A drive that was not measured is neither a PASS nor a WARN, and
+    grading it as "incomplete" is how the 4 TiB block-size bug stayed invisible
+    (see [issue #84](https://github.com/maxiwolleb/spindoctor/issues/84)). The
+    tool's own error is kept on the stage.
 - **Hard uncorrectable indicators** (after the test) — any of these
   `> 0` → **FAIL**:
   - current pending sectors

@@ -6,7 +6,7 @@ Thanks for considering a contribution to spindoctor.
 
 spindoctor is a pnpm workspace monorepo:
 
-- `apps/backend` — Fastify + TypeScript backend (REST + SSE, SQLite via
+- `apps/backend` — Fastify + TypeScript backend (REST + live events, SQLite via
   Drizzle).
 - `apps/web` — Vue 3 + Vuetify frontend, built with Vite.
 - `packages/shared` — wire types shared by both sides (source-only, no

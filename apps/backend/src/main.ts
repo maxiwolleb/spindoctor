@@ -68,8 +68,19 @@ export function createServer(overrides: CreateServerOverrides = {}): Server {
   ensureConfig(db)
 
   const logger = overrides.logger ?? createLogger()
-  const deviceApi = overrides.deviceApi ?? new RealDeviceApi(execFileRunner, { logger })
-  const engine = new TestEngine({ db, deviceApi, logger })
+  // The closure below refers to `engine`, declared just after this: the device
+  // API is built first, but its claim probe has to skip drives the engine is
+  // already testing. Safe because it is only ever called from `listDevices`,
+  // long after both exist.
+  // Both annotated explicitly: the closure's reference to `engine` would
+  // otherwise be a circular inference TypeScript can't resolve.
+  const deviceApi: DeviceApi =
+    overrides.deviceApi ??
+    new RealDeviceApi(execFileRunner, {
+      logger,
+      isDriveUnderTest: (serial: string): boolean => engine.isDriveActive(serial),
+    })
+  const engine: TestEngine = new TestEngine({ db, deviceApi, logger })
   // Recorded in a diagnostics bundle so a finding can be tied to the code that
   // produced it. Set at deploy time; null when nobody bothered, which is fine.
   const spindoctorVersion = process.env.SPINDOCTOR_VERSION ?? null

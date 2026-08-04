@@ -17,7 +17,7 @@ hero:
 
 features:
   - title: Live console
-    details: A Vue 3 + Vuetify dashboard driven over SSE — SMART snapshots, self-test progress, and surface-scan status update in real time, per drive.
+    details: A Vue 3 + Vuetify dashboard driven by a live event stream — SMART snapshots, self-test progress, and surface-scan status update in real time, per drive.
   - title: Strict verdicts
     details: Reallocated and pending sectors, SSD/NVMe wear, self-test and surface-scan results are evaluated against configurable thresholds into a structured PASS / WARN / FAIL with reasons.
   - title: Safety-first
