@@ -3,6 +3,7 @@
   "language": "en",
   "words": [
     "Backblaze",
+    "Realtek",
     "backplane",
     "badblocks",
     "blockdevices",
@@ -35,7 +36,6 @@
     "pseudonymized",
     "pseudonyms",
     "rawio",
-    "Realtek",
     "reservd",
     "scanline",
     "scanlines",
@@ -52,6 +52,7 @@
     "testhelpers",
     "toctou",
     "udma",
+    "unabortable",
     "uncorrect",
     "unparseable",
     "unsalvageable",
