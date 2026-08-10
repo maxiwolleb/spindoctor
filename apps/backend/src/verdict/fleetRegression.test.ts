@@ -35,6 +35,8 @@ const base: SmartKeyMetrics = {
   percentageUsed: null,
   mediaErrors: null,
   temperatureC: null,
+  temperatureMinC: null,
+  temperatureMaxC: null,
   grownDefects: null,
   linkErrors: null,
   smartHealthPassed: null,

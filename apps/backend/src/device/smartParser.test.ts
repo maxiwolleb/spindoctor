@@ -50,6 +50,8 @@ describe("parseSmartMetrics (ATA)", () => {
       percentageUsed: null,
       mediaErrors: null,
       temperatureC: 33,
+      temperatureMinC: null,
+      temperatureMaxC: null,
       grownDefects: null,
       linkErrors: null,
       smartHealthPassed: true,
@@ -88,6 +90,8 @@ describe("parseSmartMetrics (NVMe)", () => {
       percentageUsed: 4,
       mediaErrors: 0,
       temperatureC: 41,
+      temperatureMinC: null,
+      temperatureMaxC: null,
       grownDefects: null,
       linkErrors: null,
       smartHealthPassed: true,
@@ -453,7 +457,14 @@ describe("parseSmartAttributes (SAS/SCSI)", () => {
     // scsi-minimal has no error counter log, no defect list, no phy counters
     // and no power-on time — only a self-assessment.
     const rows = parseSmartAttributes(scsiMinimal, DEFAULT_THRESHOLDS)
-    expect(rows.map((r) => r.name)).toEqual(["scsi_smart_status"])
+    // Its environmental report page is real data the fixture carries, so the
+    // lifetime extremes belong here too (#71) — what must not appear is a row
+    // for a counter the drive never reported.
+    expect(rows.map((r) => r.name)).toEqual([
+      "scsi_smart_status",
+      "temperature_lifetime_min",
+      "temperature_lifetime_max",
+    ])
     expect(rows[0]).toMatchObject({ rawString: "OK", health: "ok" })
   })
 
@@ -848,5 +859,119 @@ describe("parseScsiSelfTestRemainingPercent", () => {
   it("rejects a figure outside 0-100 instead of reporting impossible progress", () => {
     // 100 - 850 would render as -750% done.
     expect(parseScsiSelfTestRemainingPercent("850% of test remaining")).toBeNull()
+  })
+})
+
+// Issue #71: this tool qualifies *used* drives, and the drive's own lifetime
+// temperature extremes are the one thing in the payload that says anything about
+// the life it had before it reached the bench. Current temperature describes the
+// test rig; a disk that spent years at 55 °C and one that never passed 35 °C can
+// present an identical attribute table today.
+//
+// Key names verified against the smartmontools 7.4 source the image ships
+// (`ataprint.cpp` `sct_jtemp2`, `scsiprint.cpp` environmental reports), not
+// against a host capture — #65's lesson.
+describe("lifetime temperature extremes (#71)", () => {
+  // smartctl writes SCT status *and* ATA device-statistics temperatures into the
+  // same top-level `temperature` object, so reading it covers both sources.
+  const ataWithExtremes = {
+    ...ataHealthy,
+    temperature: {
+      current: 34,
+      power_cycle_min: 29,
+      power_cycle_max: 40,
+      lifetime_min: 20,
+      lifetime_max: 47,
+    },
+  }
+
+  it("reads an ATA drive's lifetime min and max", () => {
+    const m = parseSmartMetrics(ataWithExtremes)
+    expect(m.temperatureMinC).toBe(20)
+    expect(m.temperatureMaxC).toBe(47)
+    // The current reading keeps coming from where it always did.
+    expect(m.temperatureC).toBe(34)
+  })
+
+  it("reports each end independently", () => {
+    // Real case, not defensive padding: smartctl omits the min for a drive
+    // reporting the older SCT format ("old_format_2"), and omits either end that
+    // reads as the 0x80 unknown sentinel — while still printing the max.
+    const maxOnly = { ...ataHealthy, temperature: { current: 34, lifetime_max: 47 } }
+    expect(parseSmartMetrics(maxOnly)).toMatchObject({ temperatureMinC: null, temperatureMaxC: 47 })
+  })
+
+  it("reads a SAS drive's environmental report", () => {
+    // SCSI puts them in a log page of its own; the top-level `temperature`
+    // object carries only current + drive_trip on SAS (verified against real
+    // ST12000NM0027/ST8000NM0075 captures).
+    const sas = {
+      ...sas12tbReal,
+      scsi_environmental_reports: {
+        temperature_1: {
+          parameter_code: 0,
+          current: 40,
+          lifetime_maximum: 52,
+          lifetime_minimum: 18,
+        },
+      },
+    }
+    expect(parseSmartMetrics(sas)).toMatchObject({ temperatureMinC: 18, temperatureMaxC: 52 })
+  })
+
+  it("treats SCSI's unknown sentinel as no reading", () => {
+    // scsiprint.cpp writes the *string* "unknown" for 0x80 rather than omitting
+    // the key, so a naive read would put "unknown" in a numeric field.
+    const sas = {
+      ...sas12tbReal,
+      scsi_environmental_reports: {
+        temperature_1: { current: 40, lifetime_maximum: 52, lifetime_minimum: "unknown" },
+      },
+    }
+    expect(parseSmartMetrics(sas)).toMatchObject({ temperatureMinC: null, temperatureMaxC: 52 })
+  })
+
+  it("rejects a physically impossible reading", () => {
+    const nonsense = {
+      ...ataHealthy,
+      temperature: { current: 34, lifetime_min: -273, lifetime_max: 900 },
+    }
+    expect(parseSmartMetrics(nonsense)).toMatchObject({
+      temperatureMinC: null,
+      temperatureMaxC: null,
+    })
+  })
+
+  it("is null for drives that report no extremes at all", () => {
+    expect(parseSmartMetrics(ataHealthy)).toMatchObject({
+      temperatureMinC: null,
+      temperatureMaxC: null,
+    })
+    expect(parseSmartMetrics(nvmeHealthy)).toMatchObject({
+      temperatureMinC: null,
+      temperatureMaxC: null,
+    })
+    expect(parseSmartMetrics(sas12tbReal)).toMatchObject({
+      temperatureMinC: null,
+      temperatureMaxC: null,
+    })
+  })
+
+  it("shows the extremes as explained attribute rows", () => {
+    // Surfaced next to the current temperature rather than buried in the run
+    // JSON, and with an explanation — an unexplained row is what the gap report
+    // flags (#70).
+    const rows = parseSmartAttributes(ataWithExtremes, DEFAULT_THRESHOLDS)
+    const min = rows.find((r) => r.name === "temperature_lifetime_min")
+    const max = rows.find((r) => r.name === "temperature_lifetime_max")
+
+    expect(min).toMatchObject({ rawValue: 20, health: "ok", id: null })
+    expect(max).toMatchObject({ rawValue: 47, health: "ok", id: null })
+  })
+
+  it("omits the rows for a drive that reports no extremes", () => {
+    const names = parseSmartAttributes(ataHealthy, DEFAULT_THRESHOLDS).map((r) => r.name)
+    expect(names).not.toContain("temperature_lifetime_min")
+    expect(names).not.toContain("temperature_lifetime_max")
   })
 })

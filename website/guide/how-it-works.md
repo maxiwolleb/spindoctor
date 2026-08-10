@@ -54,6 +54,15 @@ What that table contains depends on how the drive reports health:
   read/write/verify (uncorrected, recovered-by-retry, and corrected totals), and
   the SAS phy link counters summed across every phy.
 
+Whatever the transport, the table also carries the drive's own **lifetime
+minimum and maximum temperature** when it keeps them (ATA in its SCT log, SAS in
+an environmental report page; NVMe reports none). Current temperature tells you
+about the room the drive is in right now — the lifetime maximum is the only
+figure in the payload that says anything about the life a used drive had before
+it reached you. It is shown and explained, never graded: there is no published
+failure-rate banding for lifetime temperature to put a fair cutoff on, and
+inventing one is exactly what the thresholds below avoid.
+
 Some of those counters are routinely enormous on a perfectly healthy drive —
 millions of ECC-corrected reads, thousands of grown defects, hundreds of invalid
 DWORDs from ordinary cabling — which is the whole reason each row carries an

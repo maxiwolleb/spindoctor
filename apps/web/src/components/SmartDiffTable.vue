@@ -35,6 +35,12 @@ const METRICS: MetricDef[] = [
   { key: "percentageUsed", label: "Percentage used", worseIsHigher: true },
   { key: "mediaErrors", label: "Media errors", worseIsHigher: true },
   { key: "temperatureC", label: "Temperature (°C)", worseIsHigher: false },
+  // The drive's own lifetime extremes (issue #71). Not "worse is higher" even
+  // though the maximum can genuinely rise during our surface pass: they are
+  // shown for judgement about a used drive's history and are not graded, so
+  // flagging the rise would claim a health regression the verdict never makes.
+  { key: "temperatureMinC", label: "Lifetime min temperature (°C)", worseIsHigher: false },
+  { key: "temperatureMaxC", label: "Lifetime max temperature (°C)", worseIsHigher: false },
 ]
 
 interface Row {

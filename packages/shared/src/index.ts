@@ -48,6 +48,20 @@ export interface SmartKeyMetrics {
   mediaErrors: number | null
   temperatureC: number | null
   /**
+   * The lowest and highest temperature the drive has ever recorded, from its own
+   * lifetime log — ATA's SCT status / device statistics, SCSI's environmental
+   * report page. `null` on NVMe and on any drive that doesn't keep them.
+   *
+   * The one field in the payload that describes the drive's *previous* life
+   * rather than the test rig: a disk that spent years at 55 °C and one that never
+   * passed 35 °C can present an identical attribute table today (issue #71).
+   * Shown and explained, never graded — there is no published failure-rate
+   * banding for lifetime temperature to calibrate a threshold against, and
+   * inventing one is what the threshold audit deliberately avoided.
+   */
+  temperatureMinC: number | null
+  temperatureMaxC: number | null
+  /**
    * SAS/SCSI grown defect list size — blocks the drive has retired since
    * format. The SAS analogue of ATA reallocated sectors, but deliberately kept
    * as its own metric because the scale is entirely different: healthy SAS
