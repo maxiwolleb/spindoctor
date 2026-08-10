@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest"
 import pino from "pino"
-import type { CommandRunner } from "./runner"
+import { TIMED_OUT_EXIT_CODE, type CommandRunner } from "./runner"
 import { RealDeviceApi, isProcessAlive } from "./realDeviceApi"
 import { checkRunAllowed } from "../safety/guards"
 import { tmpdir } from "node:os"
@@ -642,5 +642,104 @@ describe("isProcessAlive", () => {
   it("is false for a pid that does not exist", () => {
     // Far above /proc/sys/kernel/pid_max on any normal system.
     expect(isProcessAlive(0x7ffffff0)).toBe(false)
+  })
+})
+
+// Issue #109: `execFileRunner` only bounds a command if it is asked to, and no
+// caller asked. Every one of these talks to a device that can stop answering.
+describe("RealDeviceApi command deadlines (#109)", () => {
+  /** Generous on purpose: smartctl normally answers in well under 5 s, but a
+   * drive doing heavy internal error recovery can take tens of seconds, and a
+   * deadline that fires on a healthy-but-slow drive would fail runs that should
+   * have passed. */
+  const EXPECTED_TIMEOUT_MS = 120_000
+
+  function recordingRunner(stdoutFor: (key: string) => string): {
+    runner: CommandRunner
+    seen: { key: string; timeoutMs?: number }[]
+  } {
+    const seen: { key: string; timeoutMs?: number }[] = []
+    return {
+      seen,
+      runner: {
+        async run(cmd, args, opts) {
+          const key = [cmd, ...args].join(" ")
+          seen.push({ key, timeoutMs: opts?.timeoutMs })
+          return { stdout: stdoutFor(key), stderr: "", code: 0 }
+        },
+      },
+    }
+  }
+
+  it("bounds discovery's lsblk and smartctl --scan", async () => {
+    const { runner, seen } = recordingRunner((key) =>
+      key.includes("lsblk") ? JSON.stringify(lsblk) : JSON.stringify(scan),
+    )
+
+    await new RealDeviceApi(runner).listDevices()
+
+    expect(seen).toHaveLength(2)
+    expect(seen.every((c) => c.timeoutMs === EXPECTED_TIMEOUT_MS)).toBe(true)
+  })
+
+  it("bounds the SMART read the self-test poll loop depends on", async () => {
+    // The one that parked the loop: unbounded, a wedged smartctl here left the
+    // run RUNNING and unabortable for the rest of the process's life.
+    const { runner, seen } = recordingRunner(() => JSON.stringify(ataHealthy))
+
+    await new RealDeviceApi(runner).readSmartRaw("/dev/sda")
+
+    expect(seen[0]).toMatchObject({ key: "smartctl -x --json=c /dev/sda" })
+    expect(seen[0]?.timeoutMs).toBe(EXPECTED_TIMEOUT_MS)
+  })
+
+  it("bounds the text-mode read behind SCSI self-test progress", async () => {
+    // Added by #113 after this deadline work was written, and just as able to
+    // wedge: it is the same poll, one call later.
+    const running = {
+      ...scsiMinimal,
+      scsi_self_test_0: { self_test_in_progress: true, code: { string: "Background long" } },
+    }
+    const { runner, seen } = recordingRunner((key) =>
+      key.includes("--json")
+        ? JSON.stringify(running)
+        : "Self-test execution status: 75% of test remaining",
+    )
+
+    await new RealDeviceApi(runner).pollSelfTest("/dev/sda")
+
+    expect(seen.map((c) => c.key)).toEqual([
+      "smartctl -x --json=c /dev/sda",
+      "smartctl -a /dev/sda",
+    ])
+    expect(seen.map((c) => c.timeoutMs)).toEqual([EXPECTED_TIMEOUT_MS, EXPECTED_TIMEOUT_MS])
+  })
+
+  it("fails a timed-out SMART read instead of passing an empty reading on", async () => {
+    // The deadline is only useful because of what an empty stdout does here: the
+    // JSON parse fails, the stage fails visibly, and the run reaches a terminal
+    // status. That beats the alternative it replaces — hanging forever — and it
+    // beats the one it must never become: a "successful" read of nothing.
+    const runner: CommandRunner = {
+      async run() {
+        return {
+          stdout: "",
+          stderr: "smartctl timed out after 120000ms",
+          code: TIMED_OUT_EXIT_CODE,
+        }
+      },
+    }
+
+    await expect(new RealDeviceApi(runner).readSmartRaw("/dev/sda")).rejects.toThrow(/non-JSON/)
+  })
+
+  it("bounds starting and aborting a self-test", async () => {
+    const { runner, seen } = recordingRunner(() => "")
+    const api = new RealDeviceApi(runner)
+
+    await api.startLongSelfTest("/dev/sda")
+    await api.abortSelfTest("/dev/sda")
+
+    expect(seen.map((c) => c.timeoutMs)).toEqual([EXPECTED_TIMEOUT_MS, EXPECTED_TIMEOUT_MS])
   })
 })
