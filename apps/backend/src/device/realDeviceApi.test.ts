@@ -17,6 +17,7 @@ import lsblk from "./__fixtures__/lsblk.json"
 import scan from "./__fixtures__/smartctl-scan.json"
 import ataHealthy from "./__fixtures__/ata-healthy.json"
 import ataSelfTestProgress from "./__fixtures__/ata-selftest-progress.json"
+import scsiMinimal from "./__fixtures__/scsi-minimal.json"
 
 function fakeRunner(map: Record<string, { stdout: string; code?: number }>): CommandRunner {
   return {
@@ -120,6 +121,76 @@ describe("RealDeviceApi", () => {
       running: false,
       percentRemaining: null,
       result: { status: "PASSED" },
+    })
+  })
+
+  // A SAS routine's percentage is nowhere in the JSON — only in smartctl's text
+  // output — so reading it takes a second call per poll. Without it the longest
+  // stage in the regime sat at a flat 0% for 13-19 hours.
+  describe("SCSI self-test progress", () => {
+    const scsiRunning = {
+      ...scsiMinimal,
+      scsi_self_test_0: { self_test_in_progress: true, code: { string: "Background long" } },
+    }
+
+    function trackingRunner(text: () => Promise<{ stdout: string }>): {
+      runner: CommandRunner
+      calls: string[]
+    } {
+      const calls: string[] = []
+      return {
+        calls,
+        runner: {
+          async run(cmd, args) {
+            const key = [cmd, ...args].join(" ")
+            calls.push(key)
+            if (key.includes("--json")) {
+              return { stdout: JSON.stringify(scsiRunning), stderr: "", code: 0 }
+            }
+            return { ...(await text()), stderr: "", code: 0 }
+          },
+        },
+      }
+    }
+
+    it("scrapes the percentage out of a text-mode read", async () => {
+      const { runner, calls } = trackingRunner(async () => ({
+        stdout: "Self-test execution status:\t\t75% of test remaining",
+      }))
+
+      // 75 remaining is the 25% done the dashboard showed on hardware.
+      expect(await new RealDeviceApi(runner).pollSelfTest("/dev/sda")).toEqual({
+        running: true,
+        percentRemaining: 75,
+        result: null,
+      })
+      expect(calls).toEqual(["smartctl -x --json=c /dev/sda", "smartctl -a /dev/sda"])
+    })
+
+    it("keeps the poll alive when the text read fails", async () => {
+      // Losing an hours-long stage over a missing progress figure would be a far
+      // worse trade than losing the figure, so the extra call cannot be fatal.
+      const { runner } = trackingRunner(() => Promise.reject(new Error("smartctl vanished")))
+
+      expect(await new RealDeviceApi(runner).pollSelfTest("/dev/sda")).toEqual({
+        running: true,
+        percentRemaining: null,
+        result: null,
+      })
+    })
+
+    it("does not spend the extra call on a drive that is not running a SCSI routine", async () => {
+      const calls: string[] = []
+      const runner: CommandRunner = {
+        async run(cmd, args) {
+          calls.push([cmd, ...args].join(" "))
+          return { stdout: JSON.stringify(ataSelfTestProgress), stderr: "", code: 0 }
+        },
+      }
+
+      await new RealDeviceApi(runner).pollSelfTest("/dev/sda")
+
+      expect(calls).toEqual(["smartctl -x --json=c /dev/sda"])
     })
   })
 })

@@ -13,6 +13,8 @@ import * as repo from "../db/repositories"
 import { FakeDeviceApi, type FakeDeviceApiState } from "../device/fakeDeviceApi"
 import { regimeStages } from "./regime"
 import { TestEngine, SafetyError, DriveNotFoundError, RunInProgressError } from "./engine"
+import { declaredSelfTestMinutes } from "../device/selfTestDuration"
+import { parseLongSelfTestMinutes } from "../device/smartParser"
 
 const drive = (over: Partial<DiscoveredDrive> = {}): DiscoveredDrive => ({
   devicePath: "/dev/sda",
@@ -740,6 +742,110 @@ describe("TestEngine full-run behavior", () => {
     const aborts = repo.listAudit(db).filter((a) => a.action === "RUN_ABORTED")
     expect(aborts).toHaveLength(1)
     expect(aborts[0]).toMatchObject({ driveSerial: d.serial, detail: "SELFTEST_LONG" })
+  })
+
+  // smartctl omits `scsi_extended_self_test_seconds` while a SAS drive's
+  // self-test log is empty, so the baseline read of a never-tested drive sees no
+  // duration — and that is exactly the drive whose first, hours-long routine
+  // most needs an ETA. Starting the routine writes the log entry that makes the
+  // field appear, so asking once more right afterwards gets it.
+  describe("declared self-test duration recovered after the routine starts", () => {
+    const sasRaw = (over: Record<string, unknown> = {}): unknown => ({
+      device: { protocol: "SCSI", type: "scsi" },
+      smart_status: { passed: true },
+      rotation_rate: 7200,
+      temperature: {},
+      ...over,
+    })
+
+    /** Answers what the drive would answer: nothing until the routine has been
+     * started, 47220s (the bench ST8000NM0075's real figure) afterwards. */
+    class LogAwareSasApi extends FakeDeviceApi {
+      override async readSmartRaw(_devicePath: string): Promise<unknown> {
+        return this.started.length > 0
+          ? sasRaw({ scsi_extended_self_test_seconds: 47220 })
+          : sasRaw()
+      }
+    }
+
+    function parkedEngine(api: FakeDeviceApi): TestEngine {
+      return new TestEngine({
+        db,
+        deviceApi: api,
+        sleep: () => new Promise<void>(() => {}),
+        selfTestPollIntervalMs: 60_000,
+      })
+    }
+
+    it("persists the recovered figure so every reader reports the same ETA", async () => {
+      const d = drive({ transport: "SAS" })
+      const api = new LogAwareSasApi({
+        drives: [d],
+        selfTestByPath: {
+          [d.devicePath]: { running: true, percentRemaining: 90, result: null },
+        },
+      })
+
+      const runId = await parkedEngine(api).startRun({ serial: d.serial, mode: "destructive" })
+      await flushMicrotasks()
+
+      // In the run's own regime, not back-dated into the baseline snapshot:
+      // that capture is the drive's state before we touched it.
+      expect(repo.getRun(db, runId)?.regime).toMatchObject({
+        mode: "destructive",
+        declaredSelfTestMinutes: 787, // 47220s
+      })
+      expect(declaredSelfTestMinutes(db, runId)).toBe(787)
+      expect(parseLongSelfTestMinutes(repo.getSnapshotRaws(db, runId).before)).toBeNull()
+    })
+
+    it("leaves an ATA drive's second read unasked", async () => {
+      // ATA declares its duration independently of its log, so a missing figure
+      // there is a real answer and re-reading would only cost a smartctl call.
+      const d = drive()
+      const reads: string[] = []
+      class CountingApi extends FakeDeviceApi {
+        override async readSmartRaw(devicePath: string): Promise<unknown> {
+          reads.push(devicePath)
+          return smartRaw()
+        }
+      }
+      const api = new CountingApi({
+        drives: [d],
+        selfTestByPath: {
+          [d.devicePath]: { running: true, percentRemaining: 90, result: null },
+        },
+      })
+
+      await parkedEngine(api).startRun({ serial: d.serial, mode: "destructive" })
+      await flushMicrotasks()
+
+      expect(reads).toEqual([d.devicePath]) // SMART_BEFORE only
+    })
+
+    it("does not fail the stage when the recovery read throws", async () => {
+      // An ETA is a nicety; losing a 13-hour stage over one would not be.
+      const d = drive({ transport: "SAS" })
+      class ThrowsAfterStartApi extends FakeDeviceApi {
+        override async readSmartRaw(_devicePath: string): Promise<unknown> {
+          if (this.started.length > 0) throw new Error("smartctl vanished")
+          return sasRaw()
+        }
+      }
+      const api = new ThrowsAfterStartApi({
+        drives: [d],
+        selfTestByPath: {
+          [d.devicePath]: { running: true, percentRemaining: 90, result: null },
+        },
+      })
+
+      const runId = await parkedEngine(api).startRun({ serial: d.serial, mode: "destructive" })
+      await flushMicrotasks()
+
+      expect(repo.getRun(db, runId)?.currentStage).toBe("SELFTEST_LONG")
+      expect(repo.getRun(db, runId)?.status).toBe("RUNNING")
+      expect(declaredSelfTestMinutes(db, runId)).toBeNull()
+    })
   })
 })
 
