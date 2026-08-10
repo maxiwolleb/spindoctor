@@ -5,8 +5,27 @@ import type {
   SurfaceResult,
 } from "@spindoctor/shared"
 
+export interface ListDevicesOpts {
+  /**
+   * A serial whose claim must be probed even if the caller is otherwise treated
+   * as already testing it.
+   *
+   * `startRun` reserves the serial *before* it fetches the drive it is about to
+   * judge, so without this the claim probe is suppressed for the one drive whose
+   * claim decides whether the run may start at all — and the `IN_USE` guard can
+   * never fire on the only path that starts a run. Verified against real
+   * hardware: a destructive start on a drive the same process reported
+   * `"claim": "claimed"` returned 201.
+   *
+   * Exempting it is safe: `startRun` throws `RunInProgressError` before reaching
+   * discovery if the serial was already reserved, so a reservation seen here is
+   * always this call's own and there is no badblocks of ours to race.
+   */
+  alwaysProbe?: string
+}
+
 export interface DeviceApi {
-  listDevices(): Promise<DiscoveredDrive[]>
+  listDevices(opts?: ListDevicesOpts): Promise<DiscoveredDrive[]>
   readSmartRaw(devicePath: string): Promise<unknown>
   /**
    * Asks the drive to begin its long self-test. Resolves `false` when the drive

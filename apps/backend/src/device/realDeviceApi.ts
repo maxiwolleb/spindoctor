@@ -10,14 +10,18 @@ import type {
   SurfaceResult,
 } from "@spindoctor/shared"
 import type { CommandRunner } from "./runner"
-import type { DeviceApi } from "./deviceApi"
+import type { DeviceApi, ListDevicesOpts } from "./deviceApi"
 import { parseLsblk } from "./lsblkParser"
 import { parseSmartctlScan } from "./scanParser"
 import { mergeDiscovery } from "./discovery"
 import { buildSurfaceArgs } from "./surfaceArgs"
 import { probeDeviceClaim, type ExclusiveOpener } from "./deviceClaim"
 import { normalizeSerial } from "../safety/guards"
-import { parseSelfTest, scsiSelfTestInProgress } from "./smartParser"
+import {
+  parseScsiSelfTestRemainingPercent,
+  parseSelfTest,
+  scsiSelfTestInProgress,
+} from "./smartParser"
 import { silentLogger, type Logger } from "../logger"
 import {
   parseBadblocksPercents,
@@ -166,7 +170,7 @@ export class RealDeviceApi implements DeviceApi {
     return false
   }
 
-  async listDevices(): Promise<DiscoveredDrive[]> {
+  async listDevices(opts: ListDevicesOpts = {}): Promise<DiscoveredDrive[]> {
     const [lsblkResult, scanResult] = await Promise.all([
       this.runner.run("lsblk", ["-b", "-J", "-O"]),
       this.runner.run("smartctl", ["--scan", "--json=c"]),
@@ -197,15 +201,23 @@ export class RealDeviceApi implements DeviceApi {
         // badblocks we abandoned still holds the device but never claimed it
         // exclusively, so an exclusive open succeeds and would report "free"
         // (issue #105).
+        // Not probed at all (so reported as unknown) while we are the ones using
+        // it: probing would race our own badblocks for no new information.
+        //
+        // `alwaysProbe` overrides that for the serial a caller is admitting right
+        // now, which is the difference between the `IN_USE` guard working and
+        // being decorative — see `ListDevicesOpts.alwaysProbe`.
+        const suppressProbe =
+          this.opts.isDriveUnderTest?.(drive.serial) === true && drive.serial !== opts.alwaysProbe
         const claim = this.hasAbandonedWriter(drive.devicePath)
           ? "claimed"
-          : // Not probed at all (so reported as unknown) while we are the ones
-            // using it: probing would race our own badblocks for no new
-            // information.
-            this.opts.isDriveUnderTest?.(drive.serial)
+          : suppressProbe
             ? "unknown"
             : await probeDeviceClaim(drive.devicePath, this.opts.exclusiveOpener)
-        if (claim === "unknown" && this.opts.isDriveUnderTest?.(drive.serial) !== true) {
+        // Reported whenever a probe actually ran and could not answer. Keyed on
+        // the same condition as the probe itself, so an exempted drive whose
+        // probe genuinely fails is not silently swallowed.
+        if (claim === "unknown" && !suppressProbe) {
           this.reportClaimUnknown(drive.devicePath)
         }
         return {
@@ -284,6 +296,25 @@ export class RealDeviceApi implements DeviceApi {
     await this.runner.run("smartctl", ["-X", devicePath])
   }
 
+  /**
+   * Reads the SCSI self-test progress percentage from smartctl's text output.
+   *
+   * Deliberately non-fatal: a missing or unparseable figure degrades to `null`,
+   * which is exactly the behavior this replaces. A progress number is a nicety;
+   * losing the poll (and with it the run) over one would not be.
+   *
+   * `-a` rather than `-c`: on the SAS drives tested, `-c` does not print the
+   * "N% of test remaining" line at all, while `-a` and `-x` both do.
+   */
+  async #readScsiSelfTestRemaining(devicePath: string): Promise<number | null> {
+    try {
+      const { stdout } = await this.runner.run("smartctl", ["-a", devicePath])
+      return parseScsiSelfTestRemainingPercent(stdout)
+    } catch {
+      return null
+    }
+  }
+
   async pollSelfTest(devicePath: string): Promise<SelfTestProgress> {
     const raw = await this.readSmartRaw(devicePath)
     const j = asRecord(raw)
@@ -301,11 +332,17 @@ export class RealDeviceApi implements DeviceApi {
     }
 
     // SAS/SCSI: the newest self-test log entry carries an explicit
-    // `self_test_in_progress` flag. There is no percentage to report — smartctl
-    // prints "N% of test remaining" for SCSI to the console only, never into the
-    // JSON — so a SAS self-test shows as running-without-progress until it ends.
+    // `self_test_in_progress` flag. The percentage is not in the JSON at all —
+    // smartctl prints "N% of test remaining" for SCSI to the console only — so it
+    // takes a second, text-mode call to read it. Worth it: without it the longest
+    // stage in the regime sat at 0% for 13–19 h with no way to distinguish a
+    // healthy routine from a wedged one.
     if (scsiSelfTestInProgress(raw)) {
-      return { running: true, percentRemaining: null, result: null }
+      return {
+        running: true,
+        percentRemaining: await this.#readScsiSelfTestRemaining(devicePath),
+        result: null,
+      }
     }
 
     // ATA: in-progress self-tests report a "... in progress ..." status

@@ -4,7 +4,7 @@ import type {
   SelfTestProgress,
   SurfaceResult,
 } from "@spindoctor/shared"
-import type { DeviceApi } from "./deviceApi"
+import type { DeviceApi, ListDevicesOpts } from "./deviceApi"
 
 export interface FakeDeviceApiState {
   drives?: DiscoveredDrive[]
@@ -28,7 +28,13 @@ export class FakeDeviceApi implements DeviceApi {
   readonly surfaceCalls: { devicePath: string; sizeBytes: number; mode: RegimeMode }[] = []
   constructor(private state: FakeDeviceApiState = {}) {}
 
-  async listDevices(): Promise<DiscoveredDrive[]> {
+  /** Every `listDevices` call's options, in order, so a test can assert that
+   * `startRun` asked for its candidate serial to be probed (see
+   * `ListDevicesOpts.alwaysProbe`) rather than trusting that it did. */
+  readonly listDevicesOpts: (ListDevicesOpts | undefined)[] = []
+
+  async listDevices(opts?: ListDevicesOpts): Promise<DiscoveredDrive[]> {
+    this.listDevicesOpts.push(opts)
     return this.state.drives ?? []
   }
   async readSmartRaw(devicePath: string): Promise<unknown> {

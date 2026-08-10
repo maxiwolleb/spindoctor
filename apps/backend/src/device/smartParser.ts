@@ -112,16 +112,20 @@ export function selfTestSupported(json: unknown): boolean {
  * which reported "~6m left" for that same routine (issue #61).
  *
  * SAS/SCSI drives have no `ata_smart_data` node at all and declare the same thing
- * in seconds, under `scsi_extended_self_test_seconds` (issue #87). That fallback
- * matters more on SAS than the ATA figure does on ATA: `pollSelfTest` gets no
- * progress percentage out of a SAS drive either, so without it a ~19-hour
- * routine shows neither progress nor an ETA for its entire duration.
+ * in seconds, under `scsi_extended_self_test_seconds` (issue #87).
  *
- * `null` when the drive doesn't report either — not every SAS drive does (of the
- * two 12 TB units on the bench both did, the 8 TB alongside them did not), and
- * NVMe describes its self-test differently again; the caller falls back to
- * extrapolation. A non-positive figure is treated as no answer too: a declared 0
- * would render as "<1m left" for the whole run, which is the same lie inverted.
+ * `null` when the drive doesn't report either, and NVMe describes its self-test
+ * differently again; the caller falls back to extrapolation. A non-positive
+ * figure is treated as no answer too: a declared 0 would render as "<1m left" for
+ * the whole run, which is the same lie inverted.
+ *
+ * A SAS `null` is worth distrusting, though, and this used to be read as "not
+ * every SAS drive declares one — of the two 12 TB units on the bench both did,
+ * the 8 TB alongside them did not". That was wrong: the 8 TB declares 47220 s
+ * too. smartctl omits the field entirely while the drive's *self-test log* is
+ * empty, so a drive that has never been tested looks like a drive that declares
+ * nothing — which is why the caller re-reads once the routine has been started
+ * and put an entry in that log (see `Engine.#recoverDeclaredSelfTestMinutes`).
  */
 export function parseLongSelfTestMinutes(json: unknown): number | null {
   const selfTest = asRecord(asRecord(asRecord(json).ata_smart_data).self_test)
@@ -646,10 +650,40 @@ export function scsiNewestSelfTest(json: unknown): Record<string, any> | null {
 }
 
 /** True while the drive is running a SCSI self-test. The percentage remaining
- * that `smartctl -x` prints for SCSI is console-only — it never reaches the
- * JSON — so this is a boolean, not a progress figure. */
+ * is console-only — it never reaches the JSON — so this is a boolean, not a
+ * progress figure; see `parseScsiSelfTestRemainingPercent` for the percentage. */
 export function scsiSelfTestInProgress(json: unknown): boolean {
   return scsiNewestSelfTest(json)?.self_test_in_progress === true
+}
+
+/**
+ * The "N% of test remaining" figure smartctl prints for an in-progress SCSI
+ * self-test, read out of its **text** output.
+ *
+ * smartctl computes this from the same SCSI data it already reads, but emits it
+ * only to the console — `--json=c` carries just a `self_test_in_progress`
+ * boolean. So the longest stage in the whole regime (declared 13.1 h on the
+ * bench's 8 TB unit, 18.8 h on the 12 TB ones) reported a flat 0% for its entire
+ * duration, and an operator had no way to tell a working self-test from a wedged
+ * one.
+ *
+ * It is a real, live figure, not a placeholder: measured on a SAS ST12000NM0027
+ * mid-routine it moved 85% → 84% over four minutes, i.e. 1% granularity rather
+ * than ATA's 10%. Worth one extra text-mode `smartctl` call per poll (60 s) to
+ * surface it.
+ *
+ * Parsed defensively — this is scraped console text, so a smartmontools wording
+ * change must degrade to "no percentage" (the previous behavior) rather than
+ * throw or invent a number. Values outside 0–100 are rejected for the same
+ * reason.
+ */
+export function parseScsiSelfTestRemainingPercent(text: unknown): number | null {
+  if (typeof text !== "string") return null
+  const match = /(\d{1,3})\s*%\s+of\s+test\s+remaining/i.exec(text)
+  if (!match) return null
+  const remaining = Number(match[1])
+  if (!Number.isFinite(remaining) || remaining < 0 || remaining > 100) return null
+  return remaining
 }
 
 export function parseSelfTest(json: unknown): SelfTestResult {

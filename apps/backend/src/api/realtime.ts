@@ -10,9 +10,9 @@ import type {
   Verdict,
 } from "@spindoctor/shared"
 import type { Db } from "../db/client"
-import { getSnapshotRaws, listRuns } from "../db/repositories"
+import { listRuns } from "../db/repositories"
 import { stageResults } from "../db/schema"
-import { parseLongSelfTestMinutes } from "../device/smartParser"
+import { declaredSelfTestMinutes } from "../device/selfTestDuration"
 
 /** The two event names the browser listens for. */
 export type RealtimeEventName = "run:update" | "stage:progress"
@@ -48,14 +48,13 @@ export function subscribeEngine(
  * The self-test duration the drive declared for a run, or `null` for any other
  * stage — see `StageProgressEvent.declaredTotalMinutes`.
  *
- * Re-derived from the run's captured baseline SMART rather than copied into the
- * stage row: the drive's figure is a property of the drive, and the stage's
- * `metrics` column holds the routine's *result*, which isn't written until the
- * routine ends — hours after the ETA needs this (issue #61).
+ * Not copied into the stage row: the drive's figure is a property of the drive,
+ * and the stage's `metrics` column holds the routine's *result*, which isn't
+ * written until the routine ends — hours after the ETA needs this (issue #61).
  */
-function declaredSelfTestMinutes(db: Db, runId: number, stage: StageName): number | null {
+function selfTestMinutesForStage(db: Db, runId: number, stage: StageName): number | null {
   if (stage !== "SELFTEST_LONG") return null
-  return parseLongSelfTestMinutes(getSnapshotRaws(db, runId).before)
+  return declaredSelfTestMinutes(db, runId)
 }
 
 /**
@@ -98,7 +97,7 @@ export function snapshotEvents(db: Db): RealtimeEvent[] {
         stage: run.currentStage as StageName,
         percent: stageRow.progress ?? 0,
         startedAt: stageRow.startedAt ? stageRow.startedAt.toISOString() : null,
-        declaredTotalMinutes: declaredSelfTestMinutes(db, run.id, run.currentStage as StageName),
+        declaredTotalMinutes: selfTestMinutesForStage(db, run.id, run.currentStage as StageName),
       },
     })
   }
