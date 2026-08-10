@@ -1,3 +1,7 @@
+---
+description: "Install spindoctor with Docker Compose or plain Docker: the device access it needs, the volumes to mount, and how to reach the web console."
+---
+
 # Install & run
 
 ## Docker Compose (recommended)

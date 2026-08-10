@@ -1,3 +1,7 @@
+---
+description: "How spindoctor avoids wiping the wrong disk: mounted, system and protected-list guards, typed-serial confirmation, and auto-mode off by default."
+---
+
 # Safety
 
 ## ⚠️ This tool is destructive

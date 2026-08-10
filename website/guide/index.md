@@ -1,3 +1,7 @@
+---
+description: "What spindoctor is, who it is for, and how it decides whether a used or refurbished hard drive is safe to trust with data."
+---
+
 # What is spindoctor
 
 spindoctor is a self-hosted tool for qualifying used and refurbished hard

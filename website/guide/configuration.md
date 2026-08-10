@@ -1,3 +1,7 @@
+---
+description: "Environment variables, verdict thresholds, the protect list, auto-mode and concurrency — every setting spindoctor reads, and its default."
+---
+
 # Configuration
 
 ## Environment variables
