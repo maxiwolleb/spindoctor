@@ -57,6 +57,19 @@ export function isProcessAlive(pid: number): boolean {
   }
 }
 
+/**
+ * Deadline for every device query command (issue #109). Generous on purpose:
+ * smartctl normally answers in well under 5 s, but a drive doing heavy internal
+ * error recovery can take tens of seconds, and a deadline that fires on a
+ * healthy-but-slow drive would fail runs that should have passed. What it rules
+ * out is the unbounded case — a command blocked in an ioctl on a failing drive,
+ * which parked the self-test poll loop for good.
+ *
+ * The surface pass is deliberately not covered by this: it is spawned directly
+ * and runs for hours by design, with its own abort/abandon deadlines (#86).
+ */
+const COMMAND_TIMEOUT_MS = 120_000
+
 /** `RegimeMode` names the user-facing regime; `SurfaceResult.mode` names the badblocks flag used. */
 function toSurfaceMode(mode: RegimeMode): SurfaceResult["mode"] {
   return mode === "destructive" ? "write" : "read-only"
@@ -172,8 +185,8 @@ export class RealDeviceApi implements DeviceApi {
 
   async listDevices(opts: ListDevicesOpts = {}): Promise<DiscoveredDrive[]> {
     const [lsblkResult, scanResult] = await Promise.all([
-      this.runner.run("lsblk", ["-b", "-J", "-O"]),
-      this.runner.run("smartctl", ["--scan", "--json=c"]),
+      this.runner.run("lsblk", ["-b", "-J", "-O"], { timeoutMs: COMMAND_TIMEOUT_MS }),
+      this.runner.run("smartctl", ["--scan", "--json=c"], { timeoutMs: COMMAND_TIMEOUT_MS }),
     ])
     const lsblk = parseLsblk(JSON.parse(lsblkResult.stdout))
     const scan = parseSmartctlScan(JSON.parse(scanResult.stdout))
@@ -268,7 +281,9 @@ export class RealDeviceApi implements DeviceApi {
     // non-zero even for perfectly healthy drives (e.g. bit 0x40 for a "self
     // test in the past has found errors" advisory) — the exit code must be
     // ignored here. Only a stdout that fails to parse as JSON is a failure.
-    const { stdout } = await this.runner.run("smartctl", ["-x", "--json=c", devicePath])
+    const { stdout } = await this.runner.run("smartctl", ["-x", "--json=c", devicePath], {
+      timeoutMs: COMMAND_TIMEOUT_MS,
+    })
     try {
       return JSON.parse(stdout)
     } catch (err) {
@@ -280,7 +295,9 @@ export class RealDeviceApi implements DeviceApi {
   }
 
   async startLongSelfTest(devicePath: string): Promise<boolean> {
-    const { stdout, stderr } = await this.runner.run("smartctl", ["-t", "long", devicePath])
+    const { stdout, stderr } = await this.runner.run("smartctl", ["-t", "long", devicePath], {
+      timeoutMs: COMMAND_TIMEOUT_MS,
+    })
     // smartctl exits 0 whether or not it started anything, so the only signal is
     // what it printed. Checked as a substring rather than parsed: this string is
     // console output, not JSON, and the capability is not in the JSON at all
@@ -293,7 +310,7 @@ export class RealDeviceApi implements DeviceApi {
     // Exit code is ignored for the same reason as everywhere else here:
     // smartctl uses it as a condition bitmask, not a success flag. A drive
     // that had no routine running simply reports nothing to abort.
-    await this.runner.run("smartctl", ["-X", devicePath])
+    await this.runner.run("smartctl", ["-X", devicePath], { timeoutMs: COMMAND_TIMEOUT_MS })
   }
 
   /**
