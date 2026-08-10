@@ -112,6 +112,9 @@ const KNOWN_TOP_LEVEL: ReadonlySet<string> = new Set([
   "nvme_optional_admin_commands",
   "scsi_grown_defect_list",
   "scsi_error_counter_log",
+  // read for the lifetime temperature extremes (issue #71); the sampled history
+  // table and the SCT limit settings still have no reader, and stay flagged
+  "scsi_environmental_reports",
   // identity and capability description — deliberately not health signals
   "json_format_version",
   "smartctl",
@@ -163,7 +166,6 @@ const KNOWN_TOP_LEVEL: ReadonlySet<string> = new Set([
   "endurance_used",
   "temperature_warning",
   "seagate_farm_log",
-  "scsi_environmental_reports",
 ])
 
 /** Prefixes for the per-port/per-phy and per-entry keys smartctl numbers. */

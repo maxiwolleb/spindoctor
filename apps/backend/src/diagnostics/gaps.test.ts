@@ -205,6 +205,27 @@ describe("analyzeGaps", () => {
       expect(paths.filter((p) => p.startsWith("scsi_self_test_"))).toEqual([])
     })
 
+    it("stops reporting the SCSI environmental report now that it is read", () => {
+      // Issue #71 gave the temperature log page a reader (the lifetime extremes),
+      // so it belongs on the consumed side of the registry. The rest of the SCT
+      // family stays flagged on purpose: nothing reads the sampled history table
+      // or the ERC settings yet.
+      const g = analyze([
+        input({
+          before: {
+            device: { protocol: "SCSI" },
+            scsi_environmental_reports: { temperature_1: { lifetime_maximum: 52 } },
+            ata_sct_temperature_history: { size: 128 },
+          },
+          after: null,
+        }),
+      ])
+
+      const paths = g.unreadFields.map((f) => f.path)
+      expect(paths).not.toContain("scsi_environmental_reports")
+      expect(paths).toContain("ata_sct_temperature_history")
+    })
+
     // The regression that matters: this key existing but being unread is exactly
     // what #65 was, and it should show up here rather than after a hardware run.
     it("would have surfaced the NVMe capability field before we knew to look", () => {

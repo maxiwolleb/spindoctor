@@ -162,7 +162,11 @@ export function isScsiDevice(json: unknown): boolean {
  * percentage. Power-on hours are absent on some vendors' drives (HGST omits
  * the Seagate/Hitachi vendor page this is read from), so it stays nullable.
  */
-function parseScsiMetrics(j: Record<string, any>, temperatureC: number | null): SmartKeyMetrics {
+function parseScsiMetrics(
+  j: Record<string, any>,
+  temperatureC: number | null,
+  extremes: { minC: number | null; maxC: number | null },
+): SmartKeyMetrics {
   const counters = asRecord(j.scsi_error_counter_log)
   const uncorrectedFor = (op: string): number | null =>
     num(asRecord(counters[op]).total_uncorrected_errors)
@@ -183,6 +187,8 @@ function parseScsiMetrics(j: Record<string, any>, temperatureC: number | null): 
     percentageUsed: null,
     mediaErrors: null,
     temperatureC,
+    temperatureMinC: extremes.minC,
+    temperatureMaxC: extremes.maxC,
     grownDefects: num(j.scsi_grown_defect_list),
     linkErrors: parseSasLinkErrors(j),
     smartHealthPassed: healthPassed(j),
@@ -251,12 +257,61 @@ function ataSsdPercentageUsed(
   return null
 }
 
+/**
+ * The bounds a drive temperature has to fall inside to be believed, in Celsius.
+ * Wide on purpose — this rejects garbage (an absolute-zero reading, a raw field
+ * read as the wrong width), not unusual-but-real operating conditions.
+ */
+const PLAUSIBLE_TEMPERATURE_C = { min: -40, max: 150 }
+
+function plausibleTemperature(value: unknown): number | null {
+  const t = num(value)
+  if (t == null) return null
+  return t >= PLAUSIBLE_TEMPERATURE_C.min && t <= PLAUSIBLE_TEMPERATURE_C.max ? t : null
+}
+
+/**
+ * The drive's own lifetime temperature extremes (issue #71).
+ *
+ * Two sources, because smartctl reports them per transport:
+ *
+ * - ATA — the top-level `temperature` object, which `sct_jtemp2` fills from the
+ *   SCT status log *and* which ATA device statistics page 5 fills independently.
+ *   Reading the merged object covers both, and is why this does not read
+ *   `ata_sct_status` directly. Either end can be absent on its own: smartctl
+ *   omits the minimum for drives reporting the older SCT format, and omits any
+ *   value that reads as the 0x80 "unknown" sentinel.
+ * - SCSI — the environmental report log page. The top-level object carries only
+ *   `current` and `drive_trip` on SAS, so it has to be read separately. Note the
+ *   sentinel here is the *string* `"unknown"` rather than an omission, which
+ *   `num` rejects along with everything else non-numeric.
+ *
+ * NVMe reports no lifetime extremes at all, so both ends stay `null` there.
+ *
+ * Key names verified against the smartmontools 7.4 source the image ships, not
+ * against a host capture — the version the tool runs under is the only one whose
+ * output shape matters (issue #65).
+ */
+export function parseTemperatureExtremes(json: unknown): {
+  minC: number | null
+  maxC: number | null
+} {
+  const j = asRecord(json)
+  const top = asRecord(j.temperature)
+  const scsi = asRecord(asRecord(j.scsi_environmental_reports).temperature_1)
+  return {
+    minC: plausibleTemperature(top.lifetime_min) ?? plausibleTemperature(scsi.lifetime_minimum),
+    maxC: plausibleTemperature(top.lifetime_max) ?? plausibleTemperature(scsi.lifetime_maximum),
+  }
+}
+
 export function parseSmartMetrics(json: unknown): SmartKeyMetrics {
   const j = asRecord(json)
   const temperatureC = num(asRecord(j.temperature).current)
+  const extremes = parseTemperatureExtremes(json)
   const type = parseDeviceType(json)
 
-  if (isScsiDevice(json)) return parseScsiMetrics(j, temperatureC)
+  if (isScsiDevice(json)) return parseScsiMetrics(j, temperatureC, extremes)
 
   if (type === "NVMe") {
     const log = asRecord(j.nvme_smart_health_information_log)
@@ -272,6 +327,8 @@ export function parseSmartMetrics(json: unknown): SmartKeyMetrics {
       percentageUsed: num(log.percentage_used),
       mediaErrors: num(log.media_errors),
       temperatureC,
+      temperatureMinC: extremes.minC,
+      temperatureMaxC: extremes.maxC,
       grownDefects: null,
       linkErrors: null,
       smartHealthPassed: healthPassed(j),
@@ -302,6 +359,8 @@ export function parseSmartMetrics(json: unknown): SmartKeyMetrics {
     percentageUsed: ataSsdPercentageUsed(type, normalizedById),
     mediaErrors: null,
     temperatureC,
+    temperatureMinC: extremes.minC,
+    temperatureMaxC: extremes.maxC,
     grownDefects: null,
     linkErrors: null,
     smartHealthPassed: healthPassed(j),
@@ -615,6 +674,10 @@ function parseScsiAttributes(json: unknown): SmartAttributeRow[] {
  * instead of crashing the route.
  */
 export function parseSmartAttributes(json: unknown, thresholds: Thresholds): SmartAttributeRow[] {
+  return [...transportAttributes(json, thresholds), ...temperatureExtremeRows(json)]
+}
+
+function transportAttributes(json: unknown, thresholds: Thresholds): SmartAttributeRow[] {
   const type = parseDeviceType(json)
   if (type === "NVMe") return parseNvmeAttributes(json, thresholds)
   // Checked before the ATA table: a SCSI device has no `ata_smart_attributes`,
@@ -623,6 +686,30 @@ export function parseSmartAttributes(json: unknown, thresholds: Thresholds): Sma
 
   const table = asRecord(asRecord(json).ata_smart_attributes).table
   return Array.isArray(table) ? parseAtaAttributes(table, thresholds) : []
+}
+
+/**
+ * The lifetime extremes as table rows, appended for every transport that
+ * reports them (issue #71). Ungraded: they are shown next to the current
+ * temperature so an operator can weigh a used drive's history, and there is no
+ * evidence base for a cutoff — see `SmartKeyMetrics.temperatureMaxC`.
+ */
+function temperatureExtremeRows(json: unknown): SmartAttributeRow[] {
+  const { minC, maxC } = parseTemperatureExtremes(json)
+  const row = (name: string, rawValue: number): SmartAttributeRow => ({
+    id: null,
+    name,
+    value: null,
+    worst: null,
+    thresh: null,
+    rawValue,
+    rawString: null,
+    health: "ok",
+  })
+  return [
+    ...(minC != null ? [row("temperature_lifetime_min", minC)] : []),
+    ...(maxC != null ? [row("temperature_lifetime_max", maxC)] : []),
+  ]
 }
 
 function classifySelfTest(str: string, value?: number, passed?: boolean): SelfTestResult {

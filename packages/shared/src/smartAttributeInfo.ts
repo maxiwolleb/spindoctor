@@ -287,6 +287,25 @@ const NVME_BY_NAME: Record<string, SmartAttributeInfo> = {
  * attributes — and several of them are routinely large on a perfectly good
  * drive, which is exactly why they need explaining rather than just showing.
  */
+/**
+ * Rows that are not attributes on any transport: the drive's lifetime
+ * temperature extremes, which ATA keeps in its SCT log and SCSI in an
+ * environmental report page (issue #71). Kept in their own map because, unlike
+ * everything else here, the same row name is emitted for both.
+ */
+const SYNTHETIC_BY_NAME: Record<string, SmartAttributeInfo> = {
+  temperature_lifetime_min: {
+    label: "Lifetime minimum temperature",
+    description:
+      "The lowest temperature the drive has recorded in its whole life, by its own reckoning. Mostly context for the maximum below it.",
+  },
+  temperature_lifetime_max: {
+    label: "Lifetime maximum temperature",
+    description:
+      "The highest temperature the drive has recorded in its whole life, by its own reckoning — the one number here that describes how this used drive was treated before it reached you, rather than how it is doing on the bench. Sustained heat shortens a drive's life, so a high figure is worth knowing; it is shown for judgement, not graded, because there is no published failure-rate data to put a fair cutoff on.",
+  },
+}
+
 const SCSI_BY_NAME: Record<string, SmartAttributeInfo> = {
   scsi_smart_status: {
     label: "Drive self-assessment",
@@ -406,5 +425,10 @@ export function describeAttribute(row: SmartAttributeRow): SmartAttributeInfo {
       ATA_BY_NORMALIZED_NAME[normalizeName(row.name)] ?? ATA_BY_ID[row.id] ?? FALLBACK(row.name)
     )
   }
-  return NVME_BY_NAME[row.name] ?? SCSI_BY_NAME[row.name] ?? FALLBACK(row.name)
+  return (
+    SYNTHETIC_BY_NAME[row.name] ??
+    NVME_BY_NAME[row.name] ??
+    SCSI_BY_NAME[row.name] ??
+    FALLBACK(row.name)
+  )
 }

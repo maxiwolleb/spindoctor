@@ -16,6 +16,8 @@ const baseMetrics: SmartKeyMetrics = {
   percentageUsed: null,
   mediaErrors: null,
   temperatureC: 32,
+  temperatureMinC: null,
+  temperatureMaxC: null,
   grownDefects: null,
   linkErrors: null,
   smartHealthPassed: null,
@@ -83,6 +85,27 @@ describe("SmartDiffTable", () => {
     const row = rows.find((r) => r.text().includes("Power-on hours"))
     expect(row?.text()).toContain("+50")
     expect(row?.find(".smart-diff-table__delta--worse").exists()).toBe(false)
+  })
+
+  // Issue #71: a used drive's lifetime maximum is the one figure here that
+  // describes the life it had before the bench, so it belongs in the before/after
+  // view alongside the current reading.
+  it("shows the lifetime temperature extremes, ungraded", () => {
+    const wrapper = mount(SmartDiffTable, {
+      props: {
+        before: { ...baseMetrics, temperatureMinC: 20, temperatureMaxC: 47 },
+        // Our own surface pass can push the lifetime maximum up. That is real,
+        // and still not a health regression, so it must not be flagged as worse.
+        after: { ...baseMetrics, temperatureMinC: 20, temperatureMaxC: 49 },
+      },
+      global: { plugins: [vuetify] },
+    })
+
+    const row = wrapper.findAll("tbody tr").find((r) => r.text().includes("Lifetime max"))
+    expect(row?.text()).toContain("47")
+    expect(row?.text()).toContain("+2")
+    expect(row?.find(".smart-diff-table__delta--worse").exists()).toBe(false)
+    expect(wrapper.text()).toContain("Lifetime min")
   })
 
   it("uses the mono class for the data table", () => {
