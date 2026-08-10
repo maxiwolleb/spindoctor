@@ -83,12 +83,12 @@ any device through.
 
 > [!IMPORTANT]
 > Only pre-release images are published so far; the newest is
-> **`ghcr.io/maxiwolleb/spindoctor:0.0.2-alpha`**. There is deliberately no
+> **`ghcr.io/maxiwolleb/spindoctor:0.0.3-alpha`**. There is deliberately no
 > `:latest` tag yet — it is reserved for the first non-prerelease version, so
 > that pulling `:latest` never silently gets you an alpha. Use the exact tag:
 >
 > ```
-> image: ghcr.io/maxiwolleb/spindoctor:0.0.2-alpha
+> image: ghcr.io/maxiwolleb/spindoctor:0.0.3-alpha
 > ```
 >
 > Or build from a checkout:
@@ -102,7 +102,7 @@ any device through.
 # docker-compose.yml
 services:
   spindoctor:
-    image: ghcr.io/maxiwolleb/spindoctor:0.0.2-alpha
+    image: ghcr.io/maxiwolleb/spindoctor:0.0.3-alpha
     ports:
       - "8080:8080"
     volumes:
