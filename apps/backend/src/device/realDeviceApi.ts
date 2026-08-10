@@ -325,7 +325,9 @@ export class RealDeviceApi implements DeviceApi {
    */
   async #readScsiSelfTestRemaining(devicePath: string): Promise<number | null> {
     try {
-      const { stdout } = await this.runner.run("smartctl", ["-a", devicePath])
+      const { stdout } = await this.runner.run("smartctl", ["-a", devicePath], {
+        timeoutMs: COMMAND_TIMEOUT_MS,
+      })
       return parseScsiSelfTestRemainingPercent(stdout)
     } catch {
       return null

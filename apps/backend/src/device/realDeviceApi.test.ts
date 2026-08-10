@@ -693,6 +693,28 @@ describe("RealDeviceApi command deadlines (#109)", () => {
     expect(seen[0]?.timeoutMs).toBe(EXPECTED_TIMEOUT_MS)
   })
 
+  it("bounds the text-mode read behind SCSI self-test progress", async () => {
+    // Added by #113 after this deadline work was written, and just as able to
+    // wedge: it is the same poll, one call later.
+    const running = {
+      ...scsiMinimal,
+      scsi_self_test_0: { self_test_in_progress: true, code: { string: "Background long" } },
+    }
+    const { runner, seen } = recordingRunner((key) =>
+      key.includes("--json")
+        ? JSON.stringify(running)
+        : "Self-test execution status: 75% of test remaining",
+    )
+
+    await new RealDeviceApi(runner).pollSelfTest("/dev/sda")
+
+    expect(seen.map((c) => c.key)).toEqual([
+      "smartctl -x --json=c /dev/sda",
+      "smartctl -a /dev/sda",
+    ])
+    expect(seen.map((c) => c.timeoutMs)).toEqual([EXPECTED_TIMEOUT_MS, EXPECTED_TIMEOUT_MS])
+  })
+
   it("fails a timed-out SMART read instead of passing an empty reading on", async () => {
     // The deadline is only useful because of what an empty stdout does here: the
     // JSON parse fails, the stage fails visibly, and the run reaches a terminal
