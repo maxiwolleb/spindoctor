@@ -14,8 +14,10 @@ import type {
 } from "@spindoctor/shared"
 import type { Db } from "../db/client"
 import { silentLogger, type Logger } from "../logger"
-import type { DeviceApi } from "../device/deviceApi"
+import type { DeviceApi, ListDevicesOpts } from "../device/deviceApi"
+import { DECLARED_SELFTEST_MINUTES_KEY } from "../device/selfTestDuration"
 import {
+  isScsiDevice,
   parseDeviceType,
   parseLongSelfTestMinutes,
   parseSmartMetrics,
@@ -30,6 +32,7 @@ import {
   appendAudit,
   createRun,
   getConfig,
+  getRun,
   listRuns,
   saveSnapshot,
   updateRun,
@@ -134,6 +137,13 @@ interface RunState {
    * 10%-granular counter (issue #61). `null` when the drive declares nothing;
    * `undefined` until SMART_BEFORE has run. */
   longSelfTestMinutes?: number | null
+  /** True for a SAS/SCSI drive. Gates the one case where a declared self-test
+   * duration missing from the baseline is worth re-reading for: smartctl omits
+   * `scsi_extended_self_test_seconds` while the drive's self-test log is empty.
+   * ATA and NVMe declare (or don't) independently of their log, so re-reading
+   * for them would just be a wasted smartctl call. `undefined` until
+   * SMART_BEFORE has run. */
+  isScsi?: boolean
   before?: SmartKeyMetrics
   after?: SmartKeyMetrics
   selfTest?: SelfTestResult
@@ -238,7 +248,11 @@ export class TestEngine extends EventEmitter {
     this.#activeSerials.add(serial)
 
     try {
-      const drives = await this.deviceApi.listDevices()
+      // `alwaysProbe`: the reservation taken above makes this drive look
+      // "under test" to the claim probe, which would report `"unknown"` and
+      // leave the IN_USE check below with nothing to act on. Discovery has to
+      // be told to probe it anyway — see `ListDevicesOpts.alwaysProbe`.
+      const drives = await this.deviceApi.listDevices({ alwaysProbe: serial })
       const drive = drives.find((d) => d.serial === serial)
       if (!drive) throw new DriveNotFoundError(serial)
 
@@ -308,7 +322,27 @@ export class TestEngine extends EventEmitter {
    */
   abortRun(runId: number): void {
     if (this.terminalRuns.has(runId)) return
-    this.controllers.get(runId)?.abort()
+    const controller = this.controllers.get(runId)
+    if (!controller) return
+
+    // Audited and logged before the abort is delivered, because nothing else
+    // records it: the audit trail held DESTRUCTIVE_START/DENIED and
+    // EARLY_EXIT_CONDEMNED but never an abort, and the container log said
+    // nothing either — so "who stopped this run, and when" was unanswerable
+    // from the artifacts. That matters more now there is a stop button in the
+    // dashboard (#104) making it a one-click action.
+    const run = getRun(this.db, runId)
+    appendAudit(this.db, {
+      action: "RUN_ABORTED",
+      ...(run ? { driveSerial: run.driveSerial } : {}),
+      ...(run?.currentStage ? { detail: run.currentStage } : {}),
+    })
+    this.log.info(
+      { runId, driveSerial: run?.driveSerial, stage: run?.currentStage },
+      "run abort requested",
+    )
+
+    controller.abort()
   }
 
   /**
@@ -884,6 +918,7 @@ export class TestEngine extends EventEmitter {
         state.deviceType = deviceType
         state.selfTestSupported = before.selfTestSupported
         state.longSelfTestMinutes = before.longSelfTestMinutes
+        state.isScsi = before.isScsi
         // Correct discovery's guess where SMART disagrees, so the dashboard and
         // the verdict tell the same story about what kind of drive this is.
         if (deviceType !== drive.type) {
@@ -913,6 +948,7 @@ export class TestEngine extends EventEmitter {
           state.longSelfTestMinutes ?? null,
           controller,
           skipSelfTestStart,
+          state.isScsi === true,
         )
         state.selfTest = result
         // Persisted so a later reconcile() (e.g. a run interrupted again at
@@ -951,6 +987,7 @@ export class TestEngine extends EventEmitter {
     deviceType: DriveType
     selfTestSupported: boolean
     longSelfTestMinutes: number | null
+    isScsi: boolean
   }> {
     const raw = await this.deviceApi.readSmartRaw(devicePath)
     const metrics = parseSmartMetrics(raw)
@@ -960,6 +997,36 @@ export class TestEngine extends EventEmitter {
       deviceType: parseDeviceType(raw),
       selfTestSupported: selfTestSupported(raw),
       longSelfTestMinutes: parseLongSelfTestMinutes(raw),
+      isScsi: isScsiDevice(raw),
+    }
+  }
+
+  /**
+   * Re-reads the drive's declared self-test duration once the routine has been
+   * started, and persists it into the run's `regime` so the API and the SSE
+   * bridge report the same figure this stage emits — both otherwise re-derive it
+   * from the baseline snapshot, which is the read that lacked it.
+   *
+   * Deliberately does **not** re-save the baseline snapshot: that capture is the
+   * drive's state before we touched it, and rewriting it to carry a field a later
+   * read produced would make the artifact lie.
+   *
+   * Never throws. An ETA is a nicety; failing an hours-long stage over one would
+   * not be.
+   */
+  async #recoverDeclaredSelfTestMinutes(runId: number, devicePath: string): Promise<number | null> {
+    try {
+      const minutes = parseLongSelfTestMinutes(await this.deviceApi.readSmartRaw(devicePath))
+      if (minutes == null) return null
+      const regime = getRun(this.db, runId)?.regime
+      const base = regime !== null && typeof regime === "object" ? regime : {}
+      updateRun(this.db, runId, {
+        regime: { ...(base as Record<string, unknown>), [DECLARED_SELFTEST_MINUTES_KEY]: minutes },
+      })
+      return minutes
+    } catch (err) {
+      this.log.warn({ runId, devicePath, err }, "could not recover the declared self-test duration")
+      return null
     }
   }
 
@@ -973,6 +1040,9 @@ export class TestEngine extends EventEmitter {
     declaredTotalMinutes: number | null,
     controller: AbortController,
     skipStart = false,
+    /** True for a SAS/SCSI drive, the only case where a duration missing from
+     * the baseline is worth re-reading for — see `RunState.isScsi`. */
+    isScsi = false,
   ): Promise<{ result: SelfTestResult; log: string }> {
     // On a reconcile()-resumed run, the firmware self-test itself kept
     // running across the process restart — only this process's tracking of
@@ -993,6 +1063,23 @@ export class TestEngine extends EventEmitter {
           `[${new Date().toISOString()}] drive reports self-tests are not supported — skipping`,
         )
         return { result: { status: "UNSUPPORTED" }, log: logLines.join("\n") }
+      }
+
+      // A missing duration is not the same as a drive that declares none.
+      // smartctl omits `scsi_extended_self_test_seconds` while a SAS drive's
+      // self-test log is empty, so a drive that has never been tested declares
+      // nothing to the baseline read even though its firmware publishes a figure
+      // — and "never been tested" is precisely the fresh drive whose first run
+      // most needs an ETA. Starting the routine writes a log entry, so asking
+      // again now gets what the baseline read could not see.
+      if (declaredTotalMinutes == null && isScsi) {
+        declaredTotalMinutes = await this.#recoverDeclaredSelfTestMinutes(runId, devicePath)
+        if (declaredTotalMinutes != null) {
+          logLines.push(
+            `[${new Date().toISOString()}] drive declares ${declaredTotalMinutes}m for the routine ` +
+              `(not visible until the self-test log had an entry)`,
+          )
+        }
       }
     } else {
       logLines.push(`[${new Date().toISOString()}] resuming poll for an already-running self-test`)
@@ -1160,7 +1247,12 @@ export class TestEngine extends EventEmitter {
   async #recheckRunSafety(
     serial: string,
   ): Promise<{ allowed: true; drive: DiscoveredDrive } | { allowed: false; code: string }> {
-    const fresh = await this.#resolveDriveBySerial(serial)
+    // `alwaysProbe`: this run holds the reservation for `serial`, so discovery
+    // would suppress its claim probe and hand us `"unknown"` — leaving IN_USE
+    // unable to fire here for the same reason it could not fire in `startRun`.
+    // Safe at this point specifically: the firmware self-test holds no fd, and
+    // our own badblocks has not started yet, so there is nothing to race.
+    const fresh = await this.#resolveDriveBySerial(serial, { alwaysProbe: serial })
     if (!fresh) return { allowed: false, code: "DRIVE_GONE" }
 
     const decision = checkRunAllowed(fresh, { protectList: this.#protectList() })
@@ -1176,8 +1268,11 @@ export class TestEngine extends EventEmitter {
    * write) must re-resolve rather than trust a snapshot captured earlier in
    * the run. Returns `undefined` if the drive is no longer present.
    */
-  async #resolveDriveBySerial(serial: string): Promise<DiscoveredDrive | undefined> {
-    const drives = await this.deviceApi.listDevices()
+  async #resolveDriveBySerial(
+    serial: string,
+    opts: ListDevicesOpts = {},
+  ): Promise<DiscoveredDrive | undefined> {
+    const drives = await this.deviceApi.listDevices(opts)
     return drives.find((d) => d.serial === serial)
   }
 

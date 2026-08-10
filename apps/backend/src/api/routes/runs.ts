@@ -16,7 +16,8 @@ import { getConfig, getRun, getSnapshotRaws, getSnapshots, listRuns } from "../.
 import type { RunRow, StageRow } from "../../db/repositories"
 import { stageResults } from "../../db/schema"
 import type { DeviceApi } from "../../device/deviceApi"
-import { parseLongSelfTestMinutes, parseSmartAttributes } from "../../device/smartParser"
+import { parseSmartAttributes } from "../../device/smartParser"
+import { declaredSelfTestMinutes } from "../../device/selfTestDuration"
 import {
   DriveNotFoundError,
   RunInProgressError,
@@ -79,7 +80,7 @@ function listStageRows(db: Db, runId: number): StageView[] {
   // row: the drive's declared self-test duration is a property of the drive, and
   // the stage row's own `metrics` column holds the routine's result, written
   // only when the routine ends — far too late for an ETA (issue #61).
-  const selfTestMinutes = parseLongSelfTestMinutes(getSnapshotRaws(db, runId).before)
+  const selfTestMinutes = declaredSelfTestMinutes(db, runId)
   return db
     .select()
     .from(stageResults)

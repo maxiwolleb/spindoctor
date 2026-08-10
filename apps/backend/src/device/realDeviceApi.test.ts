@@ -283,6 +283,58 @@ describe("RealDeviceApi kernel claim probe (#83)", () => {
     )
   })
 
+  it("probes the serial a caller is admitting, even while it counts as under test", async () => {
+    // startRun reserves the serial *before* it fetches the drive it is about to
+    // judge, so `isDriveUnderTest` answers true for the one drive whose claim
+    // decides whether the run may start at all. Without the exemption its claim
+    // is always "unknown", "unknown" does not deny, and IN_USE cannot fire on the
+    // only path that starts a run — verified against hardware: a destructive
+    // start on a drive the same process reported "claimed" returned 201.
+    const probed: string[] = []
+    const api = new RealDeviceApi(runner(), {
+      exclusiveOpener: async (path) => void probed.push(path),
+      isDriveUnderTest: () => true,
+    })
+
+    const drives = await api.listDevices({ alwaysProbe: CLEAN_SERIAL })
+
+    const admitted = drives.find((d) => d.serial === CLEAN_SERIAL)
+    expect(probed).toEqual([admitted!.devicePath])
+    expect(admitted?.claim).toBe("free")
+    // Every other drive keeps the suppression — the exemption is for one serial.
+    expect(
+      drives.filter((d) => d.serial !== CLEAN_SERIAL).every((d) => d.claim === "unknown"),
+    ).toBe(true)
+  })
+
+  it("reports a claimed drive as claimed even when it is the serial being admitted", async () => {
+    const api = new RealDeviceApi(runner(), {
+      exclusiveOpener: rejectWith("EBUSY"),
+      isDriveUnderTest: () => true,
+    })
+
+    const drives = await api.listDevices({ alwaysProbe: CLEAN_SERIAL })
+
+    expect(drives.find((d) => d.serial === CLEAN_SERIAL)?.claim).toBe("claimed")
+  })
+
+  it("warns about an unknown claim for an exempted drive whose probe genuinely failed", async () => {
+    // The suppression and the "couldn't ask" warning have to stay keyed on the
+    // same condition: an exempted drive that really cannot be probed is a guard
+    // running blind, which is worth saying out loud.
+    const lines: string[] = []
+    const logger = pino({ level: "warn" }, { write: (line: string) => void lines.push(line) })
+    const api = new RealDeviceApi(runner(), {
+      logger,
+      exclusiveOpener: rejectWith("EACCES"),
+      isDriveUnderTest: () => true,
+    })
+
+    await api.listDevices({ alwaysProbe: CLEAN_SERIAL })
+
+    expect(lines.filter((l) => l.includes("could not determine whether"))).toHaveLength(1)
+  })
+
   it("does not warn about an unknown claim for a drive it deliberately skipped", async () => {
     const lines: string[] = []
     const logger = pino({ level: "warn" }, { write: (line: string) => void lines.push(line) })

@@ -167,6 +167,48 @@ describe("TestEngine.startRun", () => {
     })
   })
 
+  it("denies a start on a drive the kernel says is in use, in every mode", async () => {
+    // The guard function was always right; the value reaching it was not.
+    // startRun reserves the serial before discovery runs, discovery suppresses
+    // the claim probe for a drive it thinks is under test, and "unknown" does not
+    // deny — so on real hardware a destructive start on a drive the same process
+    // reported "claim":"claimed" returned 201 Created (retest of 0.0.2-alpha).
+    for (const mode of ["destructive", "read-only"] as const) {
+      const fresh = createDb(":memory:").db
+      repo.ensureConfig(fresh)
+      const d = drive({ claim: "claimed" })
+      const engine = new TestEngine({ db: fresh, deviceApi: new FakeDeviceApi({ drives: [d] }) })
+
+      let caught: unknown
+      try {
+        await engine.startRun({ serial: d.serial, mode })
+      } catch (err) {
+        caught = err
+      }
+
+      expect(caught).toBeInstanceOf(SafetyError)
+      expect((caught as SafetyError).code).toBe("IN_USE")
+      expect(repo.listRuns(fresh)).toHaveLength(0)
+      expect(repo.listAudit(fresh)[0]).toMatchObject({
+        action: mode === "destructive" ? "DESTRUCTIVE_DENIED" : "READONLY_DENIED",
+        detail: "IN_USE",
+      })
+    }
+  })
+
+  it("asks discovery to probe the serial it is admitting, despite holding its reservation", async () => {
+    // The mechanism behind the test above: without `alwaysProbe`, the reservation
+    // startRun takes two lines earlier makes the probe skip the one drive whose
+    // claim decides the outcome.
+    const d = drive()
+    const api = new FakeDeviceApi({ drives: [d] })
+    const engine = new TestEngine({ db, deviceApi: api })
+
+    await engine.startRun({ serial: d.serial, mode: "read-only" })
+
+    expect(api.listDevicesOpts[0]?.alwaysProbe).toBe(d.serial)
+  })
+
   it("rejects exactly one of two near-simultaneous startRun calls for the same brand-new serial (entry-reservation race guard)", async () => {
     const d = drive()
     const api = new FakeDeviceApi({
@@ -660,6 +702,44 @@ describe("TestEngine full-run behavior", () => {
     // controller/stage bookkeeping either.
     const stages = db.select().from(stageResults).where(eq(stageResults.runId, runId)).all()
     expect(stages.every((s) => s.status === "DONE")).toBe(true)
+
+    // ...and it must not audit an abort that never happened.
+    expect(repo.listAudit(db).filter((a) => a.action === "RUN_ABORTED")).toHaveLength(0)
+  })
+
+  it("audits an abort, with the stage it interrupted", async () => {
+    // Five aborts on the retest bench produced zero audit rows and no log line,
+    // so "who stopped this run, and when" could not be answered from the
+    // artifacts at all — and 0.0.2's dashboard stop button makes stopping a
+    // one-click action.
+    const d = drive()
+    const api = new FakeDeviceApi({
+      drives: [d],
+      smartByPath: { [d.devicePath]: smartRaw() },
+      selfTestByPath: {
+        [d.devicePath]: { running: true, percentRemaining: 50, result: { status: "UNKNOWN" } },
+      },
+    })
+    // Parked in the poll-interval sleep, so the run is sitting in SELFTEST_LONG
+    // when the abort lands rather than spinning the loop.
+    const engine = new TestEngine({
+      db,
+      deviceApi: api,
+      sleep: () => new Promise<void>(() => {}),
+      selfTestPollIntervalMs: 60_000,
+    })
+
+    const runId = await engine.startRun({ serial: d.serial, mode: "destructive" })
+    await flushMicrotasks()
+    expect(repo.getRun(db, runId)?.currentStage).toBe("SELFTEST_LONG")
+
+    const settled = waitForSettled(engine, runId)
+    engine.abortRun(runId)
+    expect((await settled).status).toBe("ABORTED")
+
+    const aborts = repo.listAudit(db).filter((a) => a.action === "RUN_ABORTED")
+    expect(aborts).toHaveLength(1)
+    expect(aborts[0]).toMatchObject({ driveSerial: d.serial, detail: "SELFTEST_LONG" })
   })
 })
 

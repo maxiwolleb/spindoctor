@@ -147,6 +147,10 @@ export function listRuns(db: Db, opts?: { driveSerial?: string }): RunRow[] {
 }
 
 export interface RunUpdate {
+  /** The persisted regime JSON. Rewritten in place when the engine recovers a
+   * self-test duration the baseline capture could not see — see
+   * `declaredSelfTestMinutes`. */
+  regime: unknown
   status: string
   verdict: Verdict
   reasons: Reason[]

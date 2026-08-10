@@ -5,6 +5,7 @@ import {
   scsiSelfTestInProgress,
   parseDeviceType,
   parseLongSelfTestMinutes,
+  parseScsiSelfTestRemainingPercent,
   parseSmartAttributes,
   selfTestSupported,
   parseSmartMetrics,
@@ -801,5 +802,51 @@ describe("parseLongSelfTestMinutes (#61)", () => {
     expect(parseLongSelfTestMinutes(withExtended(0))).toBeNull()
     expect(parseLongSelfTestMinutes(withExtended(-5))).toBeNull()
     expect(parseLongSelfTestMinutes(withExtended("97"))).toBeNull()
+  })
+})
+
+describe("parseScsiSelfTestRemainingPercent", () => {
+  // Verbatim from `smartctl -a /dev/sda` on a SAS ST12000NM0027 mid-routine.
+  const realOutput = [
+    "=== START OF READ SMART DATA SECTION ===",
+    "SMART Health Status: FAILURE PREDICTION THRESHOLD EXCEEDED",
+    "Self-test execution status:\t\t85% of test remaining",
+    "",
+    "Long (extended) Self-test duration: 67680 seconds [18.8 hours]",
+  ].join("\n")
+
+  it("reads the percentage smartctl prints only to the console", () => {
+    // The whole point: --json=c carries a self_test_in_progress boolean and no
+    // percentage, so a 13-19h stage sat at 0% for its entire duration.
+    expect(parseScsiSelfTestRemainingPercent(realOutput)).toBe(85)
+  })
+
+  it("tracks the figure as the routine advances", () => {
+    // Measured on real hardware: 85% -> 84% over four minutes, i.e. 1%
+    // granularity, not ATA's 10%.
+    expect(
+      parseScsiSelfTestRemainingPercent("Self-test execution status: 84% of test remaining"),
+    ).toBe(84)
+    expect(
+      parseScsiSelfTestRemainingPercent("Self-test execution status: 0% of test remaining"),
+    ).toBe(0)
+    expect(
+      parseScsiSelfTestRemainingPercent("Self-test execution status: 100% of test remaining"),
+    ).toBe(100)
+  })
+
+  it("degrades to null rather than guessing", () => {
+    // Scraped console text: a smartmontools wording change must lose the
+    // percentage (the previous behavior), never throw or invent one.
+    expect(parseScsiSelfTestRemainingPercent("")).toBeNull()
+    expect(parseScsiSelfTestRemainingPercent("Self-test execution status: completed")).toBeNull()
+    expect(parseScsiSelfTestRemainingPercent(undefined)).toBeNull()
+    expect(parseScsiSelfTestRemainingPercent(null)).toBeNull()
+    expect(parseScsiSelfTestRemainingPercent({ percent: 85 })).toBeNull()
+  })
+
+  it("rejects a figure outside 0-100 instead of reporting impossible progress", () => {
+    // 100 - 850 would render as -750% done.
+    expect(parseScsiSelfTestRemainingPercent("850% of test remaining")).toBeNull()
   })
 })
