@@ -1,5 +1,6 @@
 ---
 layout: home
+description: "Self-hosted, open-source drive tester. Qualify used and refurbished HDDs, SSDs and NVMe with SMART, a firmware long self-test and a destructive badblocks surface scan, then a PASS / WARN / FAIL verdict."
 
 hero:
   name: spindoctor

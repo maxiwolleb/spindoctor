@@ -1,3 +1,7 @@
+---
+description: "How spindoctor is put together: the monorepo layout, the engine/device/verdict modules, the SQLite schema, and the live event flow to the UI."
+---
+
 # Architecture
 
 ## Monorepo layout

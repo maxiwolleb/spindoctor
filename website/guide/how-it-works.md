@@ -1,3 +1,7 @@
+---
+description: "The five-stage regime — SMART snapshot, firmware long self-test, badblocks surface scan, SMART again, verdict — and where the thresholds come from."
+---
+
 # How it works
 
 ## The regime
