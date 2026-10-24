@@ -23,7 +23,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@types/node": "^22",
+    "@types/node": "^26",
     "@vitest/coverage-v8": "^2.1.9",
     "cspell": "^10.0.1",
     "eslint": "^10.8.0",
